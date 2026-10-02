@@ -760,7 +760,9 @@ Example:
                       threshold=5                    # Open after 5 failures
                   ))
   async def external_api(ctx: DeviceContext) -> dict[str, object]:
-      # Circuit opens after 5 consecutive exhausted-retry cycles
+      # Circuit opens after 5 consecutive failed cycles (a cycle counts
+      # once: after its last retry, or at once with retry=0 or an
+      # exception outside retry_on)
       # Handler skipped when circuit open, status = "circuit_open"
       return await call_external_api()
   ```

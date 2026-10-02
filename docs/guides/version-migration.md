@@ -378,6 +378,20 @@ it with `unavailable_on=`.
 
 See [Transport Availability Signaling](transport-availability.md).
 
+### Fix: the circuit breaker now counts failures without retries (v0.10.7+)
+
+Through 0.10.6 a `circuit_breaker=` counted only cycles whose retries were
+exhausted. With the default `retry=0`, or an exception outside `retry_on`, a failed
+poll never counted, so the breaker never opened, and a failed half-open probe left it
+probing every cycle. Every terminally failed cycle now counts once.
+
+**Behaviour change:** a breaker configured with `retry=0` now actually trips. After
+`threshold` consecutive failed polls the handler is skipped and the device reports
+`"circuit_open"` until a probe succeeds. Raise `threshold`, or remove
+`circuit_breaker=` if you relied on it never opening.
+
+See [Retry / Backoff](telemetry-advanced.md#retry-backoff).
+
 ---
 
 ## `state_model=` Return-Value Enforcement (v0.9.0+)

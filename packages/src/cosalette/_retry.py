@@ -87,9 +87,11 @@ _DEFAULT_RETRY_ON: tuple[type[BaseException], ...] = (OSError,)
 class CircuitBreaker:
     """Optional circuit breaker for telemetry retry.
 
-    Tracks consecutive failed cycles (where all retries were exhausted).
-    After ``threshold`` consecutive failures, the circuit opens and
-    the handler is skipped until a half-open probe succeeds.
+    Tracks consecutive terminally failed cycles: all retries exhausted, or
+    the poll failed with no retry applicable (``retry=0`` or an exception
+    outside ``retry_on``). After ``threshold`` consecutive failures, the
+    circuit opens and the handler is skipped until a half-open probe
+    succeeds.
     """
 
     __slots__ = ("_consecutive_failures", "_state", "_threshold")
@@ -120,7 +122,7 @@ class CircuitBreaker:
         self._state = "closed"
 
     def record_failure(self) -> None:
-        """Record a cycle where all retries were exhausted."""
+        """Record a terminally failed cycle (retries exhausted or none applied)."""
         self._consecutive_failures += 1
         if self._consecutive_failures >= self._threshold:
             self._state = "open"

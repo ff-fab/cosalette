@@ -585,8 +585,10 @@ async def inverter(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"power_w": await adapter.read_register(0x0006)}
 ```
 
-1. After 5 consecutive failures (across poll cycles), the circuit **opens** —
-   the handler is skipped entirely until a half-open probe succeeds.
+1. After 5 consecutive failed poll cycles, the circuit **opens** — the handler
+   is skipped entirely until a half-open probe succeeds. A cycle counts once
+   when it fails terminally: after its last retry, or straight away with
+   `retry=0` or an exception outside `retry_on`.
 
 The circuit breaker uses a three-state machine; see
 [Circuit Breaker States](../reference/telemetry.md#circuit-breaker-states)

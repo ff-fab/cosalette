@@ -18,6 +18,7 @@ from cosalette._registration import (
     _Unset,
     validate_mqtt_name,
 )
+from cosalette._retry import CircuitBreaker
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname
 
@@ -192,6 +193,7 @@ def _expand_telemetry_names(
             interval = _resolve_per_device_interval(reg, dev_name, config)
             schedule = _resolve_per_device_schedule(reg, dev_name, config)
             timeout = _resolve_per_device_timeout(reg, dev_name, config)
+            circuit_breaker = reg.circuit_breaker
             new_reg = dataclasses.replace(
                 reg,
                 name=dev_name,
@@ -201,6 +203,13 @@ def _expand_telemetry_names(
                 per_device_config=config,
                 name_spec=None,
                 schedule_spec=None,
+                # A breaker holds per-device runtime state, so callable-name
+                # expansion must not share it between the generated registrations.
+                circuit_breaker=(
+                    CircuitBreaker(circuit_breaker.threshold)
+                    if circuit_breaker is not None
+                    else None
+                ),
             )
             expanded.append(new_reg)
     telemetry.clear()

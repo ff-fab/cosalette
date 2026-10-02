@@ -9,7 +9,7 @@ tags: [telemetry, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-03-31 | Amended **Date:** 2026-07-12
+Accepted **Date:** 2026-03-31 | Amended **Date:** 2026-07-12 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -435,3 +435,34 @@ introspection-only).
 - Behavior change (breaking-ish): existing interval-based handlers now receive an implicit timeout equal to their poll interval unless they opt out with timeout=None. Because the runner sleeps interval *after* each cycle (interval is an inter-cycle gap, not a fixed-rate deadline), a handler that legitimately runs longer than its poll interval could be cut off unexpectedly. Mitigations: the _DEFAULT_TIMEOUT_FACTOR constant is trivially tunable, users can set an explicit larger timeout=, or disable entirely with timeout=None. Migration and what's-new notes must document this.
 - asyncio.wait_for cancels the inner coroutine on timeout and awaits its cleanup, so wall-clock elapsed time may slightly exceed the nominal timeout value — standard asyncio semantics. This is still finite versus the current unbounded hang.
 - Adds a resolution step and API surface parallel to interval (more code and more tests), justified by consistency with the deferred-resolution model already used for interval (ADR-020).
+
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** Decision 3 defines a circuit-breaker failure as a cycle 'where all retry attempts were exhausted'. The runner's retry loop reports two terminal outcomes: 'exhausted' after the last configured retry, and 'error' when no retry applies (the default retry=0, or an exception outside retry_on). Only 'exhausted' was counted, so with the default retry=0 a configured CircuitBreaker(threshold=N) could never open (a silent no-op configuration), an exception outside retry_on never counted even with retry>0, and a half-open probe that failed with outcome 'error' left the breaker half-open, probing every cycle instead of re-opening. The ADR-077 amendment of 2026-10-02 (cos-4mv5.1) already redefined 'retry exhaustion' as the poll's terminal failure for availability; the breaker was left on the narrower definition. Reported via the cosalette-apps (airthings2mqtt) enhancement proposal; tracked as cos-4mv5.11.
+
+> **Justification for amendment (not supersession):** Supersession is not warranted: the change is confined to which terminal outcome the runner's circuit-breaker hook counts (one method in the telemetry runner) plus the CircuitBreaker docstring. The breaker's state machine, threshold semantics, half-open probing, health status and the rest of ADR-024 (retry counter, backoff, retry_on, timeout backstop) are unchanged. No working configuration depended on the old rule in a useful way: with retry=0 the breaker could never open, so the only migration effect is that such breakers now trip as their configuration says, which is documented in the version-migration guide.
+
+### Revised Decision
+
+Decision 3, circuit-breaker accounting: the circuit breaker counts every terminally failed poll cycle exactly once. A cycle fails terminally either when its last configured retry is exhausted (outcome 'exhausted') or when no retry applies (outcome 'error': retry=0, or an exception outside retry_on). Individual retry attempts are never counted, so with retry>0 a cycle still counts once, after exhaustion. A half-open probe that fails terminally re-opens the circuit. Exceptions outside retry_on count as well, even though they may be programming errors rather than transport faults: an entity that fails every cycle should stop being hammered whatever the cause, every terminal failure is still logged, published to the error topic and reflected in the device status, and this matches the ADR-077 definition of a terminal failure for availability. The rest of Decision 3 (cumulative retry counter, state machine, health reporting) is unchanged.
+
+```python
+# Three consecutive failed polls open the circuit; the next cycle is
+# skipped (status "circuit_open") and the one after probes once.
+@app.telemetry(
+    "sensor",
+    interval=60,
+    circuit_breaker=CircuitBreaker(threshold=3),  # retry=0 by default
+)
+async def sensor() -> dict[str, object]: ...
+```
+
+### Additional Positive Consequences
+
+- circuit_breaker= now works with the default retry=0 instead of being a silent no-op, and a failed half-open probe re-opens the circuit as the state table in Decision 3 specifies.
+- One definition of a terminal cycle failure is shared by circuit-breaker accounting and automatic availability (ADR-077).
+
+### Additional Negative Consequences
+
+- Behaviour change: breakers configured with retry=0, or failing with exceptions outside retry_on, now open. Apps that relied on them never tripping must raise threshold or remove circuit_breaker=; the version-migration guide documents this.
+- A persistent programming error (an exception outside retry_on) now opens the circuit and the handler is skipped between probes, where previously it was called every cycle.

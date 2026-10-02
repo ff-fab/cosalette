@@ -1515,13 +1515,19 @@ class TelemetryRunner:
         reg: _TelemetryRegistration,
         rr: _RetryResult,
     ) -> None:
-        """Notify the circuit breaker of the outcome, if present."""
+        """Notify the circuit breaker of the outcome, if present.
+
+        Every terminal cycle failure counts once (ADR-024 amendment,
+        cos-4mv5.11): ``"exhausted"`` after the last retry, and ``"error"``
+        when no retry applies (``retry=0`` or an exception outside
+        ``retry_on``). Individual retry attempts are never counted.
+        """
         cb = reg.circuit_breaker
         if cb is None:
             return
         if rr.outcome == "success":
             cb.record_success()
-        elif rr.outcome == "exhausted":
+        elif rr.outcome in ("error", "exhausted"):
             cb.record_failure()
 
     async def _attempt_with_retry(

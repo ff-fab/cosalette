@@ -6,6 +6,7 @@ registration validation, and retry_on exception filtering.
 
 Test Techniques Used:
 - State Transition Testing: retry counter accumulation, circuit breaker states
+- Equivalence Partitioning: terminal cycle outcomes counted by the breaker
 - Boundary Value Analysis: retry=0 default, retry exhausted, retry_on filtering
 - Error Guessing: invalid parameter combinations
 """
@@ -14,13 +15,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from cosalette._app import App
 from cosalette._retry import CircuitBreaker, ExponentialBackoff, FixedBackoff
-from cosalette.testing import FakeClock, MockMqttClient, make_settings
+from cosalette.testing import (
+    AppHarness,
+    FakeClock,
+    ManualClock,
+    MockMqttClient,
+    make_settings,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -633,57 +641,150 @@ class TestCircuitBreakerIntegration:
         state_messages = mock_mqtt.get_messages_for("testapp/sensor/state")
         assert len(state_messages) >= 1
 
-    async def test_circuit_breaker_retry_zero_non_retryable_does_not_open(
-        self,
-        mock_mqtt: MockMqttClient,
-        fake_clock: FakeClock,
+
+async def _poll_with_breaker(
+    cb: CircuitBreaker,
+    *,
+    raises: Exception,
+    group: str | None,
+    ticks: int,
+    **telemetry_kwargs: Any,
+) -> tuple[int, list[str]]:
+    """Run an always-failing handler for the first poll plus *ticks* intervals.
+
+    Returns the number of handler invocations and the device statuses seen
+    in the heartbeats. Under a :class:`ManualClock` each ``advance_time(60)``
+    is exactly one scheduled cycle, on both the ungrouped and the group path.
+    """
+    clock = ManualClock()
+    harness = AppHarness.create(clock=clock)
+    calls = 0
+
+    @harness.app.telemetry(
+        "sensor",
+        interval=60,
+        group=group,
+        circuit_breaker=cb,
+        **telemetry_kwargs,
+    )
+    async def sensor() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        raise raises
+
+    task = asyncio.create_task(harness.run())
+    try:
+        await harness.wait_for_publish_count("testapp/error", 1)
+        for _ in range(ticks):
+            await harness.advance_time(60)
+        await clock.settle()
+        statuses: list[str] = [
+            json.loads(payload)["devices"]["sensor"]["status"]
+            for payload, *_ in harness.messages_for("testapp/status")
+            if payload.startswith("{")
+        ]
+        return calls, statuses
+    finally:
+        harness.trigger_shutdown()
+        await task
+
+
+_PATHS = pytest.mark.parametrize("group", [None, "bus"], ids=["single", "group"])
+
+
+class TestCircuitBreakerTerminalFailures:
+    """Every terminal cycle failure counts once toward the breaker.
+
+    ``_attempt_with_retry`` ends a failed cycle as ``"error"`` when no retry
+    applies (``retry=0`` or an exception outside ``retry_on``) and as
+    ``"exhausted"`` after the last retry. Both count once; retry attempts
+    never count individually (ADR-024 amendment, cos-4mv5.11).
+
+    Technique: Equivalence Partitioning (the two terminal outcomes) and
+    State Transition Testing (closed -> open -> half-open -> open), each on
+    the ungrouped and the coalescing-group runner path.
+    """
+
+    @_PATHS
+    async def test_retry_zero_failures_open_the_breaker(
+        self, group: str | None
     ) -> None:
-        """retry=0 + CB: non-retryable errors don't open the circuit.
-
-        With retry=0 the outcome is always 'error' (never 'exhausted'),
-        so the circuit breaker should never record a failure and never
-        open — programming bugs should not silently disable the device.
-        """
+        """With the default retry=0, threshold failed polls open the circuit."""
+        # Arrange
         cb = CircuitBreaker(threshold=2)
-        app = App(name="testapp", version="1.0.0")
-        call_count = 0
-        enough = asyncio.Event()
 
-        @app.telemetry(
-            "sensor",
-            interval=0.01,
-            retry=0,
-            circuit_breaker=cb,
-        )
-        async def sensor() -> dict[str, object]:
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 5:
-                raise ValueError("bug")
-            enough.set()
-            return {"v": 1}
-
-        shutdown = asyncio.Event()
-
-        async def trigger_shutdown() -> None:
-            await enough.wait()
-            await asyncio.sleep(0.05)
-            shutdown.set()
-
-        asyncio.create_task(trigger_shutdown())
-        await asyncio.wait_for(
-            app._run_async(
-                settings=make_settings(),
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-                clock=fake_clock,
-            ),
-            timeout=5.0,
+        # Act — polls at 0 s and 60 s fail, 120 s is skipped, 180 s probes.
+        calls, statuses = await _poll_with_breaker(
+            cb, raises=OSError("gone"), group=group, ticks=3
         )
 
-        # CB should never have opened — all failures were non-retryable
+        # Assert
+        assert calls == 3
+        assert "circuit_open" in statuses
+
+    @_PATHS
+    async def test_failed_half_open_probe_reopens_the_breaker(
+        self, group: str | None
+    ) -> None:
+        """A probe that fails with outcome 'error' re-opens the circuit.
+
+        Before the fix the breaker stayed half-open and probed every cycle.
+        """
+        # Arrange
+        cb = CircuitBreaker(threshold=2)
+
+        # Act — the 180 s probe fails, so the 240 s cycle is skipped again.
+        calls, _ = await _poll_with_breaker(
+            cb, raises=OSError("gone"), group=group, ticks=4
+        )
+
+        # Assert
+        assert calls == 3
+        assert cb.consecutive_failures == 3
+
+    @_PATHS
+    async def test_non_retryable_error_with_retries_counts(
+        self, group: str | None
+    ) -> None:
+        """An exception outside retry_on is terminal and counts once per cycle."""
+        # Arrange
+        cb = CircuitBreaker(threshold=2)
+
+        # Act — polls at 0 s and 60 s fail without retrying, 120 s is skipped.
+        calls, _ = await _poll_with_breaker(
+            cb,
+            raises=ValueError("bug"),
+            group=group,
+            ticks=2,
+            retry=3,
+            retry_on=(OSError,),
+        )
+
+        # Assert
+        assert calls == 2
+        assert cb.consecutive_failures == 2
+        assert cb.state == "half-open"
+
+    @_PATHS
+    async def test_exhausted_cycle_counts_once_not_per_attempt(
+        self, group: str | None
+    ) -> None:
+        """Regression: retry>0 still records one failure per exhausted cycle."""
+        # Arrange
+        cb = CircuitBreaker(threshold=5)
+
+        # Act — one cycle: the first attempt plus two retries.
+        calls, _ = await _poll_with_breaker(
+            cb,
+            raises=OSError("gone"),
+            group=group,
+            ticks=0,
+            retry=2,
+            retry_on=(OSError,),
+            backoff=FixedBackoff(0),
+        )
+
+        # Assert
+        assert calls == 3
+        assert cb.consecutive_failures == 1
         assert cb.state == "closed"
-        assert cb.consecutive_failures == 0
-        # Errors were still published normally
-        error_messages = mock_mqtt.get_messages_for("testapp/error")
-        assert len(error_messages) >= 1
