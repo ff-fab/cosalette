@@ -384,7 +384,8 @@ The lifecycle in detail:
 3. **Timeout** — each probe has a timeout of `interval / 2`. A hanging
    `health_check()` is treated as failure without blocking other adapters.
 4. **Availability toggle** — on failure, all devices that depend on the
-   adapter are set to `"offline"`; on recovery, they return to `"online"`.
+   adapter are set to `"offline"`; on recovery, they return to `"online"`
+   (unless the adapter's restart budget is spent — see Auto-Restart below).
 5. **Telemetry continues** — health checks are informational. Telemetry
    polling continues even when the adapter is marked unhealthy.
 
@@ -510,6 +511,13 @@ starts again from zero, so the next attempt follows another
 `restart_after_failures` failed checks. When the last attempt in the budget fails,
 the adapter is marked `restart_exhausted` and its devices stay offline until the
 process restarts.
+
+An adapter can also pass a health check on its own between attempts. If its
+`__aenter__` succeeded (only the post-restart health check failed), the devices
+the failed attempt cancelled are re-created and go back online. If `__aenter__`
+failed, the adapter is outside its context: a passing check counts as failed and
+the next restart attempt re-enters it. A `restart_exhausted` adapter never goes
+back online, even when its health check passes again.
 
 `restart_cooldown` is only the pause between `__aexit__` and `__aenter__`. The
 failure threshold alone sets how far apart two restarts are.

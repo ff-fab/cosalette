@@ -67,6 +67,7 @@ class HealthCheckRunner:
         max_restarts: int = 3,
         sustained_health_reset: float = 300.0,
         on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
+        on_recovered: Callable[[type], Awaitable[bool]] | None = None,
     ) -> None:
         self._checkables = health_checkables
         self._device_map = adapter_device_map
@@ -78,6 +79,7 @@ class HealthCheckRunner:
         self._max_restarts = max_restarts
         self._sustained_health_reset = sustained_health_reset
         self._on_restart_needed = on_restart_needed
+        self._on_recovered = on_recovered
         self.adapter_health_status: dict[type, AdapterHealthStatus] = {
             t: AdapterHealthStatus() for t in health_checkables
         }
@@ -120,6 +122,8 @@ class HealthCheckRunner:
             healthy = False
 
         old = self.adapter_health_status[adapter_type]
+        if healthy and not old.healthy:
+            healthy = await self._may_recover(adapter_type, old)
 
         if healthy:
             await self._handle_healthy_probe(adapter_type, old, now)
@@ -159,6 +163,32 @@ class HealthCheckRunner:
             )
 
         return healthy
+
+    async def _may_recover(self, adapter_type: type, old: AdapterHealthStatus) -> bool:
+        """Return whether a passing probe may bring the adapter back online.
+
+        An adapter whose restart budget is spent stays offline (ADR-029
+        Decision 3).  *on_recovered* re-creates the device tasks a failed
+        restart attempt left behind and returns ``False`` while the adapter
+        is outside its context, so the probe counts as failed and the
+        restart threshold keeps running.
+        """
+        name = adapter_type.__qualname__
+        if old.restart_exhausted:
+            logger.debug("Adapter %s healthy but restart-exhausted; offline", name)
+            return False
+        if self._on_recovered is None:
+            return True
+        try:
+            recovered = await self._on_recovered(adapter_type)
+        except Exception:
+            # Same reason as the restart callback: nothing may escape this
+            # framework loop (ADR-081).
+            logger.exception("Adapter %s recovery raised", name)
+            return False
+        if not recovered:
+            logger.debug("Adapter %s healthy but not entered; awaiting restart", name)
+        return recovered
 
     async def _handle_healthy_probe(
         self,

@@ -22,7 +22,7 @@ from cosalette._runners._stream_runner import run_stream
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
 
     from cosalette._errors import ErrorPublisher
     from cosalette._registration import _ReactorRegistration
@@ -592,6 +592,10 @@ def wire_restart_callback(
     the same bound :func:`start_device_tasks_for_names` the supervisor
     restart path uses, so both paths wire reactors, trigger slots and the
     reconnect wake identically.
+
+    Also wires the recovery callback: an adapter that passes a health check
+    after a failed restart attempt gets its stranded tasks back the same
+    way, once it is entered again (ADR-029).
     """
     if (
         health_check_runner is None
@@ -602,22 +606,36 @@ def wire_restart_callback(
 
     from cosalette._wiring._adapter_lifecycle import restart_single_adapter
 
-    async def _on_restart(adapter_type: type, adapter: object) -> bool:
+    async def _owned(adapter_type: type, body: Awaitable[bool]) -> bool:
         if supervisor is None:
-            return await _restart(adapter_type, adapter)
+            return await body
         owned = supervisor.begin_adapter_restart(
             info.name for info in adapter_device_map.get(adapter_type, [])
         )
         try:
-            return await _restart(adapter_type, adapter)
+            return await body
         finally:
             supervisor.end_adapter_restart(owned)
+
+    async def _on_restart(adapter_type: type, adapter: object) -> bool:
+        return await _owned(adapter_type, _restart(adapter_type, adapter))
 
     # Devices (and deferred group tasks) a failed attempt left without
     # tasks; the next attempt for the same adapter must still recreate
     # them, since cancel_tasks_for_adapter() no longer finds them.
     stranded: dict[type, tuple[list[str], list[asyncio.Task[None]]]] = {}
     entered: dict[type, bool] = dict.fromkeys(adapter_device_map, True)
+
+    async def _on_recovered(adapter_type: type) -> bool:
+        # An adapter that passes its health check after a failed attempt
+        # gets back the tasks that attempt cancelled — but only once it is
+        # entered again; until then the next restart attempt re-enters it.
+        if not entered.get(adapter_type, True):
+            return False
+        pending = stranded.pop(adapter_type, None)
+        if pending is not None:
+            await _owned(adapter_type, _recreate(*pending))
+        return True
 
     async def _restart(adapter_type: type, adapter: object) -> bool:
         cancelled, deferred_tasks = await cancel_tasks_for_adapter(
@@ -645,6 +663,11 @@ def wire_restart_callback(
             # serve healthy adapters' devices.
             stranded[adapter_type] = (cancelled, deferred_tasks)
             return False
+        return await _recreate(cancelled, deferred_tasks)
+
+    async def _recreate(
+        cancelled: list[str], deferred_tasks: list[asyncio.Task[None]]
+    ) -> bool:
         # Tear down the old deferred group tasks *before* creating their
         # replacements: a restarted group must never share its per-member
         # trigger slots / wake event with the scheduler being cancelled
@@ -662,3 +685,4 @@ def wire_restart_callback(
         return True
 
     health_check_runner._on_restart_needed = _on_restart
+    health_check_runner._on_recovered = _on_recovered
