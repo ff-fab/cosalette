@@ -11,9 +11,11 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
+from cosalette import TaskSupervisionError
 from cosalette._app import App
 from cosalette._strategies import OnChange
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
@@ -375,18 +377,20 @@ class TestGroupSchedulerErrorIsolation:
 class TestGroupSchedulerInit:
     """Init-function handling for grouped handlers.
 
-    Technique: Error Isolation — verify that a failed init excludes
-    only the affected handler, not the entire group.
+    Technique: Specification-based Testing — a failing member ``init=`` is
+    reported for that member alone; under ``on_task_failure="exit"`` it
+    still escalates (ADR-081 member isolation).
     """
 
-    async def test_init_failure_excludes_handler(
+    async def test_member_init_failure_escalates_under_exit_policy(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Handler whose init raises is excluded; other handler continues."""
-        app = App(name="testapp", version="1.0.0")
-        good_called = asyncio.Event()
+        """Under "exit", a member whose init raises shuts the app down."""
+        # Arrange
+        app = App(name="testapp", version="1.0.0", on_task_failure="exit")
+        healthy_calls = 0
 
         def bad_init() -> _BadInit:
             raise RuntimeError("init failed")
@@ -397,34 +401,43 @@ class TestGroupSchedulerInit:
 
         @app.telemetry(name="healthy", interval=0.01, group="g")
         async def healthy() -> dict[str, object]:
-            good_called.set()
+            nonlocal healthy_calls
+            healthy_calls += 1
             return {"status": "ok"}
 
-        shutdown = asyncio.Event()
+        # Act
+        with pytest.raises(TaskSupervisionError) as caught:
+            await asyncio.wait_for(
+                app._run_async(
+                    settings=make_settings(),
+                    shutdown_event=asyncio.Event(),
+                    mqtt=mock_mqtt,
+                    clock=fake_clock,
+                ),
+                timeout=5.0,
+            )
 
-        async def trigger_shutdown() -> None:
-            await good_called.wait()
-            await asyncio.sleep(0.05)
-            shutdown.set()
-
-        asyncio.create_task(trigger_shutdown())
-        await asyncio.wait_for(
-            app._run_async(
-                settings=make_settings(),
-                shutdown_event=shutdown,
-                mqtt=mock_mqtt,
-                clock=fake_clock,
-            ),
-            timeout=5.0,
-        )
-
-        assert good_called.is_set()
-        # healthy handler published
-        msgs = mock_mqtt.get_messages_for("testapp/healthy/state")
-        assert len(msgs) >= 1
-        # broken handler never published
-        broken_msgs = mock_mqtt.get_messages_for("testapp/broken/state")
-        assert len(broken_msgs) == 0
+        # Assert
+        assert caught.value.task_name == "group:g/broken"
+        assert isinstance(caught.value.__cause__, RuntimeError)
+        assert healthy_calls == 0
+        assert mock_mqtt.get_messages_for("testapp/broken/state") == []
+        errors = [
+            json.loads(payload)
+            for payload, _, _ in mock_mqtt.get_messages_for("testapp/error")
+        ]
+        assert [e["details"] for e in errors] == [
+            {
+                "task_failure": True,
+                "task": "group:g",
+                "member": "broken",
+                "phase": "init",
+            }
+        ]
+        availability = [
+            p for p, _, _ in mock_mqtt.get_messages_for("testapp/broken/availability")
+        ]
+        assert "offline" in availability
 
 
 # ---------------------------------------------------------------------------

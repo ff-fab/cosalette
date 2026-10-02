@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._injection import resolve_request_kwargs
@@ -61,6 +61,8 @@ async def run_reactor_boundaries(
     async_iterable: Any,
     providers: Mapping[Any, Any],
     reactors: list[_ReactorRegistration] | None,
+    *,
+    on_first_item: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run an async iterable, dispatching reactors at yield boundaries.
 
@@ -71,12 +73,18 @@ async def run_reactor_boundaries(
         async_iterable: The async iterable or generator to iterate.
         providers: DI provider map for reactor dispatch.
         reactors: List of reactor registrations to dispatch at boundaries.
+        on_first_item: Awaited once, after the first yielded boundary has
+            been dispatched (the stream recovery point of ADR-081).
     """
+    first_item = on_first_item
     try:
         async for _ in async_iterable:
             # Dispatch reactors after each yielded boundary
             if reactors:
                 await dispatch_reactors(reactors, providers)
+            if first_item is not None:
+                callback, first_item = first_item, None
+                await callback()
         # Dispatch reactors once at normal completion
         # This handles handlers that mutate before returning
         # but don't yield a final item

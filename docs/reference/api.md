@@ -272,6 +272,8 @@ for design rationale.
 
 ::: cosalette.build_error_payload
 
+::: cosalette.TaskSupervisionError
+
 ## Health and Availability
 
 ::: cosalette.DeviceStatus

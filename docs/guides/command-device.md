@@ -947,9 +947,13 @@ Errors can occur in two places:
 1. **In a command handler** — The framework's command proxy catches the exception
    and publishes a structured error payload via `ErrorPublisher` (fire-and-forget).
    The device loop continues unaffected.
-2. **In the main loop** — if the device async generator crashes, the framework
-   catches the exception, logs it, and publishes an error. The device task ends,
-   but other devices continue.
+2. **In the main loop** — if the device async generator crashes, the task
+   supervisor logs it, publishes one error payload, marks the device offline and
+   applies the app's `on_task_failure` policy: by default it restarts the
+   device with backoff, and exits the app with code 4 once the restart budget is
+   spent. Other devices continue during restart attempts; budget exhaustion
+   shuts down the whole app. See
+   [Task Supervision](../concepts/error-handling.md#task-supervision).
 
 ### Imperative Registration with `add_device()`
 

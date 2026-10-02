@@ -104,6 +104,8 @@ class TestCosalettePublicAPI:
         "ErrorPayload",
         "ErrorPublisher",
         "build_error_payload",
+        # Task supervision (ADR-081)
+        "TaskSupervisionError",
         # Health
         "AdapterHealthStatus",
         "DeviceStatus",

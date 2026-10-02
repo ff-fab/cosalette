@@ -438,6 +438,50 @@ class TestErrorPublisher:
         assert parsed["timestamp"] == FIXED_ISO
         assert parsed["details"] == {}
 
+    async def test_details_are_attached_to_payload(
+        self,
+        publisher: ErrorPublisher,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """details= lands in the payload's details object (ADR-081 marker).
+
+        Technique: Specification-based Testing.
+        """
+        # Act
+        await publisher.publish(
+            RuntimeError("boom"),
+            device="radon",
+            details={"task_failure": True, "task": "telemetry:radon"},
+        )
+
+        # Assert
+        parsed = json.loads(mock_mqtt.published[0][1])
+        assert parsed["details"] == {"task_failure": True, "task": "telemetry:radon"}
+
+    @pytest.mark.parametrize(
+        ("log_traceback", "expect_exc_info"), [(True, True), (False, False)]
+    )
+    async def test_log_traceback_controls_warning_exc_info(
+        self,
+        publisher: ErrorPublisher,
+        caplog: pytest.LogCaptureFixture,
+        log_traceback: bool,
+        expect_exc_info: bool,
+    ) -> None:
+        """log_traceback=False drops the traceback from the local WARNING.
+
+        Technique: Equivalence Partitioning — both flag values.
+        """
+        # Act
+        with caplog.at_level(logging.WARNING, logger="cosalette._errors"):
+            await publisher.publish(RuntimeError("boom"), log_traceback=log_traceback)
+
+        # Assert
+        (record,) = [
+            r for r in caplog.records if r.getMessage().startswith("Publishing error")
+        ]
+        assert bool(record.exc_info) is expect_exc_info
+
     async def test_default_publish_omits_raw_message(
         self,
         publisher: ErrorPublisher,

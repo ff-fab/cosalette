@@ -12,6 +12,8 @@ from __future__ import annotations
 EXIT_OK = 0
 EXIT_CONFIG_ERROR = 1
 EXIT_RUNTIME_ERROR = 3
+EXIT_TASK_FAILURE = 4
+"""A supervised task failed and ended the app (ADR-081)."""
 
 
 # ---------------------------------------------------------------------------

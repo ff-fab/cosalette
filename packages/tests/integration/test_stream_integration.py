@@ -220,8 +220,8 @@ class TestStreamProxyLifecycleOwnership:
 
         Validates ADR-045: the framework calls stop_scan and close
         regardless of whether the stream handler raises.  ``run_stream``
-        absorbs handler exceptions (logging them) so the caller sees a
-        clean return — the key invariant is that lifecycle cleanup runs.
+        re-raises handler exceptions so the task supervisor sees them
+        (ADR-081) — the key invariant is that lifecycle cleanup still runs.
 
         Technique: Fault Injection + State Transition Testing.
         """
@@ -234,8 +234,9 @@ class TestStreamProxyLifecycleOwnership:
             raise ValueError("simulated handler error")
             yield  # pragma: no cover  # make it an async generator
 
-        # run_stream absorbs handler exceptions (logs, does not re-raise)
-        await harness.run_stream(failing_handler, resolved, shutdown=shutdown)
+        # run_stream re-raises handler exceptions (ADR-081)
+        with pytest.raises(ValueError, match="simulated handler error"):
+            await harness.run_stream(failing_handler, resolved, shutdown=shutdown)
 
         assert "stop_scan" in port.calls
         assert "close" in port.calls

@@ -168,6 +168,14 @@ class HealthReporter:
         default_factory=dict,
         repr=False,
     )
+    # Heartbeat-only statuses of supervised streams (ADR-081).  Kept apart
+    # from ``_devices``: a stream has no availability topic, so it must never
+    # be re-announced or marked offline on shutdown.
+    _stream_statuses: dict[str, DeviceStatus] = field(
+        init=False,
+        default_factory=dict,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
@@ -354,6 +362,43 @@ class HealthReporter:
             await self._safe_publish(topic, "offline")
         self.set_device_status(device, "unavailable")
 
+    async def clear_task_failure(self, device: str, *, is_root: bool = False) -> None:
+        """Clear the task supervisor's mark after a re-created task recovers.
+
+        Called at a supervised task's first successful cycle or first device
+        ``yield`` (ADR-081); streams use :meth:`clear_stream_failure`.  Removes the
+        ``"supervisor"`` availability source and the ``error`` status; a
+        no-op when the supervisor never marked *device*.  Another source
+        still holding the entity offline keeps it offline (ADR-077).
+        """
+        source = "supervisor"
+        if not self.is_unavailable(device, source=source):
+            return
+        logger.info("Entity '%s' recovered after its task was restarted", device)
+        await self.publish_device_available(device, is_root=is_root, source=source)
+        if self.is_unavailable(device):
+            self.set_device_status(device, "unavailable")
+
+    def mark_stream_failed(self, stream: str) -> None:
+        """Record a supervised stream's task failure in the heartbeat.
+
+        A stream has no availability topic (it is not a device, and is
+        excluded from discovery and AsyncAPI), so its failure shows only as
+        ``"error"`` under its name in ``{prefix}/status`` (ADR-081).
+        """
+        self._stream_statuses[stream] = DeviceStatus(status="error")
+
+    def clear_stream_failure(self, stream: str) -> None:
+        """Set a failed stream back to ``"ok"`` once it yields an item again.
+
+        A no-op unless :meth:`mark_stream_failed` marked *stream*.
+        """
+        entry = self._stream_statuses.get(stream)
+        if entry is None or entry.status != "error":
+            return
+        logger.info("Stream '%s' recovered after its task was restarted", stream)
+        self._stream_statuses[stream] = DeviceStatus(status="ok")
+
     async def publish_heartbeat(self) -> None:
         """Publish a structured JSON heartbeat to ``{prefix}/status``.
 
@@ -367,8 +412,11 @@ class HealthReporter:
             uptime_s=uptime,
             version=self.version,
             devices={
-                name: self._device_snapshot(name, status)
-                for name, status in self._devices.items()
+                **self._stream_statuses,
+                **{
+                    name: self._device_snapshot(name, status)
+                    for name, status in self._devices.items()
+                },
             },
         )
         topic = f"{self.topic_prefix}/status"
@@ -443,6 +491,7 @@ class HealthReporter:
         status_topic = f"{self.topic_prefix}/status"
         await self._safe_publish(status_topic, "offline")
         self._devices.clear()
+        self._stream_statuses.clear()
         self._root_devices.clear()
         self._unavailable.clear()
         self._freshness.clear()

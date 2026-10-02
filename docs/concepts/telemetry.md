@@ -143,7 +143,9 @@ divides evenly into the elapsed time fire. This reduces resource sessions from N
 adapter session sharing.
 
 Each handler retains its own publish strategy, error isolation, persistence policy,
-and init function — `group=` is purely an execution scheduling hint.
+and init function — `group=` is purely an execution scheduling hint. A member whose
+`init=` raises goes offline on its own while the rest of the group keeps polling (see
+[Coalescing-group member `init=` failures](error-handling.md#coalescing-group-member-init-failures)).
 
 A group member may also declare `triggerable=`. The wake is per member: arming one
 member runs that member alone, members armed at the same moment share one batch and

@@ -6,7 +6,8 @@ reference and exposes three public async methods:
 
 - :meth:`~TelemetryRunner.run_telemetry` — single-telemetry polling loop
 - :meth:`~TelemetryRunner.run_telemetry_group` — coalescing-group scheduler
-- :meth:`~TelemetryRunner.run_device` — device execution with error isolation
+- :meth:`~TelemetryRunner.run_device` — device execution; failures propagate
+  to the task supervisor (ADR-081)
 
 """
 
@@ -17,7 +18,7 @@ import heapq
 import inspect
 import logging
 from collections.abc import Callable
-from typing import Annotated, Any, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, cast, get_args, get_origin
 
 from cosalette._context import DeviceContext
 from cosalette._errors import ErrorPublisher
@@ -54,6 +55,9 @@ from cosalette._runners._trigger import TriggerPayload
 from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_qualname
 
+if TYPE_CHECKING:
+    from cosalette._supervisor import TaskSupervisor
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,22 +75,44 @@ def _normalize_telemetry_return(
     )
 
 
+def _run_telemetry_init(
+    reg: _TelemetryRegistration, providers: dict[type, Any]
+) -> None:
+    """Call *reg*'s ``init=`` and expose its result to injection.
+
+    An exception propagates.  For ungrouped telemetry it ends the task, and
+    the task supervisor reports it and applies ``on_task_failure``; a
+    supervised coalescing group catches it and isolates the failure to the
+    member (ADR-081).
+    """
+    if reg.init is not None:
+        init_result = _call_init(reg.init, reg.init_injection_plan, providers)
+        providers[type(init_result)] = init_result
+
+
 class TelemetryRunner:
     """Executes telemetry polling loops, group scheduling, and device tasks.
 
-    Constructed with the optional persistence :class:`Store` and the
-    optional :class:`_ReconnectWake` shared by every runner of the app.
-    Its only other state is the transient set of entities whose state
-    publish the current cycle had to defer; everything else (contexts,
-    registrations, error publishers, health reporters) is passed as method
-    arguments.
+    Constructed with the optional persistence :class:`Store`, the
+    optional :class:`_ReconnectWake` shared by every runner of the app and
+    the optional task supervisor, which isolates a coalescing-group
+    member's ``init=`` failure to that member (ADR-081); without one, such
+    a failure ends the group task.  Its only other state is the transient
+    set of entities whose state publish the current cycle had to defer;
+    everything else (contexts, registrations, error publishers, health
+    reporters) is passed as method arguments.
     """
 
     def __init__(
-        self, store: Store | None, reconnect: _ReconnectWake | None = None
+        self,
+        store: Store | None,
+        reconnect: _ReconnectWake | None = None,
+        *,
+        supervisor: TaskSupervisor | None = None,
     ) -> None:
         self._store = store
         self._reconnect = reconnect
+        self._supervisor = supervisor
         self._publish_deferred: set[str] = set()
 
     # --- Public entry points -----------------------------------------------
@@ -95,12 +121,16 @@ class TelemetryRunner:
         self,
         reg: _DeviceRegistration,
         ctx: DeviceContext,
-        error_publisher: ErrorPublisher,
         health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
         trigger_slot: _TriggerSlot | None = None,
     ) -> None:
-        """Run a single device function with error isolation.
+        """Run a single device function.
+
+        An exception that ends the handler (including setup failures such
+        as DI resolution, ``init=`` and a non-generator handler) propagates
+        so the task supervisor can report it and apply ``on_task_failure``
+        (ADR-081).  A normal return is logged at INFO.
 
         Supports async generator device handlers only.
         For async generators, dispatches reactors after each yielded
@@ -155,13 +185,12 @@ class TelemetryRunner:
                     f"Update to 'async def' that yields after each unit of work."
                 )
                 raise TypeError(msg)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error("Device '%s' crashed: %s", reg.name, exc)
-            await error_publisher.publish(exc, device=reg.name, is_root=reg.is_root)
         finally:
             save_store_on_shutdown(device_store, reg.name)
+        # An exception that ends the task propagates to the task supervisor,
+        # which logs, publishes and applies on_task_failure (ADR-081).  A
+        # normal return is never a failure.
+        logger.info("device '%s' handler completed", reg.name)
 
     async def _run_async_generator_device(
         self,
@@ -205,8 +234,15 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         trigger_slot: _TriggerSlot | None = None,
         reactors: list[_ReactorRegistration] | None = None,
+        *,
+        defer_first_cycle: bool = False,
     ) -> None:
         """Run a telemetry polling loop with optional publish strategy.
+
+        *defer_first_cycle* is set only by the task supervisor when it
+        re-creates a failed task (ADR-081): the loop then sleeps one
+        interval (or until the next cron fire, or a trigger) before its
+        first poll, so a restart never polls faster than configured.
 
         Strategy lifecycle (when ``reg.publish_strategy`` is set):
 
@@ -217,13 +253,9 @@ class TelemetryRunner:
         """
         providers, device_store = self._prepare_telemetry_providers(reg, ctx)
 
-        if not await self._init_telemetry_handler(
-            reg,
-            providers,
-            error_publisher,
-            health_reporter,
-        ):
-            return
+        # A failing init= ends the task: it propagates to the task
+        # supervisor like any other setup failure (ADR-081 section 1).
+        _run_telemetry_init(reg, providers)
 
         kwargs = resolve_request_kwargs(reg.injection_plan, providers)
         trigger_info = self._find_trigger_kwarg(reg.injection_plan)
@@ -254,6 +286,14 @@ class TelemetryRunner:
         # cycles decide whether the next run was resumed by a trigger.
         woke_by_trigger = False
         try:
+            if defer_first_cycle:
+                (
+                    trigger_task,
+                    woke_by_trigger,
+                    catch_up_task,
+                ) = await self._sleep_cycle(
+                    ctx, reg, trigger_slot, shutdown_task, trigger_task, catch_up_task
+                )
             while not ctx.shutdown_requested:
                 if self._circuit_breaker_skip(reg, health_reporter):
                     (
@@ -816,8 +856,14 @@ class TelemetryRunner:
         health_reporter: HealthReporter,
         reactors: list[_ReactorRegistration] | None = None,
         trigger_slots: dict[str, _TriggerSlot] | None = None,
+        *,
+        defer_first_cycle: bool = False,
     ) -> None:
         """Run a coalescing-group scheduler for grouped telemetry handlers.
+
+        *defer_first_cycle* (set only by the task supervisor, ADR-081)
+        starts every member with its due time at one interval instead of
+        0, so a restarted group never polls faster than configured.
 
         Handlers in the same group are managed by a shared tick-aligned
         scheduler.  A priority queue (min-heap) of ``(fire_time_ms, index)``
@@ -840,6 +886,14 @@ class TelemetryRunner:
         member's heap entry — ``interval=`` heartbeats stay anchored to
         the shared group epoch, because losing that anchor would cost the
         tick coincidence the group exists to create.
+
+        **Member ``init=`` failures (ADR-081).**  Under a task supervisor a
+        member whose ``init=`` raises is isolated: the other members run on
+        their normal schedule while the supervisor decides, per member,
+        whether and when this scheduler calls the ``init=`` again.  A
+        member that succeeds polls at once and then joins the shared
+        schedule.  When no member is active and none is waiting for a
+        retry, the group idles until shutdown rather than ending.
         """
         logger.debug(
             "Starting coalescing group '%s' with %d handler(s)",
@@ -848,20 +902,24 @@ class TelemetryRunner:
         )
 
         # --- 1. INIT: prepare each handler ---
-        init_result = await self._init_group_handlers(
-            registrations, contexts, error_publisher, health_reporter, trigger_slots
+        gs = await self._init_group_handlers(
+            registrations,
+            contexts,
+            trigger_slots,
+            defer_first_cycle=defer_first_cycle,
+            group_name=group_name,
         )
-        if init_result is None:
-            return  # all handlers failed init
-
-        gs = init_result
         if gs.wake is not None:
             gs.shutdown_task = asyncio.create_task(gs.sleep_ctx._shutdown_event.wait())
 
         # --- 2. MAIN LOOP ---
         try:
-            while not gs.sleep_ctx.shutdown_requested and gs.heap:
+            while not gs.sleep_ctx.shutdown_requested:
+                if not gs.heap and not gs.init_retry:
+                    await self._idle_group(group_name, gs)
+                    break
                 if not await self._run_group_cycle(
+                    group_name,
                     gs,
                     registrations,
                     contexts,
@@ -880,8 +938,26 @@ class TelemetryRunner:
             for store, name in gs.active_stores:
                 save_store_on_shutdown(store, name)
 
+    @staticmethod
+    async def _idle_group(group_name: str, gs: _GroupState) -> None:
+        """Wait for shutdown in a group whose members are all offline.
+
+        Every member's ``init=`` failed and none will be retried (budget
+        exhausted, ``"ignore"``, or a restart-exhausted adapter).  Ending
+        the task would look like a clean return to the supervisor anyway;
+        idling keeps the one group task alive and quiet instead, so the
+        app neither crash-loops nor exits over sensors that are out of
+        reach (ADR-081 member isolation).
+        """
+        logger.error(
+            "Coalescing group '%s' has no active member left; it idles until shutdown",
+            group_name,
+        )
+        await gs.sleep_ctx._shutdown_event.wait()
+
     async def _run_group_cycle(
         self,
+        group_name: str,
         gs: _GroupState,
         registrations: list[_TelemetryRegistration],
         contexts: dict[str, DeviceContext],
@@ -896,16 +972,28 @@ class TelemetryRunner:
         the members a reconnect woke after an outage (cos-wjil).  Only the
         tick-due part is rescheduled: an out-of-cycle run must leave the
         member's heap entry on the shared group epoch.
+
+        A tick may also be a member's ``init=`` retry (ADR-081); a member
+        whose retry succeeds joins this cycle's batch.
         """
-        next_fire_ms = gs.heap[0][0]
+        retry_fire_ms = min(gs.init_retry.values(), default=None)
+        heap_fire_ms = gs.heap[0][0] if gs.heap else None
+        next_fire_ms = min(
+            fire_ms for fire_ms in (retry_fire_ms, heap_fire_ms) if fire_ms is not None
+        )
         tick_reached = await self._await_group_cycle(gs, next_fire_ms)
         if tick_reached is None:
             return False
 
+        joined: set[int] = set()
+        if tick_reached:
+            joined = await self._retry_member_inits(
+                group_name, gs, registrations, next_fire_ms
+            )
         due = self._pop_due_handlers(gs.heap, next_fire_ms) if tick_reached else []
         released = self._release_armed(gs)
         caught_up, gs.catch_up = gs.catch_up, set()
-        batch = sorted(set(due) | released | caught_up)
+        batch = sorted(set(due) | released | caught_up | joined)
         if batch:
             await self._process_group_handler_result(
                 batch,
@@ -979,8 +1067,8 @@ class TelemetryRunner:
         return min(
             (
                 slot.throttle_delay(now)
-                for slot in gs.trigger_slots
-                if slot is not None and slot.event.is_set()
+                for idx, slot in enumerate(gs.trigger_slots)
+                if slot is not None and slot.event.is_set() and idx not in gs.inactive
             ),
             default=None,
         )
@@ -998,7 +1086,8 @@ class TelemetryRunner:
         now = gs.sleep_ctx.clock.now()
         released: set[int] = set()
         for idx, slot in enumerate(gs.trigger_slots):
-            if slot is None or not slot.event.is_set():
+            if slot is None or not slot.event.is_set() or idx in gs.inactive:
+                # An inactive member's arm waits until its init= succeeds.
                 continue
             if slot.throttle_delay(now) > 0.0:
                 continue
@@ -1062,34 +1151,6 @@ class TelemetryRunner:
             providers[DeviceStore] = device_store
         return providers, device_store
 
-    async def _init_telemetry_handler(
-        self,
-        reg: _TelemetryRegistration,
-        providers: dict[type, Any],
-        error_publisher: ErrorPublisher,
-        health_reporter: HealthReporter,
-    ) -> bool:
-        """Run the optional init function for a telemetry handler.
-
-        Returns ``True`` if init succeeded (or was not needed).
-        Returns ``False`` if init raised — the caller should abort.
-        """
-        if reg.init is None:
-            return True
-        try:
-            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
-            providers[type(init_result)] = init_result
-        except Exception as exc:
-            await self._handle_telemetry_error(
-                reg,
-                exc,
-                None,
-                error_publisher,
-                health_reporter,
-            )
-            return False
-        return True
-
     async def _handle_telemetry_outcome(
         self,
         reg: _TelemetryRegistration,
@@ -1152,30 +1213,6 @@ class TelemetryRunner:
         maybe_persist(device_store, reg.persist_policy, did_publish, reg.name)
         return last_published, last_error_type, True
 
-    async def _init_group_member(
-        self,
-        reg: _TelemetryRegistration,
-        providers: dict[type, Any],
-        error_publisher: ErrorPublisher,
-        health_reporter: HealthReporter,
-    ) -> bool:
-        """Run one group member's init function.
-
-        Returns ``False`` when init raised, which excludes the member
-        from the group for the lifetime of the scheduler.
-        """
-        if reg.init is None:
-            return True
-        try:
-            init_result = _call_init(reg.init, reg.init_injection_plan, providers)
-        except Exception as exc:
-            await self._handle_telemetry_error(
-                reg, exc, None, error_publisher, health_reporter
-            )
-            return False
-        providers[type(init_result)] = init_result
-        return True
-
     def _group_member_trigger(
         self,
         reg: _TelemetryRegistration,
@@ -1191,21 +1228,95 @@ class TelemetryRunner:
             return None, None
         return slot, self._find_trigger_kwarg(reg.injection_plan)
 
+    async def _try_member_init(
+        self,
+        group_name: str,
+        reg: _TelemetryRegistration,
+        providers: dict[type, Any],
+    ) -> tuple[bool, float | None]:
+        """Run one group member's ``init=``, isolating a failure (ADR-081).
+
+        Returns ``(True, None)`` on success.  On failure the task supervisor
+        reports the member and applies its policy; the result is then
+        ``(False, seconds)`` until the next attempt, or ``(False, None)``
+        when the member stays offline.  Without a supervisor the exception
+        propagates and ends the group task, as before member isolation.
+        """
+        try:
+            _run_telemetry_init(reg, providers)
+        except Exception as exc:
+            if self._supervisor is None:
+                raise
+            retry_in = await self._supervisor.member_init_failed(
+                f"group:{group_name}",
+                reg.name,
+                exc,
+                is_root=reg.is_root,
+                registration=reg,
+            )
+            return False, retry_in
+        return True, None
+
+    async def _retry_member_inits(
+        self,
+        group_name: str,
+        gs: _GroupState,
+        registrations: list[_TelemetryRegistration],
+        tick_ms: int,
+    ) -> set[int]:
+        """Retry every member ``init=`` due by *tick_ms*; return who joined.
+
+        A member whose retry succeeds polls in this cycle's batch and gets
+        its heap entry at the next multiple of its interval on the shared
+        group epoch, so it coalesces with the others from then on.  A
+        failed retry is rescheduled from now when the supervisor grants
+        another one.
+        """
+        joined: set[int] = set()
+        for idx in sorted(i for i, at in gs.init_retry.items() if at <= tick_ms):
+            if gs.sleep_ctx.shutdown_requested:
+                break
+            del gs.init_retry[idx]
+            reg = registrations[idx]
+            ok, retry_in = await self._try_member_init(
+                group_name, reg, gs.providers_arr[idx]
+            )
+            if not ok:
+                if retry_in is not None:
+                    now_ms = _to_ms(gs.sleep_ctx.clock.now() - gs.epoch)
+                    gs.init_retry[idx] = max(now_ms, tick_ms) + _to_ms(retry_in)
+                continue
+            logger.info(
+                "Group member '%s' initialised; it joins the schedule", reg.name
+            )
+            gs.kwargs_arr[idx] = resolve_request_kwargs(
+                reg.injection_plan, gs.providers_arr[idx]
+            )
+            gs.inactive.discard(idx)
+            interval = gs.intervals_ms[idx]
+            heapq.heappush(gs.heap, ((tick_ms // interval + 1) * interval, idx))
+            joined.add(idx)
+        return joined
+
     async def _init_group_handlers(
         self,
         registrations: list[_TelemetryRegistration],
         contexts: dict[str, DeviceContext],
-        error_publisher: ErrorPublisher,
-        health_reporter: HealthReporter,
         trigger_slots: dict[str, _TriggerSlot] | None = None,
-    ) -> _GroupState | None:
+        *,
+        defer_first_cycle: bool = False,
+        group_name: str = "",
+    ) -> _GroupState:
         """Initialise per-handler state for a coalescing-group scheduler.
 
         Prepares DI providers, calls init functions, binds publish
         strategies, and builds the priority-queue heap.
 
-        Returns ``None`` when every handler fails its init — the caller
-        should exit early.  Otherwise returns a `_GroupState` with:
+        A member whose ``init=`` raises is isolated under a task supervisor
+        (ADR-081): it stays out of the heap, in ``inactive``, with its next
+        attempt in ``init_retry`` when the supervisor grants one.  Without
+        a supervisor the exception propagates and ends the group task.
+        Returns a `_GroupState` with:
 
         - ``kwargs_arr`` — resolved kwargs per handler
         - ``device_stores`` — per-handler persistence stores
@@ -1232,48 +1343,42 @@ class TelemetryRunner:
         last_published: list[dict[str, object] | None] = [None] * n
         last_error_type: list[type[Exception] | None] = [None] * n
         intervals_ms: list[int] = [0] * n
-        active: list[bool] = [False] * n
         slots: list[_TriggerSlot | None] = [None] * n
         infos: list[tuple[str, Any, type | None] | None] = [None] * n
+        # Member index -> seconds until its init= retry, or None for none.
+        failed: dict[int, float | None] = {}
 
-        for i, reg in enumerate(registrations):
-            ctx = contexts[reg.name]
-            providers_arr[i], device_stores[i] = self._prepare_telemetry_providers(
-                reg, ctx
+        for index, registration in enumerate(registrations):
+            await self._initialise_group_member(
+                index,
+                registration,
+                contexts[registration.name],
+                group_name,
+                trigger_slots,
+                providers_arr,
+                device_stores,
+                kwargs_arr,
+                strategies,
+                intervals_ms,
+                slots,
+                infos,
+                failed,
             )
-            if not await self._init_group_member(
-                reg, providers_arr[i], error_publisher, health_reporter
-            ):
-                continue  # exclude this handler
-
-            kwargs_arr[i] = resolve_request_kwargs(reg.injection_plan, providers_arr[i])
-            strategy = reg.publish_strategy
-            strategies[i] = strategy
-            if strategy is not None:
-                strategy._bind(ctx.clock)
-            intervals_ms[i] = _to_ms(_resolved_interval(reg))
-            active[i] = True
-            # Only an active member is scanned for arms; a handler excluded
-            # by a failing init must not be woken by one either.
-            slots[i], infos[i] = self._group_member_trigger(reg, trigger_slots)
 
         # Build priority queue and active-stores list in a single pass
-        heap: list[tuple[int, int]] = []
-        active_stores: list[tuple[DeviceStore | None, str]] = []
-        for i in range(n):
-            if active[i]:
-                heapq.heappush(heap, (0, i))
-                active_stores.append((device_stores[i], registrations[i].name))
+        heap, active_stores = self._build_group_schedule(
+            registrations, device_stores, intervals_ms, failed, defer_first_cycle
+        )
 
-        if not heap:
-            return None
-
-        # First active handler's context for shutdown-aware sleep.
-        # heap[0][1] is the lowest-index active handler.
-        sleep_ctx = contexts[registrations[heap[0][1]].name]
+        # First handler's context for shutdown-aware sleep.
+        sleep_ctx = contexts[registrations[0].name]
         epoch = sleep_ctx.clock.now()
 
         return _GroupState(
+            inactive=set(failed),
+            init_retry={
+                i: _to_ms(delay) for i, delay in failed.items() if delay is not None
+            },
             kwargs_arr=kwargs_arr,
             providers_arr=providers_arr,
             device_stores=device_stores,
@@ -1290,6 +1395,65 @@ class TelemetryRunner:
             trigger_infos=infos,
             wake=self._group_wake(slots),
         )
+
+    async def _initialise_group_member(
+        self,
+        index: int,
+        registration: _TelemetryRegistration,
+        context: DeviceContext,
+        group_name: str,
+        trigger_slots: dict[str, _TriggerSlot] | None,
+        providers_arr: list[dict[type, object]],
+        device_stores: list[DeviceStore | None],
+        kwargs_arr: list[dict[str, Any]],
+        strategies: list[PublishStrategy | None],
+        intervals_ms: list[int],
+        slots: list[_TriggerSlot | None],
+        infos: list[tuple[str, Any, type | None] | None],
+        failed: dict[int, float | None],
+    ) -> None:
+        """Prepare one coalescing-group member's immutable scheduler state."""
+        providers_arr[index], device_stores[index] = self._prepare_telemetry_providers(
+            registration, context
+        )
+        ok, retry_in = await self._try_member_init(
+            group_name, registration, providers_arr[index]
+        )
+        if ok:
+            kwargs_arr[index] = resolve_request_kwargs(
+                registration.injection_plan, providers_arr[index]
+            )
+        else:
+            failed[index] = retry_in
+        strategy = registration.publish_strategy
+        strategies[index] = strategy
+        if strategy is not None:
+            strategy._bind(context.clock)
+        intervals_ms[index] = _to_ms(_resolved_interval(registration))
+        slots[index], infos[index] = self._group_member_trigger(
+            registration, trigger_slots
+        )
+
+    @staticmethod
+    def _build_group_schedule(
+        registrations: list[_TelemetryRegistration],
+        device_stores: list[DeviceStore | None],
+        intervals_ms: list[int],
+        failed: dict[int, float | None],
+        defer_first_cycle: bool,
+    ) -> tuple[list[tuple[int, int]], list[tuple[DeviceStore | None, str]]]:
+        """Build the first-run priority queue and cleanup-store list."""
+        heap = [
+            (intervals_ms[index] if defer_first_cycle else 0, index)
+            for index in range(len(registrations))
+            if index not in failed
+        ]
+        heapq.heapify(heap)
+        active_stores = [
+            (device_stores[index], registration.name)
+            for index, registration in enumerate(registrations)
+        ]
+        return heap, active_stores
 
     @staticmethod
     def _group_wake(slots: list[_TriggerSlot | None]) -> asyncio.Event | None:
@@ -1679,6 +1843,9 @@ class TelemetryRunner:
             await health_reporter.publish_device_available(
                 name, is_root=is_root, source="telemetry"
             )
+        # A re-created task's first successful cycle ends the task-failure
+        # mark, even when the publish strategy suppresses the publish (ADR-081).
+        await health_reporter.clear_task_failure(name, is_root=is_root)
         return None
 
     @staticmethod
@@ -1756,11 +1923,16 @@ class TelemetryRunner:
         reg: _DeviceRegistration,
         health_reporter: HealthReporter,
     ) -> None:
-        """Clear a device mark after a successful yielded work boundary."""
+        """Clear a device's marks after a successful yielded work boundary.
+
+        Clears the ``device`` source and, for a task the supervisor
+        re-created, its ``supervisor`` mark (ADR-081).
+        """
         if health_reporter.is_unavailable(reg.name, source="device"):
             await health_reporter.publish_device_available(
                 reg.name, is_root=reg.is_root, source="device"
             )
+        await health_reporter.clear_task_failure(reg.name, is_root=reg.is_root)
 
     @staticmethod
     async def _dispatch_telemetry_reactors(

@@ -209,11 +209,7 @@ class HealthCheckRunner:
         now: float,
     ) -> bool:
         """Attempt restart if threshold reached. Returns True if restarted."""
-        if self._restart_after_failures <= 0 or old.restart_exhausted:
-            return False
-        if failures < self._restart_after_failures:
-            return False
-        if old.restart_count > 0 and (now - old.last_restart) < self._restart_cooldown:
+        if not self._restart_is_due(old, failures, now):
             return False
 
         name = adapter_type.__qualname__
@@ -223,60 +219,93 @@ class HealthCheckRunner:
                 name,
                 self._max_restarts,
             )
-            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
-                healthy=False,
-                consecutive_failures=failures,
-                last_check=now,
-                restart_count=old.restart_count,
-                restart_exhausted=True,
-                last_restart=old.last_restart,
-                last_healthy_since=0.0,
-            )
+            self._mark_restart_exhausted(adapter_type, old, failures, now)
             return True
 
         if self._on_restart_needed is None:
             return False
 
-        success = await self._on_restart_needed(adapter_type, adapter)
+        try:
+            success = await self._on_restart_needed(adapter_type, adapter)
+        except Exception:
+            # The callback runs inside this loop, which the task supervisor
+            # treats as a framework loop (ADR-081): an escaping exception
+            # would end the process.  It counts as a failed restart instead.
+            logger.exception("Adapter %s restart raised", name)
+            success = False
         if success:
-            new_count = old.restart_count + 1
-            logger.warning(
-                "Restarting adapter %s after %d consecutive failures (restart %d/%d)",
-                name,
-                failures,
-                new_count,
-                self._max_restarts,
-            )
-            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
-                healthy=True,
-                consecutive_failures=0,
-                last_check=now,
-                restart_count=new_count,
-                restart_exhausted=False,
-                last_restart=now,
-                last_healthy_since=now,
-            )
-            for dev_name, is_root in self._device_map.get(adapter_type, []):
-                await self._health_reporter.publish_device_available(
-                    dev_name,
-                    is_root=is_root,
-                    source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
-                )
+            await self._record_successful_restart(adapter_type, old, failures, now)
         else:
             logger.critical(
                 "Adapter %s restart failed, marking as permanently offline",
                 name,
             )
-            self.adapter_health_status[adapter_type] = AdapterHealthStatus(
-                healthy=False,
-                consecutive_failures=failures,
-                last_check=now,
-                restart_count=old.restart_count,
-                restart_exhausted=True,
-                last_restart=old.last_restart,
-                last_healthy_since=0.0,
-            )
+            self._mark_restart_exhausted(adapter_type, old, failures, now)
         return True
+
+    def _restart_is_due(
+        self, old: AdapterHealthStatus, failures: int, now: float
+    ) -> bool:
+        """Return whether the failure state permits a restart attempt."""
+        return (
+            self._restart_after_failures > 0
+            and not old.restart_exhausted
+            and failures >= self._restart_after_failures
+            and (
+                old.restart_count == 0
+                or now - old.last_restart >= self._restart_cooldown
+            )
+        )
+
+    def _mark_restart_exhausted(
+        self,
+        adapter_type: type,
+        old: AdapterHealthStatus,
+        failures: int,
+        now: float,
+    ) -> None:
+        """Persist the terminal offline state for an adapter."""
+        self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+            healthy=False,
+            consecutive_failures=failures,
+            last_check=now,
+            restart_count=old.restart_count,
+            restart_exhausted=True,
+            last_restart=old.last_restart,
+            last_healthy_since=0.0,
+        )
+
+    async def _record_successful_restart(
+        self,
+        adapter_type: type,
+        old: AdapterHealthStatus,
+        failures: int,
+        now: float,
+    ) -> None:
+        """Record a successful restart and restore dependent devices."""
+        new_count = old.restart_count + 1
+        logger.warning(
+            "Restarting adapter %s after %d consecutive failures (restart %d/%d)",
+            adapter_type.__qualname__,
+            failures,
+            new_count,
+            self._max_restarts,
+        )
+        self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+            healthy=True,
+            consecutive_failures=0,
+            last_check=now,
+            restart_count=new_count,
+            restart_exhausted=False,
+            last_restart=now,
+            last_healthy_since=now,
+        )
+        for device_name, is_root in self._device_map.get(adapter_type, []):
+            await self._health_reporter.publish_device_available(
+                device_name,
+                is_root=is_root,
+                source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
+            )
 
     async def _shutdown_aware_sleep(self, seconds: float) -> None:
         """Sleep that returns early if shutdown is requested."""

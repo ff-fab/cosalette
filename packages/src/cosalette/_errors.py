@@ -100,7 +100,7 @@ class ErrorPayload:
 
 
 def build_error_payload(
-    error: Exception,
+    error: BaseException,
     *,
     error_type_map: dict[type[Exception], str] | None = None,
     device: str | None = None,
@@ -207,10 +207,12 @@ class ErrorPublisher:
 
     async def publish(
         self,
-        error: Exception,
+        error: BaseException,
         *,
         device: str | None = None,
         is_root: bool = False,
+        details: dict[str, object] | None = None,
+        log_traceback: bool = True,
     ) -> None:
         """Build an error payload and publish it to MQTT.
 
@@ -218,6 +220,12 @@ class ErrorPublisher:
         is provided, also publishes to ``{topic_prefix}/{device}/error``
         (skipped for root devices, whose per-device topic would
         duplicate the global topic).
+
+        *details* is attached to the payload's ``details`` object.  With
+        *log_traceback* ``False`` the local WARNING that ties the correlation
+        id to the payload is logged without the traceback; the task
+        supervisor uses this because its own CRITICAL line already carries
+        it (ADR-081).
 
         The entire pipeline (build → serialise → publish) is wrapped
         in fire-and-forget semantics: failures at *any* stage are
@@ -229,6 +237,7 @@ class ErrorPublisher:
                 error,
                 error_type_map=self.error_type_map,
                 device=device,
+                details=details,
                 clock=self.clock,
                 verbose=self.verbose,
                 correlation_id=correlation_id,
@@ -257,7 +266,7 @@ class ErrorPublisher:
             payload.error_type,
             device,
             error,
-            exc_info=error,
+            exc_info=error if log_traceback else None,
         )
         await self._safe_publish(global_topic, payload_json)
 

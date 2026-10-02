@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from cosalette._app import App
+    from cosalette._errors import ErrorPublisher
     from cosalette._persistence._state import StateRegistration
     from cosalette._registration import (
         _CommandRegistration,
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
         _TelemetryRegistration,
     )
     from cosalette._runners._periodic import _PeriodicRegistration
+    from cosalette._supervisor import TaskFailurePolicy
     from cosalette._wiring._adapter_lifecycle import _AdapterEntry
     from cosalette._wiring._discovery import DiscoveryConfig
 
@@ -41,12 +43,13 @@ from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._logging import configure_logging
-from cosalette._mqtt import MqttLifecycle, MqttPort
+from cosalette._mqtt import MqttClient, MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
 from cosalette._registration import LifespanFunc
 from cosalette._runners._notifier import EntityNotifier
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
+from cosalette._supervisor import TaskSupervisor
 from cosalette._wiring import _adapter_lifecycle
 
 logger = logging.getLogger(__name__)
@@ -70,6 +73,9 @@ class _LifecycleMixin:
     _max_restarts: int
     _restart_cooldown: float
     _sustained_health_reset: float
+    _on_task_failure: TaskFailurePolicy
+    _task_max_restarts: int
+    _task_restart_window: float
     _devices: list[_DeviceRegistration]
     _telemetry: list[_TelemetryRegistration]
     _commands: list[_CommandRegistration]
@@ -277,6 +283,9 @@ class _LifecycleMixin:
         )
 
         mqtt_client = _wiring.create_mqtt(mqtt, resolved_settings, prefix, self._name)
+        # The adapter itself, before schema enforcement wraps it: it owns the
+        # connection loops the task supervisor watches (ADR-081).
+        raw_mqtt_client = mqtt_client
 
         # Wrap with ValidatingMqttPort if schema enforcement is active
         mqtt_client, _validating_port = _apply_schema_enforcement(
@@ -320,6 +329,13 @@ class _LifecycleMixin:
         )
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
+        supervisor = self._create_supervisor(
+            resolved_clock,
+            shutdown_event,
+            health_reporter,
+            error_publisher,
+            raw_mqtt_client,
+        )
 
         try:
             # Detect restartable adapters and manage them outside the stack
@@ -467,16 +483,76 @@ class _LifecycleMixin:
                             first_connect=first_connect,
                             startup_connect_timeout=self._startup_connect_timeout,
                             reconnect_wake=reconnect_wake,
+                            supervisor=supervisor,
                         )
                     finally:
                         await router.aclose()
         finally:
-            await health_reporter.shutdown()
+            # Before the MQTT client stops, so its loops ending is expected.
+            await self._shutdown_infrastructure(
+                supervisor, health_reporter, mqtt_client
+            )
 
-            if isinstance(mqtt_client, MqttLifecycle):
-                await mqtt_client.stop()
+        self._raise_fatal_error(supervisor)
 
+    def _create_supervisor(
+        self,
+        clock: ClockPort,
+        shutdown_event: asyncio.Event,
+        health_reporter: HealthReporter,
+        error_publisher: ErrorPublisher | None,
+        raw_mqtt_client: MqttPort,
+    ) -> TaskSupervisor:
+        """Create the task supervisor and register real MQTT background loops."""
+        supervisor = TaskSupervisor(
+            policy=self._on_task_failure,
+            max_restarts=self._task_max_restarts,
+            restart_window=self._task_restart_window,
+            clock=clock,
+            shutdown_event=shutdown_event,
+            health_reporter=health_reporter,
+            error_publisher=error_publisher,
+        )
+        # The MQTT loops belong to the real client; test doubles opt out.
+        if isinstance(raw_mqtt_client, MqttClient):
+            for mqtt_task in raw_mqtt_client.supervised_tasks():
+                supervisor.supervise_internal(mqtt_task)
+        return supervisor
+
+    @staticmethod
+    async def _shutdown_infrastructure(
+        supervisor: TaskSupervisor,
+        health_reporter: HealthReporter,
+        mqtt_client: MqttPort,
+    ) -> None:
+        """Stop supervised infrastructure after application tasks have ended.
+
+        Stopping the MQTT client awaits its connection loop.  When that loop
+        is what died, ``stop()`` re-raises the loop's exception; the
+        supervisor has already reported it, and letting it escape would mask
+        :class:`TaskSupervisionError` (exit code 4) behind the raw error.
+        """
+        await supervisor.aclose()
+        await health_reporter.shutdown()
+        if not isinstance(mqtt_client, MqttLifecycle):
+            return
+        try:
+            await mqtt_client.stop()
+        except Exception as exc:
+            fatal = supervisor.fatal_error
+            if fatal is None:
+                raise
+            if exc is not fatal.__cause__:
+                logger.exception("MQTT client stop failed during supervised shutdown")
+
+    @staticmethod
+    def _raise_fatal_error(supervisor: TaskSupervisor) -> None:
+        """Propagate a supervised fatal task error after graceful teardown."""
         logger.info("Shutdown complete")
+        if supervisor.fatal_error is not None:
+            # After the graceful teardown, so the process exits with
+            # EXIT_TASK_FAILURE only once everything is cleaned up (ADR-081).
+            raise supervisor.fatal_error
 
     def _has_dynamic_entity_set(self) -> bool:
         """True when this app's entity set may vary by config across restarts.

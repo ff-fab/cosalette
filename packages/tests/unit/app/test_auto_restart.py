@@ -19,7 +19,7 @@ import contextlib
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import override
+from typing import Any, override
 from unittest.mock import AsyncMock
 
 import pytest
@@ -507,6 +507,29 @@ class TestRestartThresholdDetection:
         assert s.restart_count == 0  # never incremented on failure
         cb.assert_called_once()
 
+    async def test_raising_callback_counts_as_failed_restart(self) -> None:
+        """A callback that raises marks the adapter exhausted instead of escaping.
+
+        The callback runs inside the supervised health-checker loop (ADR-081
+        section 7); an escaping exception would end the process.
+        """
+        # Arrange
+        cb = AsyncMock(side_effect=RuntimeError("restart exploded"))
+        runner, *_ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+            restart_after_failures=1,
+            on_restart_needed=cb,
+        )
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        s = runner.adapter_health_status[_PortA]
+        assert s.restart_exhausted is True
+        assert s.restart_count == 0
+        cb.assert_awaited_once()
+
     async def test_cooldown_prevents_immediate_restart(self) -> None:
         """Restart is not attempted within the cooldown window."""
         cb = AsyncMock(return_value=True)
@@ -976,6 +999,51 @@ class TestOnRestartDeferredTaskHandoff:
         await h.teardown()
 
 
+class _RaisingHealthCheckAdapter(_TrackingAdapter):
+    """Restartable adapter whose post-restart health check raises."""
+
+    @override
+    async def health_check(self) -> bool:
+        msg = "probe exploded"
+        raise OSError(msg)
+
+
+def _restart_closure_vars(on_restart: Callable[..., Any]) -> inspect.ClosureVars:
+    """Closure variables of the restart body behind ``_on_restart``.
+
+    ``_on_restart`` wraps the inner ``_restart`` in the supervisor's
+    adapter-restart ownership (ADR-081), so the shared task state lives in
+    the inner closure.
+    """
+    outer = inspect.getclosurevars(on_restart)
+    inner = outer.nonlocals.get("_restart")
+    return inspect.getclosurevars(inner) if inner is not None else outer
+
+
+class TestOnRestartHardening:
+    """ADR-081 section 7: the restart callback never lets an adapter exception
+    escape into the health-checker loop.
+    """
+
+    async def test_raising_post_restart_health_check_is_failed_restart(
+        self,
+    ) -> None:
+        """A post-restart ``health_check()`` that raises returns ``False``."""
+        # Arrange
+        h = await _make_restart_wiring()
+        adapter = _RaisingHealthCheckAdapter()
+
+        # Act
+        result = await h.on_restart(_PortA, adapter)
+
+        # Assert
+        assert result is False
+        assert adapter.enter_count == 1
+
+        # Clean up
+        await h.teardown()
+
+
 class TestOnRestartPrunesCancelledTasks:
     """_on_restart closure prunes cancelled (done) tasks from device_tasks.
 
@@ -995,7 +1063,7 @@ class TestOnRestartPrunesCancelledTasks:
         # Assert — direct observation of device_tasks via closure vars
         assert result is True
 
-        closure_vars = inspect.getclosurevars(h.on_restart)
+        closure_vars = _restart_closure_vars(h.on_restart)
         assert "device_tasks" in closure_vars.nonlocals, (
             "closure variable 'device_tasks' not found — was it renamed?"
         )
@@ -1053,7 +1121,7 @@ class TestConcurrentAdapterRestart:
         assert result_b is True, "restart of adapter B failed"
 
         # Assert — device_task_map contains entries for both devices
-        closure_vars = inspect.getclosurevars(h.on_restart)
+        closure_vars = _restart_closure_vars(h.on_restart)
         assert "device_task_map" in closure_vars.nonlocals, (
             "closure variable 'device_task_map' not found — was it renamed?"
         )

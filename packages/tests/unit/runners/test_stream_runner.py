@@ -1,7 +1,7 @@
 """Unit tests for cosalette._runners._stream_runner — stream adapter runner.
 
 Covers: find_stream_adapter(), run_stream() lifecycle, cleanup on startup
-failure, CancelledError propagation, exception isolation, and watcher task
+failure, CancelledError propagation, exception propagation, and watcher task
 cleanup.
 
 Test Techniques Used:
@@ -12,7 +12,7 @@ Test Techniques Used:
     - Error Guessing: Anticipating RuntimeError for missing adapter/plan,
       and verifying cleanup runs even when startup fails.
     - Branch/Condition Coverage: All exception paths in run_stream
-      (CancelledError re-raise, generic exception isolation, startup failure).
+      (CancelledError re-raise, generic exception propagation, startup failure).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -219,9 +219,10 @@ class TestRunStream:
     async def test_cleanup_runs_when_port_open_raises(self) -> None:
         """stop_scan and close are called in finally even when port.open() raises.
 
-        run_stream catches generic exceptions (exception isolation), so it
-        returns normally. The finally block still runs, calling stop_scan/close.
+        run_stream re-raises the error so the task supervisor sees the
+        failure (ADR-081); the finally block still runs stop_scan/close.
         """
+        # Arrange
         exc = RuntimeError("open failed")
         port = _FakePort(open_raises=exc)
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
@@ -232,15 +233,22 @@ class TestRunStream:
             pass  # pragma: no cover
 
         reg = _make_reg(handler)
-        # Exception is caught and logged; run_stream returns normally
-        await run_stream(reg, resolved, {}, shutdown)
 
-        # Cleanup always runs via finally
+        # Act
+        with pytest.raises(RuntimeError, match="open failed"):
+            await run_stream(reg, resolved, {}, shutdown)
+
+        # Assert — cleanup always runs via finally
         assert "stop_scan" in port.calls
         assert "close" in port.calls
 
-    async def test_exception_in_handler_is_isolated(self) -> None:
-        """Handler exceptions are logged; run_stream returns normally."""
+    async def test_exception_in_handler_propagates_to_supervisor(self) -> None:
+        """Handler exceptions propagate unlogged; the supervisor reports them.
+
+        ADR-081: the runner no longer swallows failures, so the task ends
+        with the exception and the supervisor logs it exactly once.
+        """
+        # Arrange
         port = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
@@ -252,12 +260,18 @@ class TestRunStream:
 
         reg = _make_reg(bad_handler)
 
-        with patch.object(
-            logging.getLogger("cosalette._runners._stream_runner"), "exception"
-        ) as mock_log:
+        # Act
+        with (
+            patch.object(
+                logging.getLogger("cosalette._runners._stream_runner"), "exception"
+            ) as mock_log,
+            pytest.raises(ValueError, match="boom"),
+        ):
             await run_stream(reg, resolved, {}, shutdown)
 
-        mock_log.assert_called_once()
+        # Assert
+        mock_log.assert_not_called()
+        assert "close" in port.calls
 
     async def test_cancelled_error_propagates(self) -> None:
         """CancelledError is re-raised, not swallowed."""
@@ -435,7 +449,8 @@ class TestRunStreamDeviceContextAndStore:
             yield  # noqa: PGH004
 
         reg = _make_reg(bad_handler)
-        await run_stream(reg, resolved, {}, shutdown, store=mem_store)
+        with pytest.raises(RuntimeError, match="handler boom"):
+            await run_stream(reg, resolved, {}, shutdown, store=mem_store)
 
         saved = mem_store.load("test_stream")
         assert saved is not None
@@ -456,16 +471,9 @@ class TestRunStreamDeviceContextAndStore:
 
         reg = _make_reg(handler)
 
-        # run_stream isolates handler exceptions; capture via patched logger
-        with patch.object(
-            logging.getLogger("cosalette._runners._stream_runner"), "exception"
-        ) as mock_log:
+        # The resolve error propagates to the supervisor (ADR-081)
+        with pytest.raises(TypeError):
             await run_stream(reg, resolved, {}, shutdown, store=None)
-
-        # The exception should have been logged (handler failed during kwargs resolve)
-        mock_log.assert_called_once()
-        exc_arg = mock_log.call_args[0]
-        assert "test_stream" in str(exc_arg)
 
 
 # ---------------------------------------------------------------------------
@@ -900,3 +908,75 @@ class TestFalseyAdapterRegression:
 
         assert item_type is _Item
         assert adapter is falsey_port
+
+
+# ---------------------------------------------------------------------------
+# TestRunStreamTaskFailureRecovery (ADR-081)
+# ---------------------------------------------------------------------------
+
+
+class TestRunStreamTaskFailureRecovery:
+    """A re-created stream clears its heartbeat error at its first item.
+
+    Technique: State Transition Testing — no item -> first item -> later
+    items; the clear happens exactly once.
+    """
+
+    async def test_first_item_clears_task_failure_once(self) -> None:
+        """clear_stream_failure runs after the first item, not for later ones."""
+        # Arrange
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+        health = MagicMock()
+        cleared_before_item: list[bool] = []
+
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            async for _ in stream:
+                yield
+
+        reg = _make_reg(handler)
+
+        async def _drive() -> None:
+            await _yield_loop(5)
+            cleared_before_item.append(health.clear_stream_failure.call_count > 0)
+            port._callback(_Item())
+            port._callback(_Item())
+            await _yield_loop(10)
+            shutdown.set()
+
+        # Act
+        driver = asyncio.create_task(_drive())
+        await run_stream(reg, resolved, {}, shutdown, health_reporter=health)
+        await driver
+
+        # Assert
+        assert cleared_before_item == [False]
+        health.clear_stream_failure.assert_called_once_with("test_stream")
+        health.clear_task_failure.assert_not_called()
+
+    async def test_completion_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A stream handler that returns logs an INFO completion line."""
+        # Arrange
+        port = _FakePort()
+        resolved: dict[type, object] = {StreamablePort[_Item]: port}
+        shutdown = asyncio.Event()
+
+        async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
+            shutdown.set()
+            return
+            yield  # noqa: PGH004
+
+        reg = _make_reg(handler)
+
+        # Act
+        with caplog.at_level(logging.INFO, logger="cosalette._runners._stream_runner"):
+            await run_stream(reg, resolved, {}, shutdown)
+
+        # Assert
+        assert "stream 'test_stream' handler completed" in caplog.text
+
+
+async def _yield_loop(rounds: int) -> None:
+    for _ in range(rounds):
+        await asyncio.sleep(0)

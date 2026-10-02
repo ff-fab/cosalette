@@ -23,6 +23,7 @@ from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
+    from cosalette._health import HealthReporter
     from cosalette._registration import _ReactorRegistration
 
 logger = logging.getLogger(__name__)
@@ -165,6 +166,7 @@ async def run_stream(
     shutdown_event: asyncio.Event,
     reactors: list[_ReactorRegistration] | None = None,
     store: Store | None = None,
+    health_reporter: HealthReporter | None = None,
 ) -> None:
     """Open adapter, wire stream, run handler, tear down.
 
@@ -184,7 +186,11 @@ async def run_stream(
        registered callbacks; the watcher task is then cancelled and stream
        shutdown is signalled.
 
-    CancelledError propagates immediately for clean shutdown.
+    CancelledError propagates immediately for clean shutdown.  Any other
+    exception that ends the handler propagates too, so the task supervisor
+    can report it and apply ``on_task_failure`` (ADR-081); a normal return
+    is logged at INFO.  With *health_reporter*, the first item the handler
+    produces clears the supervisor's task-failure mark.
     """
     _item_type, _port = find_stream_adapter(reg, resolved_adapters)
     stream: Stream[Any] = Stream(maxsize=reg.maxsize, backpressure=reg.backpressure)
@@ -229,17 +235,33 @@ async def run_stream(
             await port.open()
             port.register_callback(stream.put)
             await port.start_scan()
-            await _run_stream_handler(reg, stream, stream_providers, reactors)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        logger.exception("Stream handler '%s' error", reg.name)
+            await _run_stream_handler(
+                reg,
+                stream,
+                stream_providers,
+                reactors,
+                on_first_item=_recovery_callback(reg.name, health_reporter),
+            )
     finally:
         watcher.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await watcher
         stream.shutdown()
         await async_save_store_on_shutdown(device_store, reg.name)
+    logger.info("stream '%s' handler completed", reg.name)
+
+
+def _recovery_callback(
+    name: str, health_reporter: HealthReporter | None
+) -> Callable[[], Awaitable[None]] | None:
+    """Return the first-item callback that ends a task-failure mark."""
+    if health_reporter is None:
+        return None
+
+    async def _clear() -> None:
+        health_reporter.clear_stream_failure(name)
+
+    return _clear
 
 
 async def _run_stream_handler(
@@ -247,6 +269,8 @@ async def _run_stream_handler(
     stream: Stream[Any],
     providers: dict[type, Any],
     reactors: list[_ReactorRegistration] | None,
+    *,
+    on_first_item: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run stream handler and dispatch reactors after each yield.
 
@@ -282,4 +306,6 @@ async def _run_stream_handler(
     # Iterate the async iterable and dispatch reactors after each yield
     from cosalette._wiring._reactors import run_reactor_boundaries
 
-    await run_reactor_boundaries(result, providers, reactors)
+    await run_reactor_boundaries(
+        result, providers, reactors, on_first_item=on_first_item
+    )

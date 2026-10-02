@@ -138,8 +138,10 @@ the framework manages the port and injects only the stream.
 `DeviceContext` is always available for injection. `DeviceStore` requires the
 app to be configured with a store backend (`App(store=...)`); without one,
 declaring `DeviceStore` causes a `TypeError` when the handler starts — the
-production stream runner logs the error and exits the task; `AppHarness.inject_stream`
-raises it directly to the test.
+error ends the stream task. The task supervisor reports it and, by default,
+restarts it with backoff; an exhausted restart budget shuts down the app (see
+[Stream failures](error-handling.md#stream-failures));
+`AppHarness.inject_stream` raises it directly to the test.
 
 Before invoking the handler, the framework:
 

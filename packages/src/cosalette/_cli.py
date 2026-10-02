@@ -21,11 +21,16 @@ from typing import TYPE_CHECKING, Annotated, Any, cast, get_args
 import typer
 from pydantic import ValidationError
 
-from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR
+from cosalette._constants import (
+    EXIT_CONFIG_ERROR,
+    EXIT_RUNTIME_ERROR,
+    EXIT_TASK_FAILURE,
+)
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
 from cosalette._settings._config_file import SettingsLoadError
+from cosalette._supervisor import TaskSupervisionError
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -101,7 +106,8 @@ def _run_app(app: App, settings: Settings) -> None:
     """Execute the application's async lifecycle.
 
     Handles :class:`KeyboardInterrupt` (suppressed),
-    :class:`SystemExit` (re-raised), and unexpected exceptions
+    :class:`SystemExit` (re-raised), a supervised task failure (exits
+    with :data:`EXIT_TASK_FAILURE`, ADR-081), and unexpected exceptions
     (exits with :data:`EXIT_RUNTIME_ERROR`).
     """
     try:
@@ -109,6 +115,10 @@ def _run_app(app: App, settings: Settings) -> None:
             asyncio.run(app._run_async(settings=settings))
     except SystemExit:
         raise
+    except TaskSupervisionError as exc:
+        # The supervisor already logged the failure at CRITICAL.
+        logger.error("Exiting after a task failure: %s", exc)
+        sys.exit(EXIT_TASK_FAILURE)
     except Exception as exc:
         logger.error("Runtime error: %s", exc)
         sys.exit(EXIT_RUNTIME_ERROR)

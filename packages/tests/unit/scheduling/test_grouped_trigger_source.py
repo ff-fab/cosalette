@@ -51,6 +51,7 @@ from cosalette._injection import build_injection_plan
 from cosalette._registration import _TelemetryRegistration
 from cosalette._runners._telemetry_runner import TelemetryRunner
 from cosalette._strategies import OnChange, PublishStrategy
+from cosalette._supervisor import TaskSupervisor
 from cosalette._wiring import TriggerConfig
 from cosalette._wiring._discovery import DiscoveryConfig, build_discovery_payloads
 from cosalette.testing import AppHarness, FakeClock, MockMqttClient, make_settings
@@ -106,6 +107,10 @@ class _GroupBench:
         self.shutdown = asyncio.Event()
         self.runs: list[_Run] = []
         self.failing_init: str | set[str] | None = None
+        # Attempts after which a failing init= succeeds (None: never).
+        self.init_fails_for: int | None = None
+        self.init_attempts = 0
+        self.supervisor: TaskSupervisor | None = None
         self._members = members
 
     def _fails_init(self, name: str) -> bool:
@@ -181,6 +186,10 @@ class _GroupBench:
         """Run the group scheduler until the script requests shutdown."""
 
         def _boom() -> object:
+            self.init_attempts += 1
+            limit = self.init_fails_for
+            if limit is not None and self.init_attempts > limit:
+                return object()
             msg = "init failed"
             raise RuntimeError(msg)
 
@@ -205,7 +214,7 @@ class _GroupBench:
         self.config = TriggerConfig.build(regs)
         self.slots = self.config.slots
 
-        runner = TelemetryRunner(None)
+        runner = TelemetryRunner(None, supervisor=self.supervisor)
         await asyncio.wait_for(
             runner.run_telemetry_group(
                 _GROUP,
@@ -515,31 +524,6 @@ class TestArmWakesOneMember:
         woken = bench.runs_of("alpha")[1]
         assert (woken.source, woken.raw) == (expected_source, expected_raw)
 
-    async def test_arm_on_a_member_excluded_by_a_failing_init_is_inert(self) -> None:
-        """A dead member is never scanned for arms, and never spins the loop."""
-        # Arrange
-        bench = _GroupBench(
-            _Member("alpha", interval=1, triggerable="local"),
-            _Member("beta", interval=1, triggerable="local"),
-        )
-        bench.failing_init = "beta"
-
-        async def script(b: _GroupBench, _name: str, _trigger: TriggerPayload) -> None:
-            if len(b.runs) == 1:
-                b.arm_local("beta")
-            if len(b.runs) >= 2:
-                b.stop()
-
-        # Act
-        await bench.run(script)
-
-        # Assert — beta never runs; alpha keeps ticking on the shared epoch
-        assert bench.runs_of("beta") == []
-        assert [(r.at, r.source) for r in bench.runs_of("alpha")] == [
-            (0.0, "scheduled"),
-            (1.0, "scheduled"),
-        ]
-
     async def test_off_thread_arm_wakes_one_grouped_member(self) -> None:
         """A foreign-thread EntityNotifier arm reaches the group scheduler.
 
@@ -578,29 +562,80 @@ class TestArmWakesOneMember:
             ("alpha", 0.0, "local"),
         ]
 
-    async def test_every_member_failing_init_exits_cleanly(self) -> None:
-        """When no member survives init, the scheduler returns without spinning.
+    @pytest.mark.parametrize("failing", ["beta", {"alpha", "beta"}])
+    async def test_failing_member_init_ends_an_unsupervised_group_task(
+        self, failing: str | set[str]
+    ) -> None:
+        """Without a supervisor a raising ``init=`` propagates (ADR-081).
 
-        Technique: Error Guessing — the all-fail degenerate case takes the
-        ``_init_group_handlers() is None`` early return in
-        :meth:`run_telemetry_group`, a silent path a broken implementation
-        could turn into a hang.
+        Technique: Equivalence Partitioning — one failing member and every
+        member failing take the same path: no member runs, no arm is
+        scanned, and the runner publishes no error of its own.  Member
+        isolation needs the task supervisor; a bare runner keeps the
+        propagate behaviour.
         """
         # Arrange
         bench = _GroupBench(
             _Member("alpha", interval=1, triggerable="local"),
             _Member("beta", interval=1, triggerable="local"),
         )
-        bench.failing_init = {"alpha", "beta"}
+        bench.failing_init = failing
 
         async def script(b: _GroupBench, _name: str, _trigger: TriggerPayload) -> None:
-            b.stop()  # never reached — no member survives init
+            b.stop()  # never reached — the group never starts
 
-        # Act — asyncio.wait_for would raise TimeoutError if the loop spun
+        # Act / Assert
+        with pytest.raises(RuntimeError, match="init failed"):
+            await bench.run(script, timeout=2.0)
+        assert bench.runs == []
+        assert bench.mqtt.get_messages_for("test/error") == []
+
+    @pytest.mark.parametrize(
+        ("policy", "fails_for", "expected_beta"),
+        [
+            ("ignore", None, []),
+            ("restart", 1, [("beta", 1.0, "local")]),
+        ],
+        ids=["stays-offline", "joins-after-retry"],
+    )
+    async def test_inactive_member_arm_waits_for_its_init(
+        self, policy: str, fails_for: int | None, expected_beta: list[Any]
+    ) -> None:
+        """An arm on a member whose init failed is held, not run (ADR-081).
+
+        Technique: State Transition Testing — inactive -> (retry) joined.
+        The held arm neither runs the member nor spins the scheduler; once
+        the member's retried init succeeds, the arm is delivered.
+        """
+        # Arrange
+        bench = _GroupBench(
+            _Member("alpha", interval=10),
+            _Member("beta", interval=10, triggerable="local"),
+        )
+        bench.failing_init = "beta"
+        bench.init_fails_for = fails_for
+        bench.supervisor = TaskSupervisor(
+            policy=policy,  # ty: ignore[invalid-argument-type]
+            clock=bench.clock,
+            shutdown_event=bench.shutdown,
+        )
+
+        async def script(b: _GroupBench, name: str, _trigger: TriggerPayload) -> None:
+            if name == "alpha" and len(b.runs_of("alpha")) == 1:
+                b.arm_local("beta")
+            if len(b.runs_of("alpha")) == 3:
+                b.stop()
+
+        # Act
         await bench.run(script, timeout=2.0)
 
         # Assert
-        assert bench.runs == []
+        assert [r for r in bench.timeline() if r[0] == "alpha"] == [
+            ("alpha", 0.0, "scheduled"),
+            ("alpha", 10.0, "scheduled"),
+            ("alpha", 20.0, "scheduled"),
+        ]
+        assert [r for r in bench.timeline() if r[0] == "beta"][:1] == expected_beta
 
 
 class TestTickAlignmentSurvivesATriggeredRun:

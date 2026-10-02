@@ -164,8 +164,18 @@ Raised when a time interval is not positive.
 | Location | Parameter | Message |
 |---|---|---|
 | `App()` | `heartbeat_interval` | `heartbeat_interval must be positive, got {value}` |
+| `App()` | `task_restart_window` | `task_restart_window must be positive, got {value}` |
 | `app.device()` | `interval` | `Telemetry interval must be positive, got {interval}` |
 | Bootstrap wiring | resolved interval | `Telemetry interval for {name!r} must be positive, got {resolved}` |
+
+#### Task Supervision Parameters
+
+Raised by `App()` when a supervision parameter is invalid (ADR-081).
+
+| Parameter | Message |
+|---|---|
+| `on_task_failure` | `on_task_failure must be one of 'restart', 'exit', 'ignore', got {value!r}` |
+| `task_max_restarts` | `task_max_restarts must be an int >= 0, got {value!r}` |
 
 #### Duplicate Registration
 
@@ -450,6 +460,20 @@ provides invalid command-line arguments.
 
 The CLI exits with code 1 (`EXIT_CONFIG_ERROR`) when the configuration
 model raises a validation error (e.g. from pydantic).
+
+### TaskSupervisionError
+
+| Location | Message |
+|---|---|
+| `App.run()` | `Task {task_name!r} failed after {restart_count} restart(s)` |
+| `App.run()` | `Framework loop {task_name!r} died` |
+
+Raised when the task supervisor shuts the app down (ADR-081): a
+framework-started task failed under `on_task_failure="exit"`, used up its
+restart budget, or a framework loop died. Attributes: `task_name`,
+`restart_count` and `internal`; the task's exception is the `__cause__`. The
+CLI exits with code 4 (`EXIT_TASK_FAILURE`). See
+[Task Supervision](../concepts/error-handling.md#task-supervision).
 
 ## Error Publishing Pipeline
 

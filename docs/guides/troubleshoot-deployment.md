@@ -65,6 +65,7 @@ Diagnose and fix common problems with containerised cosalette applications.
     | --- | --- | --- |
     | `1` | Configuration error | Check env vars — missing required field, invalid value |
     | `3` | Runtime error | Check logs with `docker logs myapp` for the root cause |
+    | `4` | Task failure (ADR-081) | A device, telemetry, periodic or stream task kept failing. Search the logs for the `CRITICAL` line from `cosalette._supervisor` — it names the task and carries the traceback |
     | `137` | OOM killed / SIGKILL | Increase memory limit or reduce footprint |
 
 **Image fails to build for arm64**
