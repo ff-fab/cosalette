@@ -417,6 +417,16 @@ Set `stale_after=` explicitly if you use a backoff that sleeps longer than 60 s
 per retry.  See
 [Transport Availability Signaling](transport-availability.md#freshness-stale_after).
 
+### Fix: offline availability survives an MQTT outage (v0.11.0+)
+
+Through 0.10.6 a device that went `"offline"` while the broker was unreachable
+lost that publish, and the reconnect skipped unavailable devices, so the broker
+kept an older retained `"online"` for a device that was still failing. Every MQTT
+reconnect now re-publishes the live availability of each tracked device:
+`"online"` for available devices and `"offline"` for unavailable ones. No code
+change is needed; subscribers may see one extra, unchanged retained `"offline"`
+per unavailable device after a reconnect.
+
 ---
 
 ## `state_model=` Return-Value Enforcement (v0.9.0+)

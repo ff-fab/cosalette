@@ -4,6 +4,8 @@ Test Techniques Used:
     - State-based Testing: reannounce republishes 'online' for tracked devices.
     - Boundary Value Analysis: root device uses flat availability topic.
     - Specification-based Testing: removed devices are NOT re-onlined.
+    - State Transition Testing: an offline publish dropped during an MQTT
+      outage is re-asserted on reconnect for every unavailable source.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from cosalette._health import HealthReporter
+from cosalette._mqtt import MqttNotConnectedError
 from cosalette.testing import FakeClock, MockMqttClient
 
 pytestmark = pytest.mark.unit
@@ -36,7 +39,7 @@ def reporter(mock_mqtt: MockMqttClient) -> HealthReporter:
 
 
 class TestReannounce:
-    """HealthReporter.reannounce() re-publishes 'online' for tracked devices."""
+    """HealthReporter.reannounce() re-publishes live availability on reconnect."""
 
     async def test_reannounce_root_device(
         self,
@@ -88,15 +91,15 @@ class TestReannounce:
         reporter: HealthReporter,
         mock_mqtt: MockMqttClient,
     ) -> None:
-        """A device made unavailable is NOT re-onlined."""
+        """A device made unavailable is NOT re-onlined; offline is re-asserted."""
         await reporter.publish_device_available("sensor", is_root=False)
         await reporter.publish_device_unavailable("sensor", is_root=False)
         mock_mqtt.reset()
 
         await reporter.reannounce()
 
-        # sensor is marked unavailable — no re-online publish
-        assert mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability") == []
+        published = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert [payload for payload, *_ in published] == ["offline"]
 
     async def test_reannounce_empty_is_noop(
         self,
@@ -130,7 +133,8 @@ class TestReannounce:
 
         await reporter.reannounce()
 
-        assert mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability") == []
+        published = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert [payload for payload, *_ in published] == ["offline"]
 
     async def test_unavailable_device_kept_in_heartbeat_roster(
         self,
@@ -215,3 +219,55 @@ class TestReannounce:
 
         published = mock_mqtt.get_messages_for(f"{PREFIX}/availability")
         assert "offline" in [payload for payload, *_ in published]
+
+
+class TestReannounceRepairsDroppedOffline:
+    """Reconnect re-asserts ``offline`` that was dropped during an MQTT outage.
+
+    Technique: State Transition Testing - the device goes unavailable while
+    the broker is down, so the retained ``offline`` never lands; the
+    reconnect must repair it for every unavailable source, not only the
+    ADR-080 ``freshness`` source (cos-4mv5.15).
+    """
+
+    @pytest.mark.parametrize("source", ["manual", "telemetry", "health:port"])
+    async def test_offline_dropped_during_outage_is_republished_on_reconnect(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+        source: str,
+    ) -> None:
+        # Arrange
+        await reporter.publish_device_available("sensor")
+        mock_mqtt.raise_on_publish = MqttNotConnectedError("down")
+        await reporter.publish_device_unavailable("sensor", source=source)
+        mock_mqtt.raise_on_publish = None
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.reannounce()
+
+        # Assert
+        published = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert published == [("offline", True, 1)]
+
+    async def test_reconnect_republishes_offline_and_online_per_device(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+    ) -> None:
+        """Each tracked device gets its live state, on its own topic."""
+        # Arrange
+        await reporter.publish_device_available("app", is_root=True)
+        await reporter.publish_device_available("sensor")
+        await reporter.publish_device_unavailable("app", is_root=True)
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.reannounce()
+
+        # Assert
+        root = mock_mqtt.get_messages_for(f"{PREFIX}/availability")
+        sensor = mock_mqtt.get_messages_for(f"{PREFIX}/sensor/availability")
+        assert [payload for payload, *_ in root] == ["offline"]
+        assert [payload for payload, *_ in sensor] == ["online"]

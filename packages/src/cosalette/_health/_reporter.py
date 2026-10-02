@@ -391,27 +391,20 @@ class HealthReporter:
         """Re-publish current availability for all currently-tracked devices.
 
         Called after an MQTT reconnect so retained availability reflects the
-        live state. Devices currently marked unavailable are skipped and keep
-        their last retained ``"offline"`` value — without that check a
-        reconnect would republish ``"online"`` for a device that is still
-        failing, and would do so again on every reconnect (ADR-077).
+        live state: ``"online"`` for available devices and ``"offline"`` for
+        devices marked unavailable by any source.  Re-asserting ``"offline"``
+        repairs a transition that happened while the broker was unreachable,
+        whose publish was dropped and would otherwise leave an older retained
+        ``"online"`` in place; it also never resurrects a failing device
+        (ADR-077).
 
         See Also:
             ADR-012 — Health and availability reporting.
             ADR-077 — Automatic transport availability.
         """
         for device in list(self._devices):
-            sources = self._unavailable.get(device, set())
-            if "freshness" in sources:
-                # A stale transition can occur while MQTT is unavailable.  Its
-                # source still records the true state, so assert the retained
-                # offline value on reconnect instead of leaving an older
-                # retained online value in place.
-                await self._safe_publish(self._availability_topic(device), "offline")
-            elif sources:
-                continue
-            else:
-                await self._safe_publish(self._availability_topic(device), "online")
+            payload = "offline" if self.is_unavailable(device) else "online"
+            await self._safe_publish(self._availability_topic(device), payload)
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.

@@ -240,12 +240,14 @@ Compatible with Home Assistant's
 schema.
 
 !!! note "Re-announced on every (re)connect"
-    The framework re-asserts `"online"` availability for all currently-available
-    devices on every successful MQTT (re)connect. This means retained availability
-    recovers automatically after a broker restart or network interruption — late
-    subscribers always see the correct state. Devices that transitioned offline
-    after initial startup keep their last retained `"offline"` and are not
-    re-announced. See [ADR-012 amendment](../adr/ADR-012-health-and-availability-reporting.md).
+    The framework re-asserts the live availability of every tracked device on
+    every successful MQTT reconnect: `"online"` for available devices and
+    `"offline"` for devices that went unavailable after startup. Retained
+    availability therefore recovers automatically after a broker restart or
+    network interruption — including an `"offline"` transition whose publish was
+    dropped while the broker was unreachable — and late subscribers always see the
+    correct state. See [ADR-012 amendment](../adr/ADR-012-health-and-availability-reporting.md)
+    and [ADR-077](../adr/ADR-077-automatic-transport-availability-for-the-telemetry-and-device-archetypes.md).
 ### Sub-Entity Availability
 
 Sub-entities follow the same pattern one level deeper:
