@@ -547,63 +547,76 @@ cosalette ai help resilience""",
         "health": """🏥 Health Monitoring + Auto-Restart Guide
 
 Health System:
-  • HealthCheckable protocol for custom health checks
-  • health_check_interval parameter for automatic monitoring
-  • Auto-restart on health check failures
-  • Per-device availability reporting + app-level status
+  • HealthCheckable protocol: adapters expose async health_check() -> bool
+  • App(health_check_interval=30.0) probes every HealthCheckable adapter
+    (None disables). It is an App parameter, not a decorator parameter
+  • Auto-restart of adapters after repeated failed probes
+  • Per-device availability reporting + app-level status heartbeat
 
 Core Concepts:
   • App-level status + LWT for crash detection
   • Per-device availability topics, granular monitoring
   • Structured JSON heartbeat + version + device status
-  • HealthCheckable protocol for custom health validation
-
-Common Patterns:
-  1. Implement HealthCheckable protocol for custom health checks
-  2. Set health_check_interval for automatic monitoring
-  3. Use app-level + device-level availability reporting
+  • Adapter-to-device mapping by DI: a probe failure affects only the
+    entities whose handlers inject that adapter's port
 
 Example:
   ```python
-  from cosalette import App, DeviceContext, HealthCheckable
+  from typing import Protocol
 
-  class DatabaseMonitor(HealthCheckable):
-      async def health_check(self) -> tuple[bool, str]:
-          try:
-              await self.db.execute("SELECT 1")
-              return True, "ok"
-          except Exception as e:
-              return False, f"db_error: {e}"
+  from cosalette import App, DeviceContext
 
-  app = App(name="monitor", version="1.0.0")
 
-  @app.telemetry("sensor", interval=30.0, health_check_interval=60.0,
-                  init=make_monitor)
-  async def sensor(monitor: DatabaseMonitor, ctx: DeviceContext) -> dict:
-      # Framework automatically calls monitor.health_check() every 60s
-      # Auto-restarts device if health check fails
-      return {"value": await monitor.read_value()}
+  class SensorPort(Protocol):
+      async def read(self) -> float: ...
+
+
+  class SensorAdapter:
+      async def read(self) -> float: ...
+
+      async def health_check(self) -> bool:  # HealthCheckable (ADR-028)
+          return await self._ping()  # timeouts and exceptions count as False
+
+
+  app = App(
+      name="monitor",
+      version="1.0.0",
+      health_check_interval=60.0,  # seconds between probes
+      restart_after_failures=5,  # 0 disables auto-restart
+      max_restarts=3,
+  )
+  app.adapter(SensorPort, SensorAdapter)
+
+
+  @app.telemetry("sensor", interval=30.0)
+  async def sensor(port: SensorPort, ctx: DeviceContext) -> dict[str, float]:
+      return {"value": await port.read()}
   ```
 
 Health Check Behavior:
-  • health_check_interval triggers automatic health validation
-  • Failed health checks set device availability → "error"
-  • Auto-restart attempts to recover from transient failures
-  • Device availability goes "offline" → "online" on successful restart
-  • App-level heartbeat includes per-device status aggregation
+  • One probe per adapter at startup, then every health_check_interval
+  • Each probe times out after health_check_interval / 2 (counts as failure)
+  • First failed probe publishes "offline" to every dependent entity's
+    {app}/{device}/availability; the next passing probe republishes "online"
+  • Probes are informational: telemetry keeps polling while unhealthy
+  • After restart_after_failures consecutive failures, an adapter that is an
+    async context manager is exited and re-entered (restart_cooldown between),
+    at most max_restarts times; sustained_health_reset restores the budget
+  • Adapters without __aenter__/__aexit__ cannot be restarted (WARNING at
+    startup); set restartable = False to opt out deliberately (INFO)
 
 MQTT Topics:
   • {app}/status — App-level status + LWT (offline) + JSON heartbeat
-  • {app}/{device}/availability — Per-device availability (online/offline/error)
-  • Structured heartbeat includes version + per-device status
+  • {app}/{device}/availability — Per-device availability (online/offline)
+  • Heartbeat device entries carry the status reason (ok, error,
+    circuit_open, ...) — availability itself is only online/offline
 
 Best Practices:
   • Implement HealthCheckable for external dependency monitoring
-  • Set appropriate health_check_interval based on criticality
-  • Keep health checks lightweight + fast
-  • Return descriptive status messages for debugging
+  • Keep health checks lightweight + fast (well under interval / 2)
+  • Return False rather than raising for expected unhealthy states
 
-Related: cosalette ai help resilience""",
+Related: cosalette ai help resilience, cosalette ai help availability""",
         "scheduling": """⏰ Scheduling + Wall-Clock Alignment Guide
 
 Scheduling Methods:

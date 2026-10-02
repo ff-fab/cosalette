@@ -238,6 +238,44 @@ class TestGetHelpContent:
         for pattern in expected_patterns:
             assert pattern in content
 
+    def test_health_help_example_matches_the_real_api(self):
+        """The health example must not drift from App and HealthCheckable.
+
+        Regression for cos-4mv5.3: the topic showed health_check_interval on
+        @app.telemetry and health_check() returning tuple[bool, str].
+
+        Technique: Specification-based Testing - the example is parsed and
+        checked against the live App signature and the protocol's return type.
+        """
+        import ast
+        import inspect
+        import re
+
+        from cosalette import App
+
+        content = get_help_content("health")
+        code = re.search(r"```python\n(.*?)```", content, re.DOTALL)
+        assert code is not None
+        tree = ast.parse(inspect.cleandoc(code.group(1)))
+
+        app_params = set(inspect.signature(App.__init__).parameters)
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call):
+                continue
+            kwargs = {kw.arg for kw in call.keywords}
+            if isinstance(call.func, ast.Name) and call.func.id == "App":
+                assert kwargs <= app_params
+            else:
+                assert "health_check_interval" not in kwargs
+
+        checks = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "health_check"
+        ]
+        assert [ast.unparse(c.returns) for c in checks if c.returns] == ["bool"]
+        assert "tuple[bool, str]" not in content
+
     def test_get_help_content_availability_scopes_mqtt_expiry_to_new_messages(self):
         """Availability help distinguishes post-opt-in expiry from legacy orphans.
 
@@ -427,9 +465,16 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.10.2")
+        content = get_whats_new_content("0.10.7")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_10_7_describes_terminal_failure_offline(self):
+        """The 0.10.7 entry explains offline on retry=0 / non-retryable failures."""
+        content = get_whats_new_content("0.10.6")
+
+        assert "0.10.7" in content
+        assert "retry=0" in content
 
     def test_get_whats_new_content_0_10_2_describes_openhab_availability(self):
         """The 0.10.2 entry covers openHAB availability wiring and thing_params.
