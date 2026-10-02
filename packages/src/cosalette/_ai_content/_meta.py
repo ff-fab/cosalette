@@ -625,6 +625,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "only retry-exhausted cycles counted, so with the default retry=0 the "
         "breaker never opened and a failed half-open probe kept probing every "
         "cycle (bug fix, ADR-024 amendment).",
+        "Persistent telemetry error reminders (ADR-082): a suppressed "
+        "same-type error is republished and logged at WARNING on the 2nd, "
+        "4th, 8th, ... failure within the first error_reminder_interval "
+        "(default 3600 s), then once per interval; App(error_reminder_"
+        "interval=None) restores onset-only. Telemetry error payloads carry "
+        "details.count and details.first_seen, recovery logs the outage "
+        "duration, and heartbeat telemetry entries gain last_error and "
+        "failing_since (behaviour change, see: cosalette ai help availability).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

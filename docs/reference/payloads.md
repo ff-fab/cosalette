@@ -54,7 +54,7 @@ name is known) to `{prefix}/{device}/error`. Defined in
 | `message` | `str` | Human-readable description (`str(exception)`). |
 | `device` | `str | null` | Device name if the error is device-scoped, otherwise `null`. |
 | `timestamp` | `str` | ISO 8601 timestamp with timezone (e.g. `"2026-02-14T12:34:56+00:00"`). |
-| `details` | `object` | Optional dict of additional context. Defaults to `{}` when not provided. |
+| `details` | `object` | Optional dict of additional context. Defaults to `{}` when not provided. Telemetry errors carry `count` (consecutive failed cycles) and `first_seen` (ISO 8601 UTC time of the first one); a repeat of the same error is published only as a reminder (ADR-082). |
 
 ### Error Type Mapping
 
@@ -136,6 +136,8 @@ Each entry in the `devices` map is a `DeviceStatus` object:
 | `status` | `str` | Free-form status string. Defaults to `"ok"` when a device is registered as available. |
 | `last_success_at` | `str \| null` | Telemetry only: ISO 8601 UTC time of the last fresh cycle, `null` before the first (ADR-080). |
 | `consecutive_failures` | `int` | Telemetry only: failed cycles since the last fresh one (ADR-080). |
+| `last_error` | `str \| null` | Telemetry only: exception class name of the current failure streak, `null` while healthy (ADR-082). |
+| `failing_since` | `str \| null` | Telemetry only: ISO 8601 UTC time of the streak's first failure, `null` while healthy (ADR-082). |
 
 A telemetry entity with no fresh cycle for its `stale_after` bound reports
 `status: "stale"`, which outranks `"error"`.  Non-telemetry entries carry

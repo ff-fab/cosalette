@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 
 def _validate_positive_interval(name: str, value: float | None) -> None:
     """Raise ``ValueError`` if *value* is non-``None`` and not positive."""
-    if value is not None and value <= 0:
+    if value is not None and (not math.isfinite(value) or value <= 0):
         msg = f"{name} must be positive, got {value}"
         raise ValueError(msg)
 

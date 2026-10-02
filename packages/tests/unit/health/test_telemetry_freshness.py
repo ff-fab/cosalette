@@ -479,11 +479,14 @@ class TestHeartbeatFreshness:
         await reporter.publish_heartbeat()
 
         entry = _last_heartbeat(mock_mqtt)["devices"]["sensor"]
+        failing_since = entry.pop("failing_since")
         assert entry == {
             "status": "stale",
             "last_success_at": None,
             "consecutive_failures": 2,
+            "last_error": "TransportError",
         }
+        assert failing_since.endswith("+00:00")
 
     async def test_success_records_timestamp_and_resets_counter(
         self, reporter: HealthReporter, mock_mqtt: MockMqttClient

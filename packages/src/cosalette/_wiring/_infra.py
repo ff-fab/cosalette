@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from cosalette._clock import ClockPort
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter, build_will_config
+from cosalette._health._reporter import DEFAULT_ERROR_REMINDER_INTERVAL
 from cosalette._mqtt import MqttClient, MqttConnectAware, MqttPort
 from cosalette._persistence._state import StateRegistration, _FactoryVariant
 from cosalette._registration import (
@@ -84,6 +85,7 @@ def create_services(
     error_publish_verbose: bool = False,
     error_type_map: dict[type[Exception], str] | None = None,
     disclose_messages_for: frozenset[type[Exception]] | None = None,
+    error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
 ) -> tuple[HealthReporter, ErrorPublisher]:
     """Build the HealthReporter and ErrorPublisher.
 
@@ -105,6 +107,7 @@ def create_services(
         version=version,
         clock=clock,
         include_version=heartbeat_include_version,
+        error_reminder_interval=error_reminder_interval,
     )
     merged_error_type_map = {**(error_type_map or {}), **_FRAMEWORK_ERROR_TYPE_MAP}
     error_publisher = ErrorPublisher(

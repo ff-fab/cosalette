@@ -93,8 +93,10 @@ async def run_telemetry(self, reg, ctx, error_publisher):
 
 The framework wraps each telemetry call in error isolation with **state-transition
 deduplication** — the first error of each type is published, but repeated same-type
-errors are suppressed to prevent flooding. When the sensor recovers, the framework
-logs recovery and restores the device health status.
+errors are suppressed to prevent flooding. A persisting error is republished as a
+reminder on a bounded schedule (`App(error_reminder_interval=)`, ADR-082). When the
+sensor recovers, the framework logs recovery with the outage duration and restores
+the device health status.
 
 ## Publish strategies
 

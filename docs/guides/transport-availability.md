@@ -255,13 +255,14 @@ an entity online while a failure mark (`unavailable_on`, `ctx.mark_unavailable()
 still holds it offline, and vice versa.
 
 The `{prefix}/status` heartbeat reports a stale entity as `"stale"` (it outranks
-`"error"`) and adds two fields to every telemetry entry:
+`"error"`) and adds freshness fields to every telemetry entry:
 
 ```json
-"radon": {"status": "stale", "last_success_at": "2026-10-02T08:15:00+00:00", "consecutive_failures": 7}
+"radon": {"status": "stale", "last_success_at": "2026-10-02T08:15:00+00:00", "consecutive_failures": 7, "last_error": "BleakError", "failing_since": "2026-10-02T08:20:00+00:00"}
 ```
 
-`last_success_at` is `null` until the first fresh cycle.  A poll that could not
+`last_success_at` is `null` until the first fresh cycle; `last_error` and
+`failing_since` are `null` while the entity is not failing (ADR-082).  A poll that could not
 publish because the broker was down does not count as a failure.
 
 !!! tip "Long custom backoffs"

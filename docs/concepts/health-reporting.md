@@ -93,7 +93,9 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
         "temperature": {
             "status": "error",
             "last_success_at": "2026-10-02T08:15:00+00:00",
-            "consecutive_failures": 2
+            "consecutive_failures": 2,
+            "last_error": "TimeoutError",
+            "failing_since": "2026-10-02T08:20:00+00:00"
         }
     }
 }
@@ -108,8 +110,9 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
 
     A telemetry entity with no fresh cycle for its `stale_after` bound reports
     `"stale"`, which outranks `"error"` (ADR-080). Telemetry entries also carry
-    `last_success_at` (ISO 8601 UTC, `null` before the first fresh cycle) and
-    `consecutive_failures`. See
+    `last_success_at` (ISO 8601 UTC, `null` before the first fresh cycle),
+    `consecutive_failures`, and, while failing, `last_error` and
+    `failing_since` (both `null` when healthy, ADR-082). See
     [Transport Availability Signaling](../guides/transport-availability.md#freshness-stale_after).
 
 ### HeartbeatPayload Fields

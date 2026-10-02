@@ -1152,6 +1152,18 @@ Freshness — stale_after (ADR-080):
   failure mark that still holds the entity offline. Set stale_after explicitly
   if a custom backoff sleeps longer than 60 s per retry.
 
+Error reminders — error_reminder_interval (ADR-082):
+  A repeated same-type telemetry error is not published again on every cycle,
+  but it is not forgotten either. While it persists, the 2nd, 4th, 8th, ...
+  failure inside the first interval of the streak, then one failure per
+  interval, logs a WARNING ("still failing after 2h00m00s (25 consecutive
+  failures)") and republishes the error as a reminder.
+    App(error_reminder_interval=3600)  → default, seconds
+    App(error_reminder_interval=None)  → onset + recovery lines only
+  Error payloads carry details.count and details.first_seen; recovery logs
+  "recovered after <duration> (<n> failed cycles)". Heartbeat telemetry entries
+  carry last_error and failing_since while failing (null when healthy).
+
   Why the telemetry default is "any exception" rather than a transport-shaped
   tuple: cosalette does not depend on bleak, paramiko or pyserial, so it cannot
   name BleakError, SSHException or serial.SerialException. A stdlib-only default

@@ -396,12 +396,12 @@ class TestRunAsyncTelemetry:
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """Same exception type on every call publishes only once.
+        """Same exception type on every call publishes only once without reminders.
 
         Technique: State Transition Testing — healthy → error (published),
         error → error (same type, suppressed).
         """
-        app = App(name="testapp", version="1.0.0")
+        app = App(name="testapp", version="1.0.0", error_reminder_interval=None)
         call_count = 0
         enough = asyncio.Event()
 
@@ -446,7 +446,7 @@ class TestRunAsyncTelemetry:
         Technique: State Transition Testing — error(A) → error(B)
         publishes new error for each type change.
         """
-        app = App(name="testapp", version="1.0.0")
+        app = App(name="testapp", version="1.0.0", error_reminder_interval=None)
         call_count = 0
         enough = asyncio.Event()
         errors: list[type[Exception]] = [RuntimeError, OSError, ValueError]
@@ -550,7 +550,7 @@ class TestRunAsyncTelemetry:
         Technique: State Transition Testing — full cycle:
         healthy → error (pub) → healthy (recovery) → error (pub again).
         """
-        app = App(name="testapp", version="1.0.0")
+        app = App(name="testapp", version="1.0.0", error_reminder_interval=None)
         call_count = 0
         enough = asyncio.Event()
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -11,6 +12,9 @@ from cosalette._json import dumps
 from cosalette._mqtt import MqttNotConnectedError, MqttPort, WillConfig
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_ERROR_REMINDER_INTERVAL = 3600.0
+"""Default ``App(error_reminder_interval=)``: one reminder per hour of outage."""
 
 
 # ---------------------------------------------------------------------------
@@ -32,6 +36,9 @@ class DeviceStatus:
     # device, command and stream entries keep their one-key shape.
     last_success_at: str | None = None
     consecutive_failures: int | None = None
+    # Failure-streak fields (ADR-082), ``None`` while the entity is healthy.
+    last_error: str | None = None
+    failing_since: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialise to a plain dictionary."""
@@ -39,7 +46,40 @@ class DeviceStatus:
         if self.consecutive_failures is not None:
             data["last_success_at"] = self.last_success_at
             data["consecutive_failures"] = self.consecutive_failures
+            data["last_error"] = self.last_error
+            data["failing_since"] = self.failing_since
         return data
+
+
+def format_duration(seconds: float) -> str:
+    """Format *seconds* as ``45s``, ``12m05s`` or ``3h07m00s`` for log lines."""
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+@dataclass(frozen=True, slots=True)
+class FailureStreak:
+    """A telemetry entity's run of consecutive failed cycles (ADR-082).
+
+    *count* failed cycles over *duration* seconds since the first one, which
+    happened at the wall-clock ISO time *first_seen_at*.  *remind* is set when
+    this failure is due a reminder.
+    """
+
+    count: int
+    first_seen_at: str
+    duration: float
+    remind: bool = False
+    new_error_type: bool = False
+
+    def details(self) -> dict[str, object]:
+        """Return the error payload ``details`` for this streak."""
+        return {"count": self.count, "first_seen": self.first_seen_at}
 
 
 @dataclass(slots=True)
@@ -57,6 +97,11 @@ class _Freshness:
     last_success_at: str | None = None
     consecutive_failures: int = 0
     last_error_type: str | None = None
+    # Start of the current failure streak (ADR-082): monotonic and wall-clock,
+    # plus the monotonic time the next interval reminder is due.
+    failing_since: float = 0.0
+    failing_since_at: str = ""
+    next_reminder: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +181,8 @@ class HealthReporter:
         topic_prefix: Base prefix for health topics (e.g. ``"velux2mqtt"``).
         version: Application version string included in heartbeats.
         clock: Monotonic clock for uptime measurement (see :class:`ClockPort`).
+        error_reminder_interval: Seconds between reminders for a telemetry
+            failure that persists; ``None`` disables reminders (ADR-082).
     """
 
     mqtt: MqttPort
@@ -143,12 +190,14 @@ class HealthReporter:
     version: str
     clock: ClockPort
     include_version: bool = True
+    error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL
     _start_time: float = field(init=False, repr=False)
     _devices: dict[str, DeviceStatus] = field(
         init=False,
         default_factory=dict,
         repr=False,
     )
+
     _root_devices: set[str] = field(
         init=False,
         default_factory=set,
@@ -179,6 +228,9 @@ class HealthReporter:
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
+        interval = self.error_reminder_interval
+        if interval is not None and (not math.isfinite(interval) or interval <= 0):
+            raise ValueError("error_reminder_interval must be positive or None")
         self._start_time = self.clock.now()
 
     # --- Freshness (ADR-080) -------------------------------------------------
@@ -200,31 +252,78 @@ class HealthReporter:
             stale_after=stale_after, is_root=is_root, last_success=self.clock.now()
         )
 
-    async def record_success(self, device: str) -> None:
+    async def record_success(self, device: str) -> FailureStreak | None:
         """Record a fresh cycle and clear a ``freshness`` offline mark.
 
         ``"online"`` is republished only when no other availability source
-        still holds the device offline (ADR-077).
+        still holds the device offline (ADR-077).  Returns the failure streak
+        this success ended, or ``None`` when there was none (ADR-082).
         """
         entry = self._freshness.get(device)
         if entry is None:
-            return
-        entry.last_success = self.clock.now()
-        entry.last_success_at = datetime.now(UTC).isoformat(timespec="seconds")
+            return None
+        now = self.clock.now()
+        streak = (
+            FailureStreak(
+                entry.consecutive_failures,
+                entry.failing_since_at,
+                now - entry.failing_since,
+            )
+            if entry.consecutive_failures
+            else None
+        )
+        entry.last_success = now
+        entry.last_success_at = _utc_now_iso()
         entry.consecutive_failures = 0
+        entry.last_error_type = None
+        entry.failing_since = 0.0
+        entry.failing_since_at = ""
+        entry.next_reminder = 0.0
         if self.is_unavailable(device, source="freshness"):
             logger.info("Telemetry '%s' is fresh again", device)
             await self.publish_device_available(
                 device, is_root=entry.is_root, source="freshness"
             )
+        return streak
 
-    def record_failure(self, device: str, exc: BaseException) -> None:
-        """Count a failed cycle for a tracked telemetry entity."""
+    def record_failure(self, device: str, exc: BaseException) -> FailureStreak | None:
+        """Count a failed cycle and decide whether it is due a reminder.
+
+        Within the first ``error_reminder_interval`` of a streak the 2nd,
+        4th, 8th, ... failure is due one; after that, the first failure in
+        each further interval since the streak began (ADR-082).  Returns
+        ``None`` for an untracked entity.
+        """
         entry = self._freshness.get(device)
         if entry is None:
-            return
+            return None
+        now = self.clock.now()
+        error_type = type(exc).__name__
+        new_error_type = error_type != entry.last_error_type
         entry.consecutive_failures += 1
-        entry.last_error_type = type(exc).__name__
+        entry.last_error_type = error_type
+        count = entry.consecutive_failures
+        interval = self.error_reminder_interval
+        remind = False
+        if count == 1:
+            entry.failing_since = now
+            entry.failing_since_at = _utc_now_iso()
+            entry.next_reminder = now + (interval or 0.0)
+        elif interval is not None:
+            if now >= entry.next_reminder:
+                remind = True
+                missed = (now - entry.next_reminder) // interval
+                entry.next_reminder += (missed + 1) * interval
+            else:
+                is_power_of_two = count & (count - 1) == 0
+                remind = is_power_of_two and now - entry.failing_since < interval
+        return FailureStreak(
+            count,
+            entry.failing_since_at,
+            now - entry.failing_since,
+            remind,
+            new_error_type,
+        )
 
     def min_stale_after(self) -> float | None:
         """Return the smallest enabled ``stale_after``, or ``None`` if none is."""
@@ -268,10 +367,13 @@ class HealthReporter:
         if entry is None:
             return status
         stale = self.is_unavailable(device, source="freshness")
+        failing = entry.consecutive_failures > 0
         return DeviceStatus(
             status="stale" if stale else status.status,
             last_success_at=entry.last_success_at,
             consecutive_failures=entry.consecutive_failures,
+            last_error=entry.last_error_type if failing else None,
+            failing_since=entry.failing_since_at if failing else None,
         )
 
     def set_device_status(self, device: str, status: str = "ok") -> None:
@@ -515,3 +617,8 @@ class HealthReporter:
             logger.debug("MQTT not connected, dropped health publish to %s", topic)
         except Exception:
             logger.exception("Failed to publish health to %s", topic)
+
+
+def _utc_now_iso() -> str:
+    """Return the current wall-clock time as a second-precision ISO string."""
+    return datetime.now(UTC).isoformat(timespec="seconds")
