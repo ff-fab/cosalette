@@ -214,6 +214,7 @@ App(
     task_max_restarts: int = 3,                  # Task restarts per registration within the window (0 = exit on first failure)
     task_restart_window: float = 300.0,          # Seconds without a failure that reset the task restart count
     exit_after_stale: float | None = None,       # Exit with code 5 once telemetry is stale this long (ADR-083)
+    restart_on_stale: bool = False,              # Stale telemetry restarts the adapters it depends on (ADR-084)
 )
 ```
 

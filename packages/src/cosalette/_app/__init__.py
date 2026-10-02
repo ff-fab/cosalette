@@ -214,6 +214,7 @@ class App(
         task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
         error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
         exit_after_stale: float | None = None,
+        restart_on_stale: bool = False,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -350,6 +351,12 @@ class App(
                 exit code 5, so a container restart policy can recover it.
                 Counted from the moment the entity went stale.  ``None``
                 (default) never exits.  See ADR-083.
+            restart_on_stale: When ``True``, a telemetry entity that goes
+                ``stale`` requests a restart of every restartable adapter
+                it depends on, without waiting for failed health checks.
+                Each request counts against *max_restarts* and fires once
+                per stale episode.  Needs *health_check_interval*.
+                Defaults to False.  See ADR-084.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -403,6 +410,10 @@ class App(
         self._error_reminder_interval = error_reminder_interval
         _validate_positive_interval("exit_after_stale", exit_after_stale)
         self._exit_after_stale = exit_after_stale
+        if not isinstance(restart_on_stale, bool):
+            msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
+            raise TypeError(msg)
+        self._restart_on_stale = restart_on_stale
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )

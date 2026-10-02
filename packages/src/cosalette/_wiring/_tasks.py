@@ -35,6 +35,7 @@ from cosalette._wiring._task_lifecycle import (
     _exit_restartable_adapters,
     _start_telemetry_tasks,
     _validate_lifespan_state,
+    stale_restart_callback,
     start_device_tasks_for_names,
     start_freshness_task,
     start_health_check_task,
@@ -235,6 +236,7 @@ async def run_lifespan_and_devices(
     supervisor: TaskSupervisor | None = None,
     health_file: Path | None = None,
     exit_after_stale: float | None = None,
+    restart_on_stale: bool = False,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -253,6 +255,8 @@ async def run_lifespan_and_devices(
     *health_file* turns on the opt-in health file, written from here on
     whether or not the broker is reachable; *exit_after_stale* ends the app
     once a telemetry entity has been stale that long (ADR-083).
+    *restart_on_stale* restarts the adapters a newly stale entity depends
+    on through *health_check_runner* (ADR-084).
     """
     app_context = AppContext(
         settings=resolved_settings,
@@ -298,6 +302,9 @@ async def run_lifespan_and_devices(
             health_reporter,
             exit_after_stale=exit_after_stale,
             on_stale_exit=_stale_exit_callback(supervisor, shutdown_event),
+            on_newly_stale=stale_restart_callback(
+                restart_on_stale, health_check_runner, adapter_device_map
+            ),
         )
 
         device_tasks, device_task_map = start_device_tasks(

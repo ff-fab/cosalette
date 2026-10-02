@@ -102,6 +102,7 @@ class _LifecycleMixin:
     _disclose_messages_for: frozenset[type[Exception]] | None
     _error_reminder_interval: float | None
     _exit_after_stale: float | None
+    _restart_on_stale: bool
 
     @property
     @abc.abstractmethod
@@ -346,10 +347,11 @@ class _LifecycleMixin:
             restartable = _adapter_lifecycle.detect_restartable_adapters(
                 resolved_adapters
             )
-            restartable_ids = {id(a) for a in restartable.values()}
-            restartable_adapters = list(
-                {id(a): a for a in restartable.values()}.values()
+            # Reset-only adapters (ADR-084) are restartable but never entered.
+            restartable_adapters = _adapter_lifecycle.lifecycle_restartable(
+                list({id(a): a for a in restartable.values()}.values())
             )
+            restartable_ids = {id(a) for a in restartable_adapters}
 
             async with _wiring.enter_state_factories(
                 self._state_factories,
@@ -424,6 +426,7 @@ class _LifecycleMixin:
                             restart_after_failures=self._restart_after_failures,
                             max_restarts=self._max_restarts,
                             sustained_health_reset=self._sustained_health_reset,
+                            restartable=frozenset(restartable),
                         )
 
                     # Build trigger config snapshot for triggerable telemetry
@@ -489,6 +492,7 @@ class _LifecycleMixin:
                             supervisor=supervisor,
                             health_file=health_file_from_env(),
                             exit_after_stale=self._exit_after_stale,
+                            restart_on_stale=self._restart_on_stale,
                         )
                     finally:
                         await router.aclose()

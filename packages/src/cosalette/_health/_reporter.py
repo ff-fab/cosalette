@@ -330,13 +330,15 @@ class HealthReporter:
         bounds = [e.stale_after for e in self._freshness.values() if e.stale_after]
         return min(bounds, default=None)
 
-    async def check_freshness(self) -> None:
+    async def check_freshness(self) -> list[str]:
         """Mark every entity with no fresh cycle for ``stale_after`` as stale.
 
         Publishes retained ``"offline"`` through the ``freshness`` source and
-        logs one WARNING, both on the transition only.
+        logs one WARNING, both on the transition only.  Returns the names
+        of the entities that became stale in this check.
         """
         now = self.clock.now()
+        newly_stale: list[str] = []
         for device, entry in list(self._freshness.items()):
             if entry.stale_after is None:
                 continue
@@ -356,6 +358,8 @@ class HealthReporter:
             await self.publish_device_unavailable(
                 device, is_root=entry.is_root, source="freshness"
             )
+            newly_stale.append(device)
+        return newly_stale
 
     def longest_stale(self) -> tuple[str, float] | None:
         """Return the entity stale the longest and for how many seconds.

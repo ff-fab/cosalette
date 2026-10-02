@@ -604,8 +604,17 @@ Health Check Behavior:
     at most max_restarts times (failed attempts count too, each needing
     restart_after_failures new failures); sustained_health_reset restores
     the budget
-  • Adapters without __aenter__/__aexit__ cannot be restarted (WARNING at
-    startup); set restartable = False to opt out deliberately (INFO)
+  • Adapters without __aenter__/__aexit__ may offer reset() instead
+    (ADR-084): cancel tasks → restart_cooldown → await reset() → health
+    check → recreate tasks. Never entered/exited; a raising reset() is a
+    failed restart. A context manager wins when an adapter has both
+  • Adapters with neither are never restarted (WARNING at startup, one
+    WARNING per unhealthy episode); restartable = False opts out (INFO)
+  • App(restart_on_stale=True): a telemetry entity going stale (ADR-080)
+    restarts every restartable adapter it depends on, skipping the failure
+    threshold but counting toward max_restarts; once per stale episode.
+    Covers health_check() passing while reads time out. Needs
+    health_check_interval
 
 MQTT Topics:
   • {app}/status — App-level status + LWT (offline) + JSON heartbeat

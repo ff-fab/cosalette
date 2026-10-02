@@ -643,6 +643,17 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "health).",
         "`<app> schema ...` and other subcommands no longer start the app "
         "before running the subcommand (bug fix).",
+        "Adapter reset() restart protocol (ADR-084): a HealthCheckable adapter "
+        "without __aenter__/__aexit__ is restartable when it has reset(), which "
+        "a restart awaits after the cooldown. App(restart_on_stale=True) makes "
+        "a stale telemetry entity restart the restartable adapters it depends "
+        "on, once per stale episode and within max_restarts (see: cosalette ai "
+        "help health).",
+        "The health check runner now restarts only restartable adapters: an "
+        "adapter with restartable = False, or with neither a context manager "
+        "nor reset(), logs one WARNING per unhealthy episode and stays "
+        "offline. Before, the runner tried to exit and re-enter it anyway, "
+        "which left its telemetry tasks cancelled (bug fix, ADR-029).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

@@ -89,19 +89,24 @@ async def freshness_loop(
     *,
     exit_after_stale: float | None = None,
     on_stale_exit: Callable[[StaleTelemetryError], None] | None = None,
+    on_newly_stale: Callable[[list[str]], Awaitable[None]] | None = None,
 ) -> None:
     """Check telemetry freshness at a fixed interval until cancelled (ADR-080).
 
-    With *exit_after_stale*, *on_stale_exit* is called once with a
-    :class:`StaleTelemetryError` when an entity has been stale that long
-    (ADR-083).  Uses ``health_reporter.clock.sleep()`` so that
-    :class:`FakeClock` can drive the watchdog in tests.
+    *on_newly_stale* receives the entities that became stale in a check
+    (``restart_on_stale``, ADR-084).  With *exit_after_stale*,
+    *on_stale_exit* is called once with a :class:`StaleTelemetryError`
+    when an entity has been stale that long (ADR-083).  Uses
+    ``health_reporter.clock.sleep()`` so that :class:`FakeClock` can drive
+    the watchdog in tests.
     """
     exiting = False
     while True:
         await health_reporter.clock.sleep(interval)
         try:
-            await health_reporter.check_freshness()
+            newly_stale = await health_reporter.check_freshness()
+            if newly_stale and on_newly_stale is not None:
+                await on_newly_stale(newly_stale)
         except Exception:
             logger.exception("Freshness check failed")
         if not exiting and on_stale_exit is not None:
@@ -121,6 +126,39 @@ def _stale_too_long(
     if longest is None or longest[1] < exit_after_stale:
         return None
     return StaleTelemetryError(*longest)
+
+
+def stale_restart_callback(
+    restart_on_stale: bool,
+    health_check_runner: HealthCheckRunner | None,
+    adapter_device_map: dict[type, list[DeviceInfo]] | None,
+) -> Callable[[list[str]], Awaitable[None]] | None:
+    """Return the ``restart_on_stale`` action, or ``None`` when off (ADR-084).
+
+    The action requests one restart per adapter that a newly stale entity
+    depends on; the runner skips adapters that are not restartable.
+    """
+    if not restart_on_stale:
+        return None
+    if health_check_runner is None or not adapter_device_map:
+        logger.warning(
+            "restart_on_stale has no effect: it needs health_check_interval "
+            "and a health-checkable adapter"
+        )
+        return None
+    runner = health_check_runner
+    device_map = adapter_device_map
+
+    async def _restart(names: list[str]) -> None:
+        stale = set(names)
+        for adapter_type, infos in device_map.items():
+            entity = next((i.name for i in infos if i.name in stale), None)
+            if entity is not None:
+                await runner.request_restart(
+                    adapter_type, f"stale telemetry {entity!r}"
+                )
+
+    return _restart
 
 
 def track_telemetry_freshness(
@@ -147,6 +185,7 @@ def start_freshness_task(
     *,
     exit_after_stale: float | None = None,
     on_stale_exit: Callable[[StaleTelemetryError], None] | None = None,
+    on_newly_stale: Callable[[list[str]], Awaitable[None]] | None = None,
 ) -> asyncio.Task[None] | None:
     """Track freshness for every telemetry entity and start the watchdog.
 
@@ -166,6 +205,7 @@ def start_freshness_task(
             min(interval, smallest),
             exit_after_stale=exit_after_stale,
             on_stale_exit=on_stale_exit,
+            on_newly_stale=on_newly_stale,
         ),
         name="cosalette-freshness-loop",
     )
