@@ -475,6 +475,18 @@ restart budget, or a framework loop died. Attributes: `task_name`,
 CLI exits with code 4 (`EXIT_TASK_FAILURE`). See
 [Task Supervision](../concepts/error-handling.md#task-supervision).
 
+### StaleTelemetryError
+
+| Location | Message |
+|---|---|
+| `App.run()` | `Telemetry {entity!r} stale for {stale_for:.0f}s` |
+
+Raised after a graceful shutdown when a telemetry entity has been stale for
+`App(exit_after_stale=...)` seconds ([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)). The framework logs the
+decision at CRITICAL first. Attributes: `entity` and `stale_for`. The CLI exits
+with code 5 (`EXIT_STALE`), so a process supervisor with a restart policy
+restarts the container.
+
 ## Error Publishing Pipeline
 
 The framework includes a built-in error publishing system for reporting

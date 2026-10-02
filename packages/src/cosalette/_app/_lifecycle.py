@@ -42,6 +42,7 @@ from cosalette._app._store_defaults import (
 from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
+from cosalette._health._liveness import health_file_from_env
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
@@ -100,6 +101,7 @@ class _LifecycleMixin:
     _error_type_map: dict[type[Exception], str]
     _disclose_messages_for: frozenset[type[Exception]] | None
     _error_reminder_interval: float | None
+    _exit_after_stale: float | None
 
     @property
     @abc.abstractmethod
@@ -485,6 +487,8 @@ class _LifecycleMixin:
                             startup_connect_timeout=self._startup_connect_timeout,
                             reconnect_wake=reconnect_wake,
                             supervisor=supervisor,
+                            health_file=health_file_from_env(),
+                            exit_after_stale=self._exit_after_stale,
                         )
                     finally:
                         await router.aclose()
@@ -554,6 +558,8 @@ class _LifecycleMixin:
             # After the graceful teardown, so the process exits with
             # EXIT_TASK_FAILURE only once everything is cleaned up (ADR-081).
             raise supervisor.fatal_error
+        if supervisor.exit_error is not None:
+            raise supervisor.exit_error
 
     def _has_dynamic_entity_set(self) -> bool:
         """True when this app's entity set may vary by config across restarts.

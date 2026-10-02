@@ -20,6 +20,7 @@ from cosalette._health import (
     HeartbeatPayload,
     build_will_config,
 )
+from cosalette._health._liveness import StaleTelemetryError
 from cosalette._logging import JsonFormatter, configure_logging
 from cosalette._mcp._introspect import (
     build_registry_snapshot,
@@ -182,6 +183,8 @@ __all__ = [
     "build_error_payload",
     # Task supervision (ADR-081)
     "TaskSupervisionError",
+    # Health file and exit_after_stale (ADR-083)
+    "StaleTelemetryError",
     # Health
     "AdapterHealthStatus",
     "DeviceStatus",

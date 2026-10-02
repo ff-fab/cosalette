@@ -106,6 +106,8 @@ class TestCosalettePublicAPI:
         "build_error_payload",
         # Task supervision (ADR-081)
         "TaskSupervisionError",
+        # Health file and exit_after_stale (ADR-083)
+        "StaleTelemetryError",
         # Health
         "AdapterHealthStatus",
         "DeviceStatus",

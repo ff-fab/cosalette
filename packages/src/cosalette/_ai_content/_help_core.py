@@ -613,6 +613,19 @@ MQTT Topics:
   • Heartbeat device entries carry the status reason (ok, error,
     circuit_open, ...) — availability itself is only online/offline
 
+Container Liveness — health file (ADR-083, off by default):
+  • COSALETTE_HEALTH_FILE=/tmp/myapp-health.json → the app writes the
+    heartbeat + written_at + interval there atomically, at startup (before
+    the MQTT connect) and every heartbeat_interval (60 s if heartbeats are
+    off); deleted on clean shutdown. A failed write logs one WARNING
+  • `myapp health` / `cosalette health` read it: exit 0 healthy, 1 unhealthy
+    (missing, older than --max-age = 3 x interval, or a device status in
+    --fail-on, default stale; repeat --fail-on to add error)
+  • Docker: healthcheck test ["CMD", "myapp", "health"]; Kubernetes: exec probe
+  • App(exit_after_stale=1800) → after a telemetry entity has been stale that
+    long: CRITICAL log, clean shutdown, StaleTelemetryError, CLI exit code 5,
+    so a restart policy recovers (plain Docker never restarts unhealthy)
+
 Best Practices:
   • Implement HealthCheckable for external dependency monitoring
   • Keep health checks lightweight + fast (well under interval / 2)

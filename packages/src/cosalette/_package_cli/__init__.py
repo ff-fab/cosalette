@@ -17,6 +17,7 @@ from typing import Annotated
 
 import typer
 
+from cosalette._health._liveness_cli import health_command
 from cosalette._package_cli._ai_init import (
     _check_instructions,
     _copy_template_to_target,
@@ -54,6 +55,9 @@ app.add_typer(ai_app, name="ai")
 # Create schema command group
 # (lazy — schema subpackage deps imported on first command invocation)
 app.add_typer(schema_app, name="schema")
+
+# Container liveness probe for the opt-in health file (ADR-083)
+app.command("health")(health_command)
 
 # Create MCP command group (lazy — only imports fastmcp when invoked)
 mcp_app = typer.Typer(help="MCP server commands")

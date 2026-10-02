@@ -213,6 +213,7 @@ App(
     on_task_failure: "restart" | "exit" | "ignore" = "restart",  # Policy when a framework-started task dies (ADR-081)
     task_max_restarts: int = 3,                  # Task restarts per registration within the window (0 = exit on first failure)
     task_restart_window: float = 300.0,          # Seconds without a failure that reset the task restart count
+    exit_after_stale: float | None = None,       # Exit with code 5 once telemetry is stale this long (ADR-083)
 )
 ```
 

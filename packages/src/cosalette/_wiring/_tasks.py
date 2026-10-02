@@ -38,6 +38,7 @@ from cosalette._wiring._task_lifecycle import (
     start_device_tasks_for_names,
     start_freshness_task,
     start_health_check_task,
+    start_health_file_task,
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
@@ -47,8 +48,10 @@ from cosalette._wiring._task_lifecycle import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from pathlib import Path
 
     from cosalette._context import DeviceContext
+    from cosalette._health._liveness import HealthFileWriter, StaleTelemetryError
     from cosalette._registration import _ReactorRegistration
     from cosalette._runners._periodic import _PeriodicRegistration
     from cosalette._supervisor import TaskSupervisor
@@ -162,6 +165,46 @@ def _supervise_periodic_and_streams(
         )
 
 
+def _stale_exit_callback(
+    supervisor: TaskSupervisor | None, shutdown_event: asyncio.Event
+) -> Callable[[StaleTelemetryError], None]:
+    """Return the ``exit_after_stale`` action: end the app with *error*."""
+
+    def _exit(error: StaleTelemetryError) -> None:
+        if supervisor is not None:
+            supervisor.request_exit(error)
+            return
+        logger.critical("Shutting down: %s", error)
+        shutdown_event.set()
+
+    return _exit
+
+
+def _start_pre_connect_loops(
+    health_check_runner: HealthCheckRunner | None,
+    health_file: Path | None,
+    heartbeat_interval: float | None,
+    health_reporter: HealthReporter,
+    supervisor: TaskSupervisor | None,
+) -> tuple[
+    asyncio.Task[None] | None, HealthFileWriter | None, asyncio.Task[None] | None
+]:
+    """Start the loops that run before the first MQTT connect.
+
+    The health-check loop and the opt-in health-file loop (ADR-083) start
+    before waiting for the broker.  They are supervised here, rather than
+    after that wait, so an early failure cannot be missed.
+    """
+    health_check_task = start_health_check_task(health_check_runner)
+    health_file_writer, health_file_task = start_health_file_task(
+        health_file, heartbeat_interval, health_reporter
+    ) or (None, None)
+    if supervisor is not None:
+        supervisor.supervise_internal(health_check_task)
+        supervisor.supervise_internal(health_file_task)
+    return health_check_task, health_file_writer, health_file_task
+
+
 async def run_lifespan_and_devices(
     lifespan: LifespanFunc,
     store: Store | None,
@@ -190,6 +233,8 @@ async def run_lifespan_and_devices(
     startup_connect_timeout: float | None = None,
     reconnect_wake: _ReconnectWake | None = None,
     supervisor: TaskSupervisor | None = None,
+    health_file: Path | None = None,
+    exit_after_stale: float | None = None,
 ) -> None:
     """Enter lifespan, run devices, and tear down.
 
@@ -204,6 +249,10 @@ async def run_lifespan_and_devices(
 
     When *first_connect* is given, entity tasks start only after it is set
     or *startup_connect_timeout* has elapsed (see :func:`await_first_connect`).
+
+    *health_file* turns on the opt-in health file, written from here on
+    whether or not the broker is reachable; *exit_after_stale* ends the app
+    once a telemetry entity has been stale that long (ADR-083).
     """
     app_context = AppContext(
         settings=resolved_settings,
@@ -219,11 +268,15 @@ async def run_lifespan_and_devices(
         if health_check_runner is not None:
             await health_check_runner.run_startup_checks()
 
-        health_check_task = start_health_check_task(health_check_runner)
-        # This loop starts before waiting for the broker.  Supervise it here,
-        # rather than after that wait, so an early failure cannot be missed.
-        if supervisor is not None:
-            supervisor.supervise_internal(health_check_task)
+        health_check_task, health_file_writer, health_file_task = (
+            _start_pre_connect_loops(
+                health_check_runner,
+                health_file,
+                heartbeat_interval,
+                health_reporter,
+                supervisor,
+            )
+        )
 
         await await_first_connect(
             first_connect,
@@ -240,7 +293,11 @@ async def run_lifespan_and_devices(
             await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)
         freshness_task = start_freshness_task(
-            telemetry, heartbeat_interval, health_reporter
+            telemetry,
+            heartbeat_interval,
+            health_reporter,
+            exit_after_stale=exit_after_stale,
+            on_stale_exit=_stale_exit_callback(supervisor, shutdown_event),
         )
 
         device_tasks, device_task_map = start_device_tasks(
@@ -359,7 +416,10 @@ async def run_lifespan_and_devices(
             stream_tasks=stream_tasks,
             freshness_task=freshness_task,
             supervisor=supervisor,
+            health_file_task=health_file_task,
         )
+        if health_file_writer is not None:
+            health_file_writer.remove()
     finally:
         # Exit restartable adapters (managed outside AsyncExitStack)
         await _exit_restartable_adapters(restartable_adapters)

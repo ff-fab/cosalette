@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING, Any
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
 from cosalette._health import HealthCheckRunner, HealthReporter
+from cosalette._health._liveness import (
+    DEFAULT_HEALTH_FILE_INTERVAL,
+    HealthFileWriter,
+    StaleTelemetryError,
+)
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
@@ -23,6 +28,7 @@ from cosalette._settings import Settings
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
+    from pathlib import Path
 
     from cosalette._errors import ErrorPublisher
     from cosalette._registration import _ReactorRegistration
@@ -80,18 +86,41 @@ _FRESHNESS_CHECK_CAP = 60.0
 async def freshness_loop(
     health_reporter: HealthReporter,
     interval: float,
+    *,
+    exit_after_stale: float | None = None,
+    on_stale_exit: Callable[[StaleTelemetryError], None] | None = None,
 ) -> None:
     """Check telemetry freshness at a fixed interval until cancelled (ADR-080).
 
-    Uses ``health_reporter.clock.sleep()`` so that :class:`FakeClock`
-    can drive the watchdog in tests.
+    With *exit_after_stale*, *on_stale_exit* is called once with a
+    :class:`StaleTelemetryError` when an entity has been stale that long
+    (ADR-083).  Uses ``health_reporter.clock.sleep()`` so that
+    :class:`FakeClock` can drive the watchdog in tests.
     """
+    exiting = False
     while True:
         await health_reporter.clock.sleep(interval)
         try:
             await health_reporter.check_freshness()
         except Exception:
             logger.exception("Freshness check failed")
+        if not exiting and on_stale_exit is not None:
+            error = _stale_too_long(health_reporter, exit_after_stale)
+            if error is not None:
+                exiting = True
+                on_stale_exit(error)
+
+
+def _stale_too_long(
+    health_reporter: HealthReporter, exit_after_stale: float | None
+) -> StaleTelemetryError | None:
+    """Return the error to exit with once an entity outlived *exit_after_stale*."""
+    if exit_after_stale is None:
+        return None
+    longest = health_reporter.longest_stale()
+    if longest is None or longest[1] < exit_after_stale:
+        return None
+    return StaleTelemetryError(*longest)
 
 
 def track_telemetry_freshness(
@@ -115,6 +144,9 @@ def start_freshness_task(
     telemetry: Sequence[_TelemetryRegistration],
     heartbeat_interval: float | None,
     health_reporter: HealthReporter,
+    *,
+    exit_after_stale: float | None = None,
+    on_stale_exit: Callable[[StaleTelemetryError], None] | None = None,
 ) -> asyncio.Task[None] | None:
     """Track freshness for every telemetry entity and start the watchdog.
 
@@ -129,9 +161,45 @@ def start_freshness_task(
         return None
     interval = min(heartbeat_interval or _FRESHNESS_CHECK_CAP, _FRESHNESS_CHECK_CAP)
     return asyncio.create_task(
-        freshness_loop(health_reporter, min(interval, smallest)),
+        freshness_loop(
+            health_reporter,
+            min(interval, smallest),
+            exit_after_stale=exit_after_stale,
+            on_stale_exit=on_stale_exit,
+        ),
         name="cosalette-freshness-loop",
     )
+
+
+async def health_file_loop(writer: HealthFileWriter, clock: ClockPort) -> None:
+    """Write the health file now and then every ``writer.interval`` (ADR-083)."""
+    while True:
+        writer.write()
+        await clock.sleep(writer.interval)
+
+
+def start_health_file_task(
+    path: Path | None,
+    heartbeat_interval: float | None,
+    health_reporter: HealthReporter,
+) -> tuple[HealthFileWriter, asyncio.Task[None]] | None:
+    """Start writing the opt-in health file, or return ``None`` when off.
+
+    The file is written every *heartbeat_interval* seconds, or every
+    :data:`DEFAULT_HEALTH_FILE_INTERVAL` when heartbeats are disabled.
+    """
+    if path is None:
+        return None
+    writer = HealthFileWriter(
+        path=path,
+        reporter=health_reporter,
+        interval=heartbeat_interval or DEFAULT_HEALTH_FILE_INTERVAL,
+    )
+    task = asyncio.create_task(
+        health_file_loop(writer, health_reporter.clock),
+        name="cosalette-health-file-loop",
+    )
+    return writer, task
 
 
 def _build_periodic_providers(
@@ -451,8 +519,12 @@ async def _cancel_phase_tasks(
     stream_tasks: list[asyncio.Task[None]] | None = None,
     freshness_task: asyncio.Task[None] | None = None,
     supervisor: TaskSupervisor | None = None,
+    health_file_task: asyncio.Task[None] | None = None,
 ) -> None:
-    _expect_cancel(supervisor, (health_check_task, heartbeat_task, freshness_task))
+    _expect_cancel(
+        supervisor,
+        (health_check_task, heartbeat_task, freshness_task, health_file_task),
+    )
     await cancel_tasks(device_tasks, supervisor=supervisor)
     if periodic_tasks:
         await cancel_periodic_tasks(periodic_tasks, supervisor=supervisor)
@@ -466,10 +538,11 @@ async def _cancel_phase_tasks(
         heartbeat_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await heartbeat_task
-    if freshness_task is not None:
-        freshness_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await freshness_task
+    for loop_task in (freshness_task, health_file_task):
+        if loop_task is not None:
+            loop_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await loop_task
 
 
 async def _exit_restartable_adapters(

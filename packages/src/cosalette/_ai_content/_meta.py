@@ -633,6 +633,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "details.count and details.first_seen, recovery logs the outage "
         "duration, and heartbeat telemetry entries gain last_error and "
         "failing_since (behaviour change, see: cosalette ai help availability).",
+        "Container liveness (ADR-083): set COSALETTE_HEALTH_FILE and the app "
+        "writes its heartbeat plus written_at/interval to that file atomically; "
+        "`<app> health` and `cosalette health` exit 0/1 from it (--max-age, "
+        "repeatable --fail-on, default stale) for Docker HEALTHCHECK or "
+        "Kubernetes exec probes. Off by default. App(exit_after_stale=...) "
+        "shuts the app down with exit code 5 (StaleTelemetryError) once a "
+        "telemetry entity has been stale that long (see: cosalette ai help "
+        "health).",
+        "`<app> schema ...` and other subcommands no longer start the app "
+        "before running the subcommand (bug fix).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

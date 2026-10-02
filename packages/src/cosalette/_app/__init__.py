@@ -213,6 +213,7 @@ class App(
         task_max_restarts: int = DEFAULT_TASK_MAX_RESTARTS,
         task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
         error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
+        exit_after_stale: float | None = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -344,6 +345,11 @@ class App(
                 ``details.first_seen``.  ``None`` disables reminders, leaving
                 only the onset and the recovery line.  Defaults to 3600.
                 See ADR-082.
+            exit_after_stale: Seconds a telemetry entity may stay ``stale``
+                (ADR-080) before the app logs CRITICAL and shuts down with
+                exit code 5, so a container restart policy can recover it.
+                Counted from the moment the entity went stale.  ``None``
+                (default) never exits.  See ADR-083.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -395,6 +401,8 @@ class App(
         self._task_restart_window = task_restart_window
         _validate_positive_interval("error_reminder_interval", error_reminder_interval)
         self._error_reminder_interval = error_reminder_interval
+        _validate_positive_interval("exit_after_stale", exit_after_stale)
+        self._exit_after_stale = exit_after_stale
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )
