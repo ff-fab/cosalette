@@ -454,6 +454,13 @@ class TaskSupervisor:
                 self._restart_window,
             )
             return None
+        # Counted now, unlike a task restart (counted in _restart_after when
+        # the attempt runs): no timer task is created.  The group coroutine
+        # keeps the retry in its own schedule and calls init= itself.  Only
+        # the end of that coroutine drops it.  At shutdown that does not
+        # matter.  When the group is re-created (supervisor or ADR-029
+        # restart), the new group calls init= right away without counting
+        # it, and that call stands in for the dropped retry.
         delay = self._count_restart(record)
         logger.warning(
             "Retrying init of group member %r in %.0f s (restart %d/%d)",
