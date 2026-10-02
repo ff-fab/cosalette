@@ -173,7 +173,6 @@ class _TelemetryMixin:
                 a :class:`CronSchedule` instance, or a per-device
                 callable ``(config) -> str | CronSchedule`` for deferred
                 per-device resolution.  The callable form requires
-                unavailable_on=unavailable_on,
                 ``name=callable`` (dict-based multi-device registration)
                 and is mutually exclusive with ``interval=`` and
                 ``group=``.  The plain expression/instance form is
