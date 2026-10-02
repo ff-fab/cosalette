@@ -240,3 +240,14 @@ unnecessarily.
 
 !!! note "Editorial note (2026-10-02)"
     A failed attempt has already cancelled the adapter's device tasks, so the restart wiring remembers those devices, and any shared coalescing-group tasks it deferred. The next successful attempt for the same adapter then re-creates them. Re-created device tasks keep the app's domain-event reactors, the same as on the ADR-081 supervisor restart path.
+
+## Amendment (2026-10-02) — Minor
+
+!!! note "Editorial note (2026-10-02)"
+    An adapter can pass a health check on its own after a failed restart attempt. If its `__aenter__` succeeded (only the post-restart health check failed), the framework re-creates the device tasks that attempt cancelled, the same way a successful restart does, and then publishes its devices `"online"`. Before this, the devices went back online with no tasks running.
+
+!!! note "Editorial note (2026-10-02)"
+    If the failed attempt's `__aenter__` raised, the adapter is outside its context. A passing health check then counts as a failed one: no `"online"` is published, and the restart threshold keeps counting, so the next attempt re-enters the adapter.
+
+!!! note "Editorial note (2026-10-02)"
+    Decision 3 also holds when the health check passes: once `max_restarts` is spent (`restart_exhausted`), the adapter's devices stay `"offline"` until the process restarts, even if later health checks pass. Before this, a passing check published them `"online"` again.
