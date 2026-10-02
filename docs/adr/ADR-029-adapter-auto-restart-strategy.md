@@ -9,7 +9,7 @@ tags: [lifecycle, health]
 
 ## Status
 
-Accepted **Date:** 2026-04-03
+Accepted **Date:** 2026-04-03 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -227,4 +227,16 @@ unnecessarily.
   (sufficient for the known use case of hardware that fundamentally cannot
   re-initialise)
 
-_2026-04-03_
+## Amendment (2026-10-02) — Minor
+
+!!! note "Editorial note (2026-10-02)"
+    Failed restarts count toward `max_restarts` (Decision 3). A restart attempt whose `__aenter__` fails, or whose post-restart health check fails, uses one restart from the budget, the same as a successful one. The adapter stays offline and the failure counter starts again from 0, so the next attempt follows another `restart_after_failures` failed health checks. The adapter is marked permanently offline only when the last attempt in the budget fails, or when the threshold is reached again after the budget is spent.
+
+!!! note "Editorial note (2026-10-02)"
+    `restart_cooldown` (Decision 4) is only the delay between `__aexit__` and `__aenter__`. It does not set a minimum gap between two restarts. The `restart_after_failures` threshold, which starts again after every attempt, sets how far apart restarts are.
+
+!!! note "Editorial note (2026-10-02)"
+    `HealthCheckRunner` uses the same `restart_after_failures` default as `App` (5). Before this, the runner defaulted to 0 (auto-restart off) when built directly.
+
+!!! note "Editorial note (2026-10-02)"
+    A failed attempt has already cancelled the adapter's device tasks, so the restart wiring remembers those devices, and any shared coalescing-group tasks it deferred. The next successful attempt for the same adapter then re-creates them. Re-created device tasks keep the app's domain-event reactors, the same as on the ADR-081 supervisor restart path.

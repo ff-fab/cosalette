@@ -63,9 +63,8 @@ class HealthCheckRunner:
         clock: ClockPort,
         interval: float,
         shutdown_event: asyncio.Event,
-        restart_after_failures: int = 0,
+        restart_after_failures: int = 5,
         max_restarts: int = 3,
-        restart_cooldown: float = 5.0,
         sustained_health_reset: float = 300.0,
         on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
     ) -> None:
@@ -77,7 +76,6 @@ class HealthCheckRunner:
         self._shutdown_event = shutdown_event
         self._restart_after_failures = restart_after_failures
         self._max_restarts = max_restarts
-        self._restart_cooldown = restart_cooldown
         self._sustained_health_reset = sustained_health_reset
         self._on_restart_needed = on_restart_needed
         self.adapter_health_status: dict[type, AdapterHealthStatus] = {
@@ -209,7 +207,7 @@ class HealthCheckRunner:
         now: float,
     ) -> bool:
         """Attempt restart if threshold reached. Returns True if restarted."""
-        if not self._restart_is_due(old, failures, now):
+        if not self._restart_is_due(old, failures):
             return False
 
         name = adapter_type.__qualname__
@@ -236,25 +234,20 @@ class HealthCheckRunner:
         if success:
             await self._record_successful_restart(adapter_type, old, failures, now)
         else:
-            logger.critical(
-                "Adapter %s restart failed, marking as permanently offline",
-                name,
-            )
-            self._mark_restart_exhausted(adapter_type, old, failures, now)
+            self._record_failed_restart(adapter_type, old, now)
         return True
 
-    def _restart_is_due(
-        self, old: AdapterHealthStatus, failures: int, now: float
-    ) -> bool:
-        """Return whether the failure state permits a restart attempt."""
+    def _restart_is_due(self, old: AdapterHealthStatus, failures: int) -> bool:
+        """Return whether the failure state permits a restart attempt.
+
+        Every attempt re-arms the threshold (``consecutive_failures``
+        restarts from 0), so attempts are spaced by
+        ``restart_after_failures`` health check intervals (ADR-029).
+        """
         return (
             self._restart_after_failures > 0
             and not old.restart_exhausted
             and failures >= self._restart_after_failures
-            and (
-                old.restart_count == 0
-                or now - old.last_restart >= self._restart_cooldown
-            )
         )
 
     def _mark_restart_exhausted(
@@ -272,6 +265,47 @@ class HealthCheckRunner:
             restart_count=old.restart_count,
             restart_exhausted=True,
             last_restart=old.last_restart,
+            last_healthy_since=0.0,
+        )
+
+    def _record_failed_restart(
+        self,
+        adapter_type: type,
+        old: AdapterHealthStatus,
+        now: float,
+    ) -> None:
+        """Count a failed attempt against the restart budget (ADR-029).
+
+        The adapter stays offline.  While budget remains, the next attempt
+        waits for ``restart_after_failures`` further failed checks; the
+        last failed attempt exhausts the budget.
+        """
+        new_count = old.restart_count + 1
+        exhausted = new_count >= self._max_restarts
+        if exhausted:
+            logger.critical(
+                "Adapter %s restart failed (restart %d/%d), "
+                "staying offline permanently",
+                adapter_type.__qualname__,
+                new_count,
+                self._max_restarts,
+            )
+        else:
+            logger.error(
+                "Adapter %s restart failed (restart %d/%d), retrying after "
+                "%d more failed health checks",
+                adapter_type.__qualname__,
+                new_count,
+                self._max_restarts,
+                self._restart_after_failures,
+            )
+        self.adapter_health_status[adapter_type] = AdapterHealthStatus(
+            healthy=False,
+            consecutive_failures=0,
+            last_check=now,
+            restart_count=new_count,
+            restart_exhausted=exhausted,
+            last_restart=now,
             last_healthy_since=0.0,
         )
 

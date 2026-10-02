@@ -98,7 +98,6 @@ def _make_runner(
     clock: FakeClock | None = None,
     restart_after_failures: int = 0,
     max_restarts: int = 3,
-    restart_cooldown: float = 5.0,
     sustained_health_reset: float = 300.0,
     on_restart_needed: Callable[[type, object], Awaitable[bool]] | None = None,
 ) -> tuple[HealthCheckRunner, HealthReporter, FakeClock, asyncio.Event]:
@@ -122,7 +121,6 @@ def _make_runner(
         shutdown_event=event,
         restart_after_failures=restart_after_failures,
         max_restarts=max_restarts,
-        restart_cooldown=restart_cooldown,
         sustained_health_reset=sustained_health_reset,
         on_restart_needed=on_restart_needed,
     )
@@ -161,6 +159,7 @@ class _RestartWiringHarness:
 async def _make_restart_wiring(
     *,
     fail_enter_a: bool = False,
+    reactors: list[Any] | None = None,
 ) -> _RestartWiringHarness:
     """Create, start, and return a fully-wired restart harness."""
     from cosalette._context import DeviceContext
@@ -261,6 +260,7 @@ async def _make_restart_wiring(
             restart_cooldown=0.0,
             adapter_device_map=adapter_device_map,
             resolved_clock=clock,
+            reactors=reactors,
         )
     )
     await asyncio.sleep(0)
@@ -452,7 +452,6 @@ class TestRestartThresholdDetection:
             adapters={_PortA: _UnhealthyAdapter()},
             restart_after_failures=1,
             max_restarts=2,
-            restart_cooldown=1.0,
             on_restart_needed=cb,
             clock=clock,
         )
@@ -475,7 +474,6 @@ class TestRestartThresholdDetection:
             adapters={_PortA: _UnhealthyAdapter()},
             restart_after_failures=1,
             max_restarts=1,
-            restart_cooldown=1.0,
             on_restart_needed=cb,
             clock=clock,
         )
@@ -491,8 +489,51 @@ class TestRestartThresholdDetection:
         await runner.run_startup_checks()
         assert cb.call_count == 1
 
-    async def test_failed_callback_marks_exhausted(self) -> None:
-        """When on_restart_needed returns False, adapter is permanently offline."""
+    async def test_failed_restart_counts_against_budget_and_retries(self) -> None:
+        """A failed attempt uses one restart; the adapter stays retryable."""
+        # Arrange
+        cb = AsyncMock(return_value=False)
+        runner, *_ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+            restart_after_failures=1,
+            max_restarts=3,
+            on_restart_needed=cb,
+        )
+
+        # Act
+        await runner.run_startup_checks()
+
+        # Assert
+        s = runner.adapter_health_status[_PortA]
+        assert s.restart_count == 1
+        assert s.restart_exhausted is False
+        assert s.healthy is False
+        cb.assert_awaited_once()
+
+    async def test_failed_restarts_exhaust_budget_after_max_attempts(self) -> None:
+        """max_restarts failed attempts are made, then the adapter gives up."""
+        # Arrange
+        cb = AsyncMock(return_value=False)
+        runner, *_ = _make_runner(
+            adapters={_PortA: _UnhealthyAdapter()},
+            restart_after_failures=1,
+            max_restarts=3,
+            on_restart_needed=cb,
+        )
+
+        # Act
+        for _ in range(5):
+            await runner.run_startup_checks()
+
+        # Assert
+        s = runner.adapter_health_status[_PortA]
+        assert cb.await_count == 3
+        assert s.restart_count == 3
+        assert s.restart_exhausted is True
+
+    async def test_failed_restart_rearms_failure_threshold(self) -> None:
+        """The next attempt waits for restart_after_failures new failures."""
+        # Arrange
         cb = AsyncMock(return_value=False)
         runner, *_ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
@@ -502,13 +543,19 @@ class TestRestartThresholdDetection:
         )
         for _ in range(2):
             await runner.run_startup_checks()
-        s = runner.adapter_health_status[_PortA]
-        assert s.restart_exhausted is True
-        assert s.restart_count == 0  # never incremented on failure
-        cb.assert_called_once()
+        assert cb.await_count == 1
+
+        # Act / Assert — one failure short of the threshold: no attempt
+        await runner.run_startup_checks()
+        assert cb.await_count == 1
+        assert runner.adapter_health_status[_PortA].consecutive_failures == 1
+
+        # Act / Assert — threshold reached again: second attempt
+        await runner.run_startup_checks()
+        assert cb.await_count == 2
 
     async def test_raising_callback_counts_as_failed_restart(self) -> None:
-        """A callback that raises marks the adapter exhausted instead of escaping.
+        """A callback that raises counts as a failed attempt instead of escaping.
 
         The callback runs inside the supervised health-checker loop (ADR-081
         section 7); an escaping exception would end the process.
@@ -518,6 +565,7 @@ class TestRestartThresholdDetection:
         runner, *_ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
             restart_after_failures=1,
+            max_restarts=1,
             on_restart_needed=cb,
         )
 
@@ -527,34 +575,48 @@ class TestRestartThresholdDetection:
         # Assert
         s = runner.adapter_health_status[_PortA]
         assert s.restart_exhausted is True
-        assert s.restart_count == 0
+        assert s.restart_count == 1
         cb.assert_awaited_once()
 
-    async def test_cooldown_prevents_immediate_restart(self) -> None:
-        """Restart is not attempted within the cooldown window."""
+    async def test_restart_not_delayed_by_time_since_last_restart(self) -> None:
+        """Only the failure threshold spaces attempts — no extra time gate.
+
+        restart_cooldown is the pause between __aexit__ and __aenter__
+        (ADR-029 Decision 4), not a minimum spacing between restarts.
+        """
+        # Arrange
         cb = AsyncMock(return_value=True)
         clock = FakeClock(0.0)
         runner, *_ = _make_runner(
             adapters={_PortA: _UnhealthyAdapter()},
             restart_after_failures=1,
             max_restarts=3,
-            restart_cooldown=10.0,
             on_restart_needed=cb,
             clock=clock,
         )
-        # First failure triggers restart at t=0
         await runner.run_startup_checks()
-        assert cb.call_count == 1
+        assert cb.await_count == 1
 
-        # Second failure at t=5 (within cooldown) — no restart
-        clock._time = 5.0
+        # Act — next failure at the same instant
         await runner.run_startup_checks()
-        assert cb.call_count == 1
 
-        # Third failure at t=15 (past cooldown) — restart allowed
-        clock._time = 15.0
-        await runner.run_startup_checks()
-        assert cb.call_count == 2
+        # Assert
+        assert cb.await_count == 2
+
+
+class TestRunnerDefaults:
+    """HealthCheckRunner defaults match App (ADR-029)."""
+
+    def test_restart_after_failures_default_matches_app(self) -> None:
+        # Arrange / Act
+        default = (
+            inspect.signature(HealthCheckRunner)
+            .parameters["restart_after_failures"]
+            .default
+        )
+
+        # Assert
+        assert default == App("t")._restart_after_failures == 5
 
 
 class TestSustainedHealthReset:
@@ -994,6 +1056,73 @@ class TestOnRestartDeferredTaskHandoff:
 
         # Assert
         assert result is False
+
+        # Clean up
+        await h.teardown()
+
+    async def test_retry_after_failed_restart_recreates_stranded_tasks(
+        self,
+    ) -> None:
+        """A failed attempt strands its devices; the next success restores them.
+
+        The failed attempt already removed the devices from the task map, so
+        the retry must remember them — and must replace, not duplicate, the
+        shared group task it deferred.
+        """
+        # Arrange
+        h = await _make_restart_wiring(fail_enter_a=True)
+        device_task_map = _restart_closure_vars(h.on_restart).nonlocals[
+            "device_task_map"
+        ]
+        (old_group_task,) = device_task_map["sensor_b"][-1:]
+        assert await h.on_restart(_PortA, h.adapter_a) is False
+        assert "sensor_a" not in device_task_map
+        h.adapter_a._fail_enter = False
+
+        # Act
+        result = await h.on_restart(_PortA, h.adapter_a)
+
+        # Assert
+        assert result is True
+        # The previous __aenter__ failed, so the retry enters directly.
+        assert h.adapter_a.exit_count == 1
+        assert h.adapter_a.enter_count == 2
+        assert device_task_map["sensor_a"]
+        assert all(not t.done() for t in device_task_map["sensor_a"])
+        assert old_group_task.cancelled()
+        assert device_task_map["sensor_b"][-1] in device_task_map["sensor_a"]
+
+        # Clean up
+        await h.teardown()
+
+
+class TestOnRestartForwardsReactors:
+    """ADR-029 restart re-creates device tasks with the app's reactors."""
+
+    async def test_restart_passes_reactors_to_recreated_tasks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Arrange
+        import cosalette._wiring._tasks as wiring_tasks
+
+        reactors: list[Any] = []
+        seen: list[object] = []
+        original = wiring_tasks.start_device_tasks_for_names
+
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append(kwargs.get("reactors"))
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(wiring_tasks, "start_device_tasks_for_names", _spy)
+        h = await _make_restart_wiring(reactors=reactors)
+
+        # Act
+        result = await h.on_restart(_PortA, h.adapter_a)
+
+        # Assert
+        assert result is True
+        assert seen == [reactors]
+        assert seen[0] is reactors
 
         # Clean up
         await h.teardown()

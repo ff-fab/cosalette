@@ -419,7 +419,6 @@ class _LifecycleMixin:
                             shutdown_event=shutdown_event,
                             restart_after_failures=self._restart_after_failures,
                             max_restarts=self._max_restarts,
-                            restart_cooldown=self._restart_cooldown,
                             sustained_health_reset=self._sustained_health_reset,
                         )
 

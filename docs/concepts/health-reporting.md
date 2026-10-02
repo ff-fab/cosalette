@@ -421,8 +421,8 @@ Each adapter's health state is tracked via `AdapterHealthStatus`:
 | `healthy`             | `bool`  | Current health state                               |
 | `consecutive_failures`| `int`   | Failures since last success (resets to 0 on recovery) |
 | `last_check`          | `float` | Monotonic timestamp of last probe                  |
-| `restart_count`       | `int`   | Number of restarts performed for this adapter      |
-| `restart_exhausted`   | `bool`  | `True` when `restart_count` reaches `max_restarts` |
+| `restart_count`       | `int`   | Restart attempts (successful or failed) for this adapter |
+| `restart_exhausted`   | `bool`  | `True` when the last restart attempt fails, or another failure threshold is reached after the budget is spent |
 | `last_restart`        | `float` | Monotonic timestamp of last restart attempt         |
 | `last_healthy_since`  | `float` | Monotonic timestamp of sustained health start      |
 
@@ -466,7 +466,7 @@ Auto-restart is controlled by four parameters on `App()`:
 | Parameter               | Default | Description                                       |
 |-------------------------|---------|---------------------------------------------------|
 | `restart_after_failures`| `5`     | Consecutive failures before triggering restart. `0` disables. |
-| `max_restarts`          | `3`     | Maximum restarts per adapter before giving up     |
+| `max_restarts`          | `3`     | Maximum restart attempts per adapter before giving up |
 | `restart_cooldown`      | `5.0`   | Seconds to wait between exit and re-entry         |
 | `sustained_health_reset`| `300.0` | Seconds of sustained health to reset restart counter |
 
@@ -504,8 +504,15 @@ sequenceDiagram
     Runner->>Runner: reset consecutive_failures, increment restart_count
 ```
 
-On restart failure (re-entry or post-restart health check fails), the adapter
-is marked `restart_exhausted` and its devices stay offline permanently.
+A failed restart (re-entry or post-restart health check fails) still counts
+toward `max_restarts`, and the adapter's devices stay offline. The failure counter
+starts again from zero, so the next attempt follows another
+`restart_after_failures` failed checks. When the last attempt in the budget fails,
+the adapter is marked `restart_exhausted` and its devices stay offline until the
+process restarts.
+
+`restart_cooldown` is only the pause between `__aexit__` and `__aenter__`. The
+failure threshold alone sets how far apart two restarts are.
 
 #### Opting Out
 
