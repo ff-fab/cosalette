@@ -95,6 +95,6 @@ rationale, and consequences.
 | [ADR-080](ADR-080-telemetry-freshness-tracking-and-a-stale-device-status.md) | Telemetry freshness tracking and a stale device status | Accepted | 2026-10-02 |
 | [ADR-081](ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md) | Supervision of framework-started tasks with an on_task_failure policy | Accepted | 2026-10-02 |
 | [ADR-082](ADR-082-persistent-error-reminders-and-a-recovery-log-for-telemetry.md) | Persistent-error reminders and a recovery log for telemetry | Accepted | 2026-10-02 |
-| [ADR-083](ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md) | Opt-in health file and a health CLI probe for container liveness | Proposed | 2026-10-02 |
-| [ADR-084](ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md) | Adapter reset() restart protocol and opt-in restart on stale telemetry | Proposed | 2026-10-02 |
-| [ADR-085](ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md) | Optional redaction hook for logs and disclosed error messages | Proposed | 2026-10-02 |
+| [ADR-083](ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md) | Opt-in health file and a health CLI probe for container liveness | Accepted | 2026-10-02 |
+| [ADR-084](ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md) | Adapter reset() restart protocol and opt-in restart on stale telemetry | Accepted | 2026-10-02 |
+| [ADR-085](ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md) | Optional redaction hook for logs and disclosed error messages | Accepted | 2026-10-02 |

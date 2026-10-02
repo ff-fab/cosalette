@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-10-02
 impact: moderate
 tags: [cli, health, lifecycle, telemetry]
@@ -9,7 +9,7 @@ tags: [cli, health, lifecycle, telemetry]
 
 ## Status
 
-Proposed **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02
 
 ## Context
 
