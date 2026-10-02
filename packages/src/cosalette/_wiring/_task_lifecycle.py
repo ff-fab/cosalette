@@ -549,6 +549,20 @@ def _start_telemetry_tasks(
             task_map.setdefault(gr.name, []).append(task)
 
 
+async def _adapter_healthy_after_restart(adapter_type: type, adapter: object) -> bool:
+    """Probe an optional adapter health check after a successful restart."""
+    check = getattr(adapter, "health_check", None)
+    if check is None:
+        return True
+    try:
+        return bool(await check())
+    except Exception:
+        logger.exception(
+            "Health check after restarting %s raised", adapter_type.__qualname__
+        )
+        return False
+
+
 def wire_restart_callback(
     health_check_runner: HealthCheckRunner | None,
     adapter_device_map: dict[type, list[DeviceInfo]] | None,
@@ -612,18 +626,8 @@ def wire_restart_callback(
             # Leave deferred group tasks running — they still
             # serve healthy adapters' devices.
             return False
-        check = getattr(adapter, "health_check", None)
-        if check is not None:
-            try:
-                healthy = bool(await check())
-            except Exception:
-                logger.exception(
-                    "Health check after restarting %s raised",
-                    adapter_type.__qualname__,
-                )
-                healthy = False
-            if not healthy:
-                return False
+        if not await _adapter_healthy_after_restart(adapter_type, adapter):
+            return False
         # Tear down the old deferred group tasks *before* creating their
         # replacements: a restarted group must never share its per-member
         # trigger slots / wake event with the scheduler being cancelled

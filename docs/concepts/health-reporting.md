@@ -181,7 +181,7 @@ Each device gets its own availability topic, published automatically by the
 | Device start     | `"online"` to `{prefix}/{device}/availability` | Phase 2 (Wire)          |
 | Graceful shutdown | `"offline"` to `{prefix}/{device}/availability` | Phase 4 (Teardown)    |
 | Task failure     | `"offline"`, heartbeat status `"error"`        | Task supervisor (ADR-081) |
-| Task recovered   | `"online"`, heartbeat status `"ok"`            | First success after restart |
+| Task recovered   | `"online"`, heartbeat status `"ok"` (when no other source is offline) | First success after restart |
 
 A stream has no availability topic. When a stream task fails, only its
 heartbeat status changes (`"error"`, then `"ok"` after its first item following

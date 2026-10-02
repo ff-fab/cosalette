@@ -4,6 +4,14 @@ icon: material/transfer
 
 # Migrate Between cosalette Versions
 
+## Task-supervision behavior change
+
+Device and stream handlers that raise no longer end silently. The framework now
+reports the failure and, by default, restarts the task with backoff. A task that
+exhausts its restart budget shuts down the app with CLI exit code `4`; configure
+your process supervisor to restart on that code, or set `on_task_failure="ignore"`
+or `"exit"` to choose a different policy. See [Task Supervision](../concepts/error-handling.md#task-supervision).
+
 This guide covers breaking changes and mechanical rewrites when upgrading between
 cosalette versions. For AI-assisted migration from non-cosalette IoT apps, see
 [AI-Assisted Development](../getting-started/ai-assisted-development.md).

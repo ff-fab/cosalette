@@ -643,7 +643,7 @@ class TaskSupervisor:
             )
             self._escalate(record, exc, "restart budget exhausted")
             return
-        delay = self._count_restart(record)
+        delay = restart_backoff(record.restarts_in_window + 1)
         logger.warning(
             "Restarting task %r in %.0f s (restart %d/%d)",
             record.key,
@@ -691,6 +691,10 @@ class TaskSupervisor:
             return
         if self._serves_exhausted_adapter(record) or record.restart is None:
             return
+        # A restart consumes budget only once it is actually attempted.  A
+        # pending restart cancelled by shutdown or an adapter restart must
+        # leave the registration's allowance intact.
+        self._count_restart(record)
         try:
             task = record.restart()
         except Exception as exc:

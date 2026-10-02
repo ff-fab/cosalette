@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pydantic import SecretStr
 
     from cosalette._app import App
+    from cosalette._errors import ErrorPublisher
     from cosalette._persistence._state import StateRegistration
     from cosalette._registration import (
         _CommandRegistration,
@@ -328,19 +329,13 @@ class _LifecycleMixin:
         )
 
         shutdown_event = _wiring.install_signal_handlers(shutdown_event)
-        supervisor = TaskSupervisor(
-            policy=self._on_task_failure,
-            max_restarts=self._task_max_restarts,
-            restart_window=self._task_restart_window,
-            clock=resolved_clock,
-            shutdown_event=shutdown_event,
-            health_reporter=health_reporter,
-            error_publisher=error_publisher,
+        supervisor = self._create_supervisor(
+            resolved_clock,
+            shutdown_event,
+            health_reporter,
+            error_publisher,
+            raw_mqtt_client,
         )
-        # The MQTT loops belong to the real client; test doubles opt out.
-        if isinstance(raw_mqtt_client, MqttClient):
-            for mqtt_task in raw_mqtt_client.supervised_tasks():
-                supervisor.supervise_internal(mqtt_task)
 
         try:
             # Detect restartable adapters and manage them outside the stack
@@ -494,12 +489,51 @@ class _LifecycleMixin:
                         await router.aclose()
         finally:
             # Before the MQTT client stops, so its loops ending is expected.
-            await supervisor.aclose()
-            await health_reporter.shutdown()
+            await self._shutdown_infrastructure(
+                supervisor, health_reporter, mqtt_client
+            )
 
-            if isinstance(mqtt_client, MqttLifecycle):
-                await mqtt_client.stop()
+        self._raise_fatal_error(supervisor)
 
+    def _create_supervisor(
+        self,
+        clock: ClockPort,
+        shutdown_event: asyncio.Event,
+        health_reporter: HealthReporter,
+        error_publisher: ErrorPublisher | None,
+        raw_mqtt_client: MqttPort,
+    ) -> TaskSupervisor:
+        """Create the task supervisor and register real MQTT background loops."""
+        supervisor = TaskSupervisor(
+            policy=self._on_task_failure,
+            max_restarts=self._task_max_restarts,
+            restart_window=self._task_restart_window,
+            clock=clock,
+            shutdown_event=shutdown_event,
+            health_reporter=health_reporter,
+            error_publisher=error_publisher,
+        )
+        # The MQTT loops belong to the real client; test doubles opt out.
+        if isinstance(raw_mqtt_client, MqttClient):
+            for mqtt_task in raw_mqtt_client.supervised_tasks():
+                supervisor.supervise_internal(mqtt_task)
+        return supervisor
+
+    @staticmethod
+    async def _shutdown_infrastructure(
+        supervisor: TaskSupervisor,
+        health_reporter: HealthReporter,
+        mqtt_client: MqttPort,
+    ) -> None:
+        """Stop supervised infrastructure after application tasks have ended."""
+        await supervisor.aclose()
+        await health_reporter.shutdown()
+        if isinstance(mqtt_client, MqttLifecycle):
+            await mqtt_client.stop()
+
+    @staticmethod
+    def _raise_fatal_error(supervisor: TaskSupervisor) -> None:
+        """Propagate a supervised fatal task error after graceful teardown."""
         logger.info("Shutdown complete")
         if supervisor.fatal_error is not None:
             # After the graceful teardown, so the process exits with

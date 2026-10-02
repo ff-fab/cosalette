@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from cosalette._health import HealthCheckRunner
@@ -27,13 +27,22 @@ def entity_task_members(
 ) -> list[_DeviceRegistration | _TelemetryRegistration]:
     """Return the registrations an entity task (device, telemetry, group) runs."""
     kind, _, ident = task_name.partition(":")
-    if kind == "device":
-        return [d for d in devices if d.name == ident]
-    if kind == "telemetry":
-        return [t for t in telemetry if t.name == ident and t.group is None]
-    if kind == "group":
-        return [t for t in telemetry if t.group == ident]
-    return []
+    selectors = {
+        "device": lambda: [device for device in devices if device.name == ident],
+        "telemetry": lambda: [
+            registration
+            for registration in telemetry
+            if registration.name == ident and registration.group is None
+        ],
+        "group": lambda: [
+            registration for registration in telemetry if registration.group == ident
+        ],
+    }
+    selector = selectors.get(kind)
+    return cast(
+        "list[_DeviceRegistration | _TelemetryRegistration]",
+        selector() if selector is not None else [],
+    )
 
 
 def supervise_entity_tasks(

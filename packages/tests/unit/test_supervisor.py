@@ -768,6 +768,7 @@ class TestAdapterRestartInteraction:
         # Assert
         assert keys == ["device:a"]
         assert factory.calls == 0
+        assert h.supervisor.counters("device:a").total_restarts == 0
 
     async def test_failure_while_adapter_owned_is_not_counted(
         self, caplog: pytest.LogCaptureFixture

@@ -341,7 +341,7 @@ policy apply as usual. `details` identifies it as a task failure:
 ```json title="velux2mqtt/blind/error"
 {
     "error_type": "error",
-    "message": "Connection refused",
+    "message": "ConnectionRefusedError",
     "device": "blind",
     "timestamp": "2026-02-14T12:34:57+00:00",
     "details": {"task_failure": true, "task": "device:blind"}

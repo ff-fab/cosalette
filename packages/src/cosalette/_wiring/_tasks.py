@@ -220,6 +220,10 @@ async def run_lifespan_and_devices(
             await health_check_runner.run_startup_checks()
 
         health_check_task = start_health_check_task(health_check_runner)
+        # This loop starts before waiting for the broker.  Supervise it here,
+        # rather than after that wait, so an early failure cannot be missed.
+        if supervisor is not None:
+            supervisor.supervise_internal(health_check_task)
 
         await await_first_connect(
             first_connect,
@@ -271,7 +275,7 @@ async def run_lifespan_and_devices(
 
         on_tasks_started = None
         if supervisor is not None:
-            for internal in (health_check_task, heartbeat_task, freshness_task):
+            for internal in (heartbeat_task, freshness_task):
                 supervisor.supervise_internal(internal)
             supervisor.set_adapter_exhausted_check(
                 adapter_exhausted_check(health_check_runner, adapter_device_map)

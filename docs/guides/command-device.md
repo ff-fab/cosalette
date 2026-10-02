@@ -951,7 +951,8 @@ Errors can occur in two places:
    supervisor logs it, publishes one error payload, marks the device offline and
    applies the app's `on_task_failure` policy: by default it restarts the
    device with backoff, and exits the app with code 4 once the restart budget is
-   spent. Other devices continue. See
+   spent. Other devices continue during restart attempts; budget exhaustion
+   shuts down the whole app. See
    [Task Supervision](../concepts/error-handling.md#task-supervision).
 
 ### Imperative Registration with `add_device()`

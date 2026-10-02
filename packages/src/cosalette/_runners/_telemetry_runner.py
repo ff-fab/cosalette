@@ -976,10 +976,11 @@ class TelemetryRunner:
         A tick may also be a member's ``init=`` retry (ADR-081); a member
         whose retry succeeds joins this cycle's batch.
         """
-        candidates = list(gs.init_retry.values())
-        if gs.heap:
-            candidates.append(gs.heap[0][0])
-        next_fire_ms = min(candidates)
+        retry_fire_ms = min(gs.init_retry.values(), default=None)
+        heap_fire_ms = gs.heap[0][0] if gs.heap else None
+        next_fire_ms = min(
+            fire_ms for fire_ms in (retry_fire_ms, heap_fire_ms) if fire_ms is not None
+        )
         tick_reached = await self._await_group_cycle(gs, next_fire_ms)
         if tick_reached is None:
             return False
@@ -1347,35 +1348,27 @@ class TelemetryRunner:
         # Member index -> seconds until its init= retry, or None for none.
         failed: dict[int, float | None] = {}
 
-        for i, reg in enumerate(registrations):
-            ctx = contexts[reg.name]
-            providers_arr[i], device_stores[i] = self._prepare_telemetry_providers(
-                reg, ctx
+        for index, registration in enumerate(registrations):
+            await self._initialise_group_member(
+                index,
+                registration,
+                contexts[registration.name],
+                group_name,
+                trigger_slots,
+                providers_arr,
+                device_stores,
+                kwargs_arr,
+                strategies,
+                intervals_ms,
+                slots,
+                infos,
+                failed,
             )
-            ok, retry_in = await self._try_member_init(
-                group_name, reg, providers_arr[i]
-            )
-            if ok:
-                kwargs_arr[i] = resolve_request_kwargs(
-                    reg.injection_plan, providers_arr[i]
-                )
-            else:
-                failed[i] = retry_in
-            strategy = reg.publish_strategy
-            strategies[i] = strategy
-            if strategy is not None:
-                strategy._bind(ctx.clock)
-            intervals_ms[i] = _to_ms(_resolved_interval(reg))
-            slots[i], infos[i] = self._group_member_trigger(reg, trigger_slots)
 
         # Build priority queue and active-stores list in a single pass
-        heap: list[tuple[int, int]] = []
-        active_stores: list[tuple[DeviceStore | None, str]] = []
-        for i in range(n):
-            if i not in failed:
-                first_due = intervals_ms[i] if defer_first_cycle else 0
-                heapq.heappush(heap, (first_due, i))
-            active_stores.append((device_stores[i], registrations[i].name))
+        heap, active_stores = self._build_group_schedule(
+            registrations, device_stores, intervals_ms, failed, defer_first_cycle
+        )
 
         # First handler's context for shutdown-aware sleep.
         sleep_ctx = contexts[registrations[0].name]
@@ -1402,6 +1395,65 @@ class TelemetryRunner:
             trigger_infos=infos,
             wake=self._group_wake(slots),
         )
+
+    async def _initialise_group_member(
+        self,
+        index: int,
+        registration: _TelemetryRegistration,
+        context: DeviceContext,
+        group_name: str,
+        trigger_slots: dict[str, _TriggerSlot] | None,
+        providers_arr: list[dict[type, object]],
+        device_stores: list[DeviceStore | None],
+        kwargs_arr: list[dict[str, Any]],
+        strategies: list[PublishStrategy | None],
+        intervals_ms: list[int],
+        slots: list[_TriggerSlot | None],
+        infos: list[tuple[str, Any, type | None] | None],
+        failed: dict[int, float | None],
+    ) -> None:
+        """Prepare one coalescing-group member's immutable scheduler state."""
+        providers_arr[index], device_stores[index] = self._prepare_telemetry_providers(
+            registration, context
+        )
+        ok, retry_in = await self._try_member_init(
+            group_name, registration, providers_arr[index]
+        )
+        if ok:
+            kwargs_arr[index] = resolve_request_kwargs(
+                registration.injection_plan, providers_arr[index]
+            )
+        else:
+            failed[index] = retry_in
+        strategy = registration.publish_strategy
+        strategies[index] = strategy
+        if strategy is not None:
+            strategy._bind(context.clock)
+        intervals_ms[index] = _to_ms(_resolved_interval(registration))
+        slots[index], infos[index] = self._group_member_trigger(
+            registration, trigger_slots
+        )
+
+    @staticmethod
+    def _build_group_schedule(
+        registrations: list[_TelemetryRegistration],
+        device_stores: list[DeviceStore | None],
+        intervals_ms: list[int],
+        failed: dict[int, float | None],
+        defer_first_cycle: bool,
+    ) -> tuple[list[tuple[int, int]], list[tuple[DeviceStore | None, str]]]:
+        """Build the first-run priority queue and cleanup-store list."""
+        heap = [
+            (intervals_ms[index] if defer_first_cycle else 0, index)
+            for index in range(len(registrations))
+            if index not in failed
+        ]
+        heapq.heapify(heap)
+        active_stores = [
+            (device_stores[index], registration.name)
+            for index, registration in enumerate(registrations)
+        ]
+        return heap, active_stores
 
     @staticmethod
     def _group_wake(slots: list[_TriggerSlot | None]) -> asyncio.Event | None:
