@@ -264,18 +264,25 @@ async def restart_single_adapter(
     cooldown: float,
     clock: ClockPort,
     shutdown_event: asyncio.Event,
+    *,
+    was_entered: bool = True,
+    on_entry_state_changed: Callable[[bool], None] | None = None,
 ) -> bool:
     """Exit and re-enter a single adapter's lifecycle.
 
     Returns True if restart succeeded, False if ``__aenter__`` failed.
     """
-    # 1. Exit — best-effort, log and continue on failure
-    try:
-        await exit_single_adapter(adapter)
-    except Exception:
-        logger.exception(
-            "Adapter %s __aexit__ failed during restart", type(adapter).__name__
-        )
+    # 1. Exit only when the previous entry completed. A failed __aenter__
+    # leaves the adapter outside its context, so retrying must enter directly.
+    if was_entered:
+        try:
+            await exit_single_adapter(adapter)
+        except Exception:
+            logger.exception(
+                "Adapter %s __aexit__ failed during restart", type(adapter).__name__
+            )
+        if on_entry_state_changed is not None:
+            on_entry_state_changed(False)
 
     # 2. Shutdown-aware cooldown sleep
     if shutdown_event.is_set():
@@ -304,6 +311,9 @@ async def restart_single_adapter(
             exc_info=True,
         )
         return False
+
+    if on_entry_state_changed is not None:
+        on_entry_state_changed(True)
 
     return True
 

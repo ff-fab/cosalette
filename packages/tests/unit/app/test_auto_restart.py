@@ -1084,6 +1084,9 @@ class TestOnRestartDeferredTaskHandoff:
 
         # Assert
         assert result is True
+        # The previous __aenter__ failed, so the retry enters directly.
+        assert h.adapter_a.exit_count == 1
+        assert h.adapter_a.enter_count == 2
         assert device_task_map["sensor_a"]
         assert all(not t.done() for t in device_task_map["sensor_a"])
         assert old_group_task.cancelled()

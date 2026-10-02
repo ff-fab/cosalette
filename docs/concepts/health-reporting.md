@@ -422,7 +422,7 @@ Each adapter's health state is tracked via `AdapterHealthStatus`:
 | `consecutive_failures`| `int`   | Failures since last success (resets to 0 on recovery) |
 | `last_check`          | `float` | Monotonic timestamp of last probe                  |
 | `restart_count`       | `int`   | Restart attempts (successful or failed) for this adapter |
-| `restart_exhausted`   | `bool`  | `True` when `restart_count` reaches `max_restarts` |
+| `restart_exhausted`   | `bool`  | `True` when the last restart attempt fails, or another failure threshold is reached after the budget is spent |
 | `last_restart`        | `float` | Monotonic timestamp of last restart attempt         |
 | `last_healthy_since`  | `float` | Monotonic timestamp of sustained health start      |
 

@@ -617,6 +617,7 @@ def wire_restart_callback(
     # tasks; the next attempt for the same adapter must still recreate
     # them, since cancel_tasks_for_adapter() no longer finds them.
     stranded: dict[type, tuple[list[str], list[asyncio.Task[None]]]] = {}
+    entered: dict[type, bool] = dict.fromkeys(adapter_device_map, True)
 
     async def _restart(adapter_type: type, adapter: object) -> bool:
         cancelled, deferred_tasks = await cancel_tasks_for_adapter(
@@ -625,9 +626,18 @@ def wire_restart_callback(
         prev_cancelled, prev_deferred = stranded.pop(adapter_type, ([], []))
         cancelled = list(dict.fromkeys([*prev_cancelled, *cancelled]))
         deferred_tasks = list(dict.fromkeys([*prev_deferred, *deferred_tasks]))
+
+        def _record_entry_state(is_entered: bool) -> None:
+            entered[adapter_type] = is_entered
+
         if not (
             await restart_single_adapter(
-                adapter, restart_cooldown, resolved_clock, shutdown_event
+                adapter,
+                restart_cooldown,
+                resolved_clock,
+                shutdown_event,
+                was_entered=entered.get(adapter_type, True),
+                on_entry_state_changed=_record_entry_state,
             )
             and await _adapter_healthy_after_restart(adapter_type, adapter)
         ):
