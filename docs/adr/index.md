@@ -93,4 +93,4 @@ rationale, and consequences.
 | [ADR-078](ADR-078-opt-in-mqtt-5-with-retained-message-expiry-and-a-client-owned-refresh-ledger.md) | Opt-in MQTT 5 with Retained Message Expiry and a Client-Owned Refresh Ledger | Accepted | 2026-09-13 |
 | [ADR-079](ADR-079-openhab-availability-wiring-and-thing-level-override-passthrough.md) | OpenHAB Availability Wiring and Thing-Level Override Passthrough | Accepted | 2026-09-16 |
 | [ADR-080](ADR-080-telemetry-freshness-tracking-and-a-stale-device-status.md) | Telemetry freshness tracking and a stale device status | Accepted | 2026-10-02 |
-| [ADR-081](ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md) | Supervision of framework-started tasks with an on_task_failure policy | Proposed | 2026-10-02 |
+| [ADR-081](ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md) | Supervision of framework-started tasks with an on_task_failure policy | Accepted | 2026-10-02 |

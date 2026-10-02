@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 date: 2026-10-02
 impact: high
 tags: [lifecycle, health, error-handling, telemetry, devices]
@@ -9,7 +9,7 @@ tags: [lifecycle, health, error-handling, telemetry, devices]
 
 ## Status
 
-Proposed **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02
 
 ## Context
 
@@ -31,21 +31,21 @@ Use a framework-owned task supervisor that attaches a done-callback to every fra
 
 A supervised task fails when it raises (including a non-`CancelledError` `BaseException`) or is cancelled by something other than the framework, while the app is not shutting down. A normal return is **never** a failure: it is logged at INFO (`device 'x' handler completed`) and the entities keep their state. Cancellation by phase-4 teardown and by an ADR-029 adapter restart is recorded as expected before `cancel()` is called and never reaches the policy.
 
-**Runners re-raise.** `run_device` keeps its device-specific handling - the error payload, and `offline` through the `device` source for generator-body errors - and then re-raises instead of returning. This includes setup failures (DI resolution, `init=`, the non-generator `TypeError`); deterministic ones simply use up the budget. `run_stream` re-raises the same way, so streams gain error/offline reporting through the supervisor. The runners drop their own ERROR `crashed`/`error` lines.
+**Runners re-raise.** `run_device` keeps marking generator-body errors `offline` through the `device` source, but no longer publishes its own error payload for an exception that ends the task; it re-raises instead of returning, and the supervisor publishes the single payload for the crash (section 2). This includes setup failures (DI resolution, `init=`, the non-generator `TypeError`); deterministic ones simply use up the budget. `run_stream` re-raises the same way, so streams gain error/offline reporting through the supervisor. The runners drop their own ERROR `crashed`/`error` lines.
 
 ### 2. Immediate reaction (every policy)
 
 The done-callback is synchronous and only records the failure and schedules an async handler; it holds no awaitable state of its own and so cannot die independently. The handler:
 
 - logs exactly **one CRITICAL** line with the task name, mapped entities and full traceback;
-- reports the failure through the normal error path, `ErrorPublisher`, with the distinct error type `task_failure`;
+- publishes **exactly one error payload per crash** through the normal error path, `ErrorPublisher`, to `{prefix}/error` and, for a task mapped to a single non-root entity, `{prefix}/{device}/error`. A coalescing-group task maps to several entities; its one payload goes to `{prefix}/error` only and lists the members in `details.entities`. A periodic task has no entity and publishes to `{prefix}/error` only. The payload keeps the original exception's `error_type` and `message` (ADR-011 mapping and ADR-061 disclosure rules unchanged), so existing subscribers keep working, and carries the marker `details.task_failure = true` plus `details.task` (the task name). Runners do not publish their own payload for an exception that ends the task; per-cycle errors that the runners handle and survive (telemetry poll errors, periodic and stream per-item errors that are caught) keep their current payloads;
 - sets every entity mapped to the task in `DeviceTaskMap` (all members, for a coalescing group) to heartbeat status `error`, and publishes retained `offline` through a new availability source `"supervisor"` (ADR-077 multi-source rule: it never declares an entity online while another source holds it offline). Periodic tasks have no entities; the log and the error payload are their whole reaction.
 
-**Log deduplication.** `ErrorPublisher.publish` logs every published payload at WARNING with `exc_info`. That WARNING stays, because it ties the correlation id to the broker payload (ADR-011, ADR-061), but for a terminal task failure - the runner's device payload and the supervisor's `task_failure` payload - it is emitted **without** the traceback. The CRITICAL line is the only line per crash that carries a traceback.
+**Log deduplication.** `ErrorPublisher.publish` logs every published payload at WARNING with `exc_info`. That WARNING stays, because it ties the correlation id to the broker payload (ADR-011, ADR-061), but for the supervisor's terminal-failure payload it is emitted **without** the traceback. The CRITICAL line is the only line per crash that carries a traceback.
 
 ### 3. `on_task_failure="restart"` (default)
 
-**Budget.** Each registration may be restarted **3** times. The count resets to 0 only after a full **300 s** without a failure of that registration; it is not a rolling-window rate. This is ADR-029's `max_restarts=3` / `sustained_health_reset=300` applied per task.
+**Budget.** Each registration may be restarted **3** times. The count resets to 0 only after a full **300 s** without a failure of that registration; it is not a rolling-window rate. This is ADR-029's `max_restarts=3` / `sustained_health_reset=300` applied per task. For a coalescing group the budget, backoff and counters are **per group**, not per member: the group runs as one task (`group:<name>`), so a failure of the group task consumes one restart of the group's single budget whichever member's handler raised.
 
 | Failure pattern | Outcome |
 | --- | --- |
@@ -115,7 +115,8 @@ app = cosalette.App(
 
 # A telemetry task that dies:
 #   CRITICAL Task 'telemetry:radon' died: <traceback>          (one traceback per crash)
-#   airthings2mqtt/error        <- {"error_type": "task_failure", ...}
+#   airthings2mqtt/error        <- {"error_type": "error", "message": "OSError",
+#   airthings2mqtt/radon/error         "details": {"task_failure": true, "task": "telemetry:radon"}, ...}
 #   airthings2mqtt/radon/availability -> "offline"  (source="supervisor")
 #   heartbeat: {"radon": {"status": "error", ...}}
 #   re-created after 1 s, 2 s, 4 s (cap 60 s); first poll one interval later
@@ -143,7 +144,7 @@ except cosalette.TaskSupervisionError as exc:
 
 ### Option 1: Supervisor with restart-with-budget default escalating to exit (chosen)
 
-Attach a done-callback to every framework-started task; runners re-raise instead of returning. On a failure, log one CRITICAL, publish a task_failure error, mark mapped entities error and offline (source "supervisor"), and apply the app-wide on_task_failure: restart with 1-60 s backoff and a 3-restart budget reset after 300 s of quiet, skipping the immediate first cycle; raise TaskSupervisionError after graceful teardown when the budget is exhausted. Internal loops always escalate to exit.
+Attach a done-callback to every framework-started task; runners re-raise instead of returning. On a failure, log one CRITICAL, publish one error payload marked task_failure, mark mapped entities error and offline (source "supervisor"), and apply the app-wide on_task_failure: restart with 1-60 s backoff and a 3-restart budget reset after 300 s of quiet, skipping the immediate first cycle; raise TaskSupervisionError after graceful teardown when the budget is exhausted. Internal loops always escalate to exit.
 
 - *Advantages:* Detects a dead task immediately for every archetype, not only telemetry; Recovers transient faults automatically with the same budget semantics as ADR-029; Bounded: a crash loop ends in about 10 s with a graceful teardown and a distinct exit code 4; Restarts never poll a device faster than its interval; Reuses existing task factories, trigger slots and availability sources
 - *Disadvantages:* Most moving parts: backoff timers, per-registration budgets, expected-cancel tracking, a skip-first-cycle runner flag; Restart loses task-local state (dedup baseline, retry state, device loop variables); Behaviour change: device and stream crashes no longer end silently, and a persistent crash now ends the process
@@ -187,7 +188,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ### Positive
 
-- A task that dies is visible within one event-loop turn - one CRITICAL line with traceback, a task_failure error payload, heartbeat status error and retained offline - instead of a silent outage that surfaces only at shutdown
+- A task that dies is visible within one event-loop turn - one CRITICAL line with traceback, exactly one error payload (original error_type and message, details.task_failure marker), heartbeat status error and retained offline - instead of a silent outage that surfaces only at shutdown
 - Device and stream failures, which today end their task silently, are now reported, recovered and bounded like telemetry
 - Transient faults heal without operator action; a fault that recurs within 300 s ends the process in about 10 s (deterministic) or on the 4th failure, with exit code 4 that Docker or Kubernetes restart policies act on, while faults rarer than once per 300 s are tolerated indefinitely
 - Restarts never poll a device more often than its configured interval
@@ -198,12 +199,12 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ### Negative
 
-- User-visible behaviour change: run_device and run_stream re-raise instead of returning, so a crashing device or stream handler is restarted and can end the process. docs/guides/command-device.md ("The device task ends, but other devices continue"), the streams concept page, the release notes and the version-migration guide must change
+- User-visible behaviour change: run_device and run_stream re-raise instead of returning, so a crashing device or stream handler is restarted and can end the process. docs/guides/command-device.md ("The device task ends, but other devices continue"), the streams concept page, the release notes and the version-migration guide must change. A device crash that ends the task no longer yields a runner payload plus a separate supervisor payload: it yields one payload, now carrying details.task_failure
 - A supervisor restart loses task-local state - last_published, last_error_type, retry_count and a device handler's loop variables - so the first value after a restart is always published; adopters must persist state that has to survive via DeviceStore
 - Skipping the immediate first cycle costs up to about two intervals of data gap per restart; the entity is offline during that time anyway
 - A process exit takes every entity of the app offline until the orchestrator restarts it; deployments without a restart policy stay down
 - Internal-loop deaths now end the process even under on_task_failure="ignore"; the ADR-029 restart callback, which runs inside the health-checker loop, must first be hardened so an adapter exception counts as a failed restart rather than killing the loop
-- New public surface to document and keep stable: on_task_failure, TaskSupervisionError, EXIT_TASK_FAILURE = 4, the "supervisor" availability source and the task_failure error type
+- New public surface to document and keep stable: on_task_failure, TaskSupervisionError, EXIT_TASK_FAILURE = 4, the "supervisor" availability source and the details.task_failure payload marker
 - The MqttClient adapter needs a hook to hand its connection and refresh loops to the supervisor, and the expected-cancel tracking plus the at-most-one-live-task-per-registration invariant add test burden
 
 _2026-10-02_
