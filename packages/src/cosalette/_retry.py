@@ -14,7 +14,9 @@ class BackoffStrategy(Protocol):
     """Backoff-delay contract for telemetry retry.
 
     The framework calls ``delay(attempt)`` between retry attempts.
-    Attempt numbers are 1-based.
+    Attempt numbers are 1-based.  A strategy may also expose a ``max_delay``
+    attribute (seconds, before jitter); the derived ``stale_after`` default
+    allows that long per retry when it exceeds 60 s (ADR-080).
     """
 
     def delay(self, attempt: int) -> float:
@@ -34,6 +36,11 @@ class ExponentialBackoff:
         self._base = base
         self._max_delay = max_delay
 
+    @property
+    def max_delay(self) -> float:
+        """Longest delay in seconds before jitter."""
+        return self._max_delay
+
     def delay(self, attempt: int) -> float:
         raw = min(float(self._base * (2 ** (attempt - 1))), self._max_delay)
         return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
@@ -52,6 +59,11 @@ class LinearBackoff:
         self._step = step
         self._max_delay = max_delay
 
+    @property
+    def max_delay(self) -> float:
+        """Longest delay in seconds before jitter."""
+        return self._max_delay
+
     def delay(self, attempt: int) -> float:
         raw = min(self._step * attempt, self._max_delay)
         return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
@@ -68,6 +80,11 @@ class FixedBackoff:
 
     def __init__(self, delay: float = 5.0) -> None:
         self._delay = delay
+
+    @property
+    def max_delay(self) -> float:
+        """Longest delay in seconds before jitter."""
+        return self._delay
 
     def delay(self, attempt: int) -> float:  # noqa: ARG002
         return self._delay * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic

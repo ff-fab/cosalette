@@ -3,7 +3,7 @@
 Test Techniques Used:
 - Boundary Value Analysis: Backoff delay at attempt 1, at max_delay cap
 - State Transition Testing: CircuitBreaker closed → open → half-open → closed
-- Specification-based: Protocol compliance, jitter bounds
+- Specification-based: Protocol compliance, jitter bounds, max_delay cap
 """
 
 from __future__ import annotations
@@ -116,6 +116,33 @@ class TestFixedBackoff:
     def test_repr(self) -> None:
         strategy = FixedBackoff(delay=7.5)
         assert repr(strategy) == "FixedBackoff(delay=7.5)"
+
+
+class TestMaxDelay:
+    """Built-in strategies expose their jitter-free cap as ``max_delay``.
+
+    Technique: Specification-based Testing — one case per strategy.
+    """
+
+    @pytest.mark.parametrize(
+        ("strategy", "expected"),
+        [
+            pytest.param(ExponentialBackoff(max_delay=300.0), 300.0, id="exponential"),
+            pytest.param(LinearBackoff(max_delay=90.0), 90.0, id="linear"),
+            pytest.param(FixedBackoff(delay=7.5), 7.5, id="fixed-is-its-delay"),
+        ],
+    )
+    def test_max_delay_reports_cap(
+        self,
+        strategy: ExponentialBackoff | LinearBackoff | FixedBackoff,
+        expected: float,
+    ) -> None:
+        """``max_delay`` is the cap before jitter."""
+        # Act
+        result = strategy.max_delay
+
+        # Assert
+        assert result == expected
 
 
 class TestCircuitBreaker:

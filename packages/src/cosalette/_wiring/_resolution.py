@@ -141,11 +141,24 @@ def resolve_timeouts(
 
 
 _STALE_BACKOFF_ALLOWANCE = 60.0
-"""Fixed per-retry backoff allowance (seconds) in the derived ``stale_after``.
+"""Minimum per-retry backoff allowance (seconds) in the derived ``stale_after``.
 
 Equal to the default ``max_delay`` cap of the built-in backoff strategies.
-Fixed and jitter-free so the derived bound is deterministic (ADR-080).
+Jitter-free so the derived bound is deterministic (ADR-080).
 """
+
+
+def _backoff_allowance(backoff: object) -> float:
+    """Return the per-retry allowance: the backoff's ``max_delay``, at least 60 s.
+
+    A strategy without a finite numeric ``max_delay`` gets the 60 s floor.
+    """
+    cap = getattr(backoff, "max_delay", None)
+    usable = isinstance(cap, int | float) and not isinstance(cap, bool)
+    if not usable or not math.isfinite(cap):
+        return _STALE_BACKOFF_ALLOWANCE
+    return max(_STALE_BACKOFF_ALLOWANCE, float(cap))
+
 
 _CRON_GAP_SAMPLES = 16
 """Upcoming fire times sampled to find a cron schedule's longest gap."""
@@ -175,7 +188,8 @@ def derive_stale_after(reg: _TelemetryRegistration) -> float:
     ``2 × period + timeout × (retry + 1) + allowance × retry``: two missed
     polls, plus the worst-case duration of one cycle's attempts and its
     backoff sleeps.  *period* is the interval, or a cron schedule's longest
-    gap; a disabled timeout counts as ``0``.
+    gap; a disabled timeout counts as ``0``; *allowance* is the backoff's
+    ``max_delay``, never below 60 s.
     """
     period = (
         _longest_cron_gap(reg.schedule)
@@ -183,7 +197,8 @@ def derive_stale_after(reg: _TelemetryRegistration) -> float:
         else cast("float", reg.interval)
     )
     timeout = cast("float | None", reg.timeout) or 0.0
-    return 2 * period + timeout * (reg.retry + 1) + _STALE_BACKOFF_ALLOWANCE * reg.retry
+    allowance = _backoff_allowance(reg.backoff)
+    return 2 * period + timeout * (reg.retry + 1) + allowance * reg.retry
 
 
 def resolve_stale_after(

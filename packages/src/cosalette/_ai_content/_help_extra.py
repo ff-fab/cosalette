@@ -1141,7 +1141,8 @@ Freshness — stale_after (ADR-080):
   entity "offline" once its last FRESH cycle (a successful poll, including one
   whose value a PublishStrategy suppressed) is older than stale_after, logs one
   WARNING, and publishes "online" on the next fresh cycle.
-    stale_after omitted → derived: 2*period + timeout*(retry+1) + 60s*retry
+    stale_after omitted → derived: 2*period + timeout*(retry+1) + allowance*retry
+                          (allowance = backoff max_delay, at least 60 s)
                           (period = interval, or a cron schedule's longest gap)
     stale_after omitted on a root entity → disabled (opt in explicitly)
     stale_after=1800 / callable / SettingRef → explicit bound in seconds
@@ -1150,8 +1151,9 @@ Freshness — stale_after (ADR-080):
   The {app}/status heartbeat shows "stale" (outranking "error") and every
   telemetry entry carries last_success_at and consecutive_failures. Freshness
   is its own availability source: recovering from stale never overrides a
-  failure mark that still holds the entity offline. Set stale_after explicitly
-  if a custom backoff sleeps longer than 60 s per retry.
+  failure mark that still holds the entity offline. A custom BackoffStrategy
+  without a max_delay attribute is credited 60 s per retry; set stale_after
+  explicitly if it sleeps longer.
 
 Error reminders — error_reminder_interval (ADR-082):
   A repeated same-type telemetry error is not published again on every cycle,
@@ -1246,6 +1248,11 @@ When to Use Each Form:
   | Root entity should participate         | unavailable_on=(...,)   |
   | Pre-flight reachability check          | ctx.mark_unavailable()  |
   | Mixed: exception + manual check        | Both together           |
+
+  To tolerate whole failed cycles (retry= only tolerates failures within one
+  cycle), pair unavailable_on=None with stale_after=N * interval: the entity
+  goes offline only after ~N cycles without fresh data. There is no separate
+  unavailable_after= count (ADR-077).
 
 Topic Convention:
   • Named device:  {app}/{device}/availability  (retained, QoS 1)

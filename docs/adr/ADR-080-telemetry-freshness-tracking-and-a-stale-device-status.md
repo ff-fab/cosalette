@@ -118,3 +118,20 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-10-02)"
     The watchdog transitions to stale when now - last_success is greater than or equal to stale_after. This preserves the documented bounded freshness guarantee when a scheduled check lands exactly on the boundary.
+
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** The fixed 60 s per-retry backoff allowance undercounts a configured backoff whose cap is longer, so an app using ExponentialBackoff(max_delay=300) or FixedBackoff(delay=120) with retries could be marked stale while still inside one legitimately slow cycle (cos-4mv5.14).
+
+> **Justification for amendment (not supersession):** ADR-080 has not been released (0.11.0 is still pending), so no downstream app depends on the exact derived value. The change is confined to one resolution function, only ever widens the derived bound (the 60 s figure becomes a floor), and keeps the bound deterministic and jitter-free, so supersession is not warranted.
+
+!!! note "Editorial note (2026-10-02)"
+    The per-retry backoff allowance in the derived default is now `max(60 s, max_delay)`, where `max_delay` is the configured backoff's jitter-free cap: the `max_delay` of `ExponentialBackoff` and `LinearBackoff`, and the `delay` of `FixedBackoff`, all exposed as a read-only `max_delay` property. The formula becomes `2 × period + timeout × (retry + 1) + allowance × retry`. A custom `BackoffStrategy` may expose a finite numeric `max_delay` attribute to be honoured; one without it (or with a non-numeric, boolean or non-finite value) keeps the 60 s allowance. Jitter still does not enter the formula, so a unit test can pin the bound; the two-period slack absorbs it. Existing derived values never shrink: a built-in backoff with a cap at or below 60 s, and the default backoff, derive exactly the bound originally specified here.
+
+### Additional Positive Consequences
+
+- Apps that configure a long built-in backoff get a correct derived stale_after without passing it explicitly
+
+### Additional Negative Consequences
+
+- BackoffStrategy gains an optional, duck-typed max_delay attribute that custom strategies must know about to benefit

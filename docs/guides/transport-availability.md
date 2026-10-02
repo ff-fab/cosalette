@@ -203,6 +203,15 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": payload["v"]}  # a KeyError here does NOT mark it offline
 ```
 
+!!! tip "Tolerating a few failed cycles"
+    `retry=` tolerates transient failures *within* a cycle.  To tolerate whole
+    failed cycles — a slow poller whose BLE read occasionally drops — disable the
+    failure mark with `unavailable_on=None` and let [freshness](#freshness-stale_after)
+    decide: the entity goes `"offline"` only once it has had no fresh cycle for
+    `stale_after` seconds.  `stale_after=3 * interval` approximates "offline after
+    three consecutive failed cycles".  There is no separate `unavailable_after=`
+    count (ADR-077).
+
 !!! warning "Root entities are excluded from the default"
     A root entity publishes to the flat `{app}/availability`, so one failed read
     would declare the **whole app** unavailable — in Home Assistant that can take
@@ -238,7 +247,7 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 
 | `stale_after=` | Meaning |
 |----------------|---------|
-| omitted (named entity) | Derived: `2 × period + timeout × (retry + 1) + 60 s × retry` |
+| omitted (named entity) | Derived: `2 × period + timeout × (retry + 1) + allowance × retry` |
 | omitted (root entity) | Disabled — root entities opt in explicitly (as for `unavailable_on`) |
 | `float` | Explicit bound in seconds |
 | callable / `SettingRef` | Resolved from settings at startup |
@@ -246,8 +255,10 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 | `None` | Disabled for this entity |
 
 *period* is the `interval`, or the longest gap between a cron `schedule`'s next
-fire times; a disabled `timeout` counts as `0`.  The 60 s per retry is a fixed,
-jitter-free backoff allowance, so the default is deterministic.  For
+fire times; a disabled `timeout` counts as `0`.  The per-retry *allowance* is the
+backoff's `max_delay` — `FixedBackoff`'s `delay` — but never less than 60 s, the
+default cap of the built-in strategies.  It ignores jitter, so the default is
+deterministic.  For
 `interval=300, retry=2` and the default timeout (one interval), the bound is
 `600 + 300 × 3 + 120 = 1620` s; for `interval=60` with no retries it is 180 s.
 
@@ -266,10 +277,12 @@ The `{prefix}/status` heartbeat reports a stale entity as `"stale"` (it outranks
 `failing_since` are `null` while the entity is not failing (ADR-082).  A poll that could not
 publish because the broker was down does not count as a failure.
 
-!!! tip "Long custom backoffs"
-    The derived bound assumes each retry sleeps at most 60 s — the default
-    `max_delay` of the built-in backoff strategies.  If you configure a longer
-    backoff, set `stale_after=` explicitly.
+!!! tip "Custom backoff strategies"
+    A built-in backoff with a cap above 60 s widens the derived bound
+    automatically — `ExponentialBackoff(max_delay=300)` with `retry=3` allows
+    900 s for the backoff sleeps.  A custom `BackoffStrategy` is credited with
+    60 s per retry unless it exposes a numeric `max_delay` attribute; otherwise
+    set `stale_after=` explicitly.
 
 ---
 
