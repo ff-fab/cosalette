@@ -206,19 +206,18 @@ async def publish_device_availability(
     ],
     health_reporter: HealthReporter,
 ) -> None:
-    """Publish availability for all registered devices.
+    """Publish the live availability of all registered devices.
 
-    When telemetry and command share a name (scoped uniqueness),
-    availability is published once for the shared name.
+    A device already marked unavailable is announced ``"offline"`` and keeps
+    its mark; every other device is announced ``"online"`` (ADR-012
+    amendment).  When telemetry and command share a name (scoped
+    uniqueness), availability is published once for the shared name.
     """
     seen: set[str] = set()
     for reg in all_registrations:
         if reg.name not in seen:
             seen.add(reg.name)
-            await health_reporter.publish_device_available(
-                reg.name,
-                is_root=reg.is_root,
-            )
+            await health_reporter.announce_device(reg.name, is_root=reg.is_root)
 
 
 def _collect_receive_channels(doc: dict[str, Any]) -> set[str]:
@@ -369,8 +368,8 @@ def register_connect_reannounce(
         nonlocal _first_connect_done
         initial = not _first_connect_done
         _first_connect_done = True
-        # First connect: optimistic full announce for all registrations.
-        # Reconnects: re-assert only currently-tracked-online devices.
+        # First connect: announce every registration's live availability.
+        # Reconnects: re-assert the live availability of tracked devices.
         if initial:
             await reconcile_retained_topics(
                 mqtt, all_registrations, prefix, store, snapshot_key

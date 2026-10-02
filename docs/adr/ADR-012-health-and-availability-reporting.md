@@ -9,7 +9,7 @@ tags: [health, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-06-26
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-06-26 | Amended **Date:** 2026-10-02
 
 ## Context
 
@@ -207,3 +207,25 @@ This ensures that a broker restart or reconnect does not inadvertently resurface
 - One idempotent re-announce per reconnect adds a small burst of retained-publish traffic (one message per registered device plus registry and heartbeat); negligible for typical deployments
 - Availability is published on MQTT connect, which may precede full adapter-entry completion — availability signals broker connectivity, not adapter readiness
 - Adapters without `MqttConnectAware` (mock/null test doubles) retain eager inline startup publishes; this is intentional but creates two code paths that must both be maintained
+
+## Amendment (2026-10-02) — Corrective
+
+**Rationale:** The 2026-06-26 amendment announces "online" for all registered devices on first connect (optimistic announce) and skips devices that went offline on every reconnect ("their availability is not re-broadcast"). Both rules lose a real "offline". A device that becomes unavailable while the broker is unreachable (before the first connect or during an outage) has its retained "offline" dropped by fire-and-forget publishing (ADR-011). The reconnect then skips it, and the first connect either announces it "online" (the `manual` source, whose mark the announce also cleared) or publishes nothing (every other source). The broker keeps an older retained "online" for a device that is still failing, which is the stale-online symptom ADR-077 and ADR-080 exist to prevent (cos-4mv5.15). ADR-028 section 6 already requires devices that fail the startup health check to start "offline", and ADR-080 already re-asserts "offline" on reconnect for its `freshness` source; this amendment makes that one rule for every source and both connect paths.
+
+> **Justification for amendment (not supersession):** The change is confined to two connect-time announce paths (`HealthReporter.reannounce()` and the first-connect `publish_device_availability()`), and no app-facing API changes. Everything else in ADR-012 stands unchanged: the LWT, the per-device availability topics, the structured heartbeat, the connect-aware gating of startup publishes and its re-publication of the registry and heartbeat. Superseding the whole ADR for one sub-decision would split a still-valid record across two documents. The only observable difference is one extra, unchanged retained "offline" per unavailable device after a connect.
+
+### Additional Sub-Decision: Connect-Time Availability Reflects Live State
+
+On the first connect and on every reconnect, the framework publishes each device's live availability: `"offline"` if any source marks it unavailable, otherwise `"online"`. On the first connect this covers every registered device; on reconnects it covers every tracked device. Both paths share one rule (`HealthReporter._publish_live_availability`). The first-connect announce (`HealthReporter.announce_device`) never clears an unavailable mark from any source, so a failing device is never announced `"online"`, which is consistent with ADR-077.
+
+This supersedes two parts of the 2026-06-26 amendment: the first-connect "optimistic announce" (`"online"` for all registered devices), and the reconnect rule that devices which went offline "keep their last retained `"offline"` payload — their availability is not re-broadcast". The registry snapshot and heartbeat publishes from that amendment are unchanged.
+
+### Additional Positive Consequences
+
+- An "offline" transition dropped while the broker was unreachable, before the first connect or during an outage, is repaired on the next connect for every availability source, not only ADR-080 freshness
+- First connect agrees with ADR-028 section 6: a device already unavailable starts "offline" instead of being optimistically announced "online"
+- A `ctx.mark_unavailable()` mark set before the first connect is no longer silently cleared by the startup announce
+
+### Additional Negative Consequences
+
+- Each connect publishes one extra, unchanged retained "offline" per unavailable device; consumers that act on every message, rather than on state changes, see a duplicate
