@@ -804,6 +804,16 @@ Default Retry Behavior:
   • A persisting error is republished as a bounded reminder (ADR-082,
     App(error_reminder_interval=3600); None = onset only)
 
+Error Disclosure + Redaction:
+  • Error payloads publish only the class name unless a type is disclosed
+    (disclose_messages_for=..., legacy error_type_map, or verbose) — ADR-061
+  • App(redact=[r"token=[^&\\s]+", re.compile(...)]) or App(redact=fn) scrubs
+    disclosed messages and every log line on cosalette's handlers (message,
+    traceback, stack info); each pattern match becomes [REDACTED] (ADR-085)
+  • Patterns compile at App(...): a bad regex → ValueError, a bare str →
+    TypeError (wrap it in a list). A raising redactor lets the text through
+    and logs one WARNING per process — a safety net, not a disclosure policy
+
 Timeout Backstop:
   timeout= bounds each handler invocation via asyncio.wait_for. A hung adapter
   call raises TimeoutError instead of wedging the poll loop. Because TimeoutError

@@ -67,6 +67,7 @@ from cosalette._context import DeviceContext as DeviceContext
 from cosalette._health._reporter import DEFAULT_ERROR_REMINDER_INTERVAL
 from cosalette._persistence._state import StateRegistration
 from cosalette._persistence._stores import Store
+from cosalette._redact import RedactSpec, build_redactor
 from cosalette._registration import (
     _UNSET,
     _CommandRegistration,
@@ -215,6 +216,7 @@ class App(
         error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
         exit_after_stale: float | None = None,
         restart_on_stale: bool = False,
+        redact: RedactSpec = None,
     ) -> None:
         """Initialise the application orchestrator.
 
@@ -357,6 +359,22 @@ class App(
                 Each request counts against *max_restarts* and fires once
                 per stale episode.  Needs *health_check_interval*.
                 Defaults to False.  See ADR-084.
+            redact: Scrubs secrets from text that leaves the process: the
+                message of a disclosed error payload (``disclose_messages_for``,
+                legacy ``error_type_map`` disclosure, ``error_publish_verbose``)
+                and every record on the log handlers cosalette installs.
+                ``None`` (default) is off; a callable ``str -> str`` is used
+                as is; an iterable of regular expressions (``str`` or
+                compiled) replaces each match with ``[REDACTED]``.  A
+                redactor that raises lets the text through unchanged and logs
+                one WARNING.  Undisclosed errors still publish only the class
+                name.  See ADR-085.
+
+        Raises:
+            TypeError: If *redact* is not ``None``, a callable or an
+                iterable of ``str`` / ``re.Pattern``.
+            ValueError: If a *redact* pattern is not a valid regular
+                expression.
         """
         validate_mqtt_name(name)
         if not name.strip():
@@ -414,6 +432,7 @@ class App(
             msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
             raise TypeError(msg)
         self._restart_on_stale = restart_on_stale
+        self._redactor = build_redactor(redact)
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
         )

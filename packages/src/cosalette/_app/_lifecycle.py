@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from cosalette._app import App
     from cosalette._errors import ErrorPublisher
     from cosalette._persistence._state import StateRegistration
+    from cosalette._redact import Redactor
     from cosalette._registration import (
         _CommandRegistration,
         _DeviceRegistration,
@@ -103,6 +104,7 @@ class _LifecycleMixin:
     _error_reminder_interval: float | None
     _exit_after_stale: float | None
     _restart_on_stale: bool
+    _redactor: Redactor | None
 
     @property
     @abc.abstractmethod
@@ -211,6 +213,7 @@ class _LifecycleMixin:
             resolved_settings.logging,
             service=self._name,
             version=self._version,
+            redact=self._redactor,
         )
 
         # ADR-064: a stable Phase-1 handle, late-bound to the trigger slots
@@ -305,6 +308,7 @@ class _LifecycleMixin:
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
             error_reminder_interval=self._error_reminder_interval,
+            redact=self._redactor,
         )
         # The connect callback may publish the first heartbeat immediately.
         # Register fields before installing it so that retained payload has

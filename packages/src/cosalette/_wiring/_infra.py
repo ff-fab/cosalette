@@ -34,7 +34,7 @@ from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 from cosalette._wiring._state_model_drift import publish_state_model_drift_snapshot
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from pydantic import SecretStr
 
@@ -86,6 +86,7 @@ def create_services(
     error_type_map: dict[type[Exception], str] | None = None,
     disclose_messages_for: frozenset[type[Exception]] | None = None,
     error_reminder_interval: float | None = DEFAULT_ERROR_REMINDER_INTERVAL,
+    redact: Callable[[str], str] | None = None,
 ) -> tuple[HealthReporter, ErrorPublisher]:
     """Build the HealthReporter and ErrorPublisher.
 
@@ -100,6 +101,8 @@ def create_services(
     message-disclosure decision (F-DP1, ADR-061), so ``None`` stays ``None``
     and a caller-provided frozenset is used verbatim — framework entries are
     not implicitly added to it.
+
+    *redact* is applied to disclosed error messages (ADR-085).
     """
     health_reporter = HealthReporter(
         mqtt=mqtt,
@@ -116,6 +119,7 @@ def create_services(
         error_type_map=merged_error_type_map,
         verbose=error_publish_verbose,
         disclose_messages_for=disclose_messages_for,
+        redact=redact,
     )
     return health_reporter, error_publisher
 

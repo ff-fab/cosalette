@@ -126,6 +126,21 @@ It performs these steps:
 2. **Build formatter** — `JsonFormatter` for `"json"`, `logging.Formatter` for `"text"`
 3. **StreamHandler** → `stderr` (always installed)
 4. **RotatingFileHandler** → optional, when `settings.logging.file` is set
+5. **Redaction filter** → on each of those handlers, when `redact=` is set
+
+### Redaction
+
+`App(redact=...)` is passed to `configure_logging(..., redact=...)`, which
+installs a filter on each handler it creates. The filter redacts a **copy** of
+every record — the formatted message, the formatted traceback and the stack
+info — so any other handler (a test's capture handler, say) still sees the
+original. The filter sits on the handlers rather than on the `cosalette`
+logger because a logger filter does not reach child loggers, while app and
+library loggers all write through these handlers. `JsonFormatter` uses the
+redacted traceback (`record.exc_text`) when one is present. The accepted
+forms are described in
+[Error Handling](error-handling.md#redacting-disclosed-messages); see
+[ADR-085](../adr/ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md).
 
 ### Text Format String
 

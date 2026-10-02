@@ -654,6 +654,13 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "nor reset(), logs one WARNING per unhealthy episode and stays "
         "offline. Before, the runner tried to exit and re-enter it anyway, "
         "which left its telemetry tasks cancelled (bug fix, ADR-029).",
+        "Redaction hook (ADR-085): App(redact=...) takes a callable str -> str "
+        "or regular expressions and scrubs disclosed error-payload messages and "
+        "every record on the log handlers cosalette installs (message, "
+        "traceback, stack info); matches become [REDACTED]. Undisclosed errors "
+        "still publish only the class name. configure_logging() gains the same "
+        "redact= keyword, and JsonFormatter now uses a pre-formatted "
+        "record.exc_text when present (see: cosalette ai help resilience).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

@@ -170,3 +170,30 @@ class TestDiscloseMessagesForOptIn:
 
         assert _error_message(harness) == "server unreachable"
         assert _error_type(harness) == "error"
+
+
+class TestRedactHook:
+    """App(redact=...) scrubs disclosed messages end-to-end (ADR-085)."""
+
+    async def test_disclosed_message_is_redacted(self) -> None:
+        """A disclosed message goes through the redactor before publishing."""
+        harness = AppHarness.create(
+            disclose_messages_for=frozenset({CalDavConnectionError}),
+            redact=[r"token=\S+"],
+        )
+
+        await _run_command_raising(
+            harness, CalDavConnectionError("server unreachable token=abc")
+        )
+
+        assert _error_message(harness) == "server unreachable [REDACTED]"
+
+    async def test_undisclosed_message_still_class_name_only(self) -> None:
+        """Redaction never widens disclosure: undisclosed stays the class name."""
+        harness = AppHarness.create(redact=[r"token=\S+"])
+
+        await _run_command_raising(
+            harness, CalDavConnectionError("server unreachable token=abc")
+        )
+
+        assert _error_message(harness) == "CalDavConnectionError"

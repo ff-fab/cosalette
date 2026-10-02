@@ -215,6 +215,7 @@ App(
     task_restart_window: float = 300.0,          # Seconds without a failure that reset the task restart count
     exit_after_stale: float | None = None,       # Exit with code 5 once telemetry is stale this long (ADR-083)
     restart_on_stale: bool = False,              # Stale telemetry restarts the adapters it depends on (ADR-084)
+    redact: RedactSpec = None,                   # Callable or regexes scrubbing disclosed errors + logs (ADR-085)
 )
 ```
 

@@ -109,6 +109,7 @@ def build_error_payload(
     verbose: bool = False,
     correlation_id: str = "",
     disclose_messages_for: frozenset[type[Exception]] | None = None,
+    redact: Callable[[str], str] | None = None,
 ) -> ErrorPayload:
     """Convert an exception into a structured :class:`ErrorPayload`.
 
@@ -137,6 +138,9 @@ def build_error_payload(
             legacy conflated behaviour: mapping a type discloses its message.
             Note: ``verbose=True`` takes precedence and discloses every message
             regardless of this set.
+        redact: Optional ``str -> str`` function applied to a **disclosed**
+            message before it is published (ADR-085).  The class-name-only
+            message of an undisclosed error is never passed to it.
 
     Returns:
         A frozen dataclass ready for serialisation.
@@ -154,7 +158,12 @@ def build_error_payload(
         disclose = type(error) in disclose_messages_for
     else:
         disclose = type(error) in resolved_map
-    message = str(error) if disclose else type(error).__name__
+    if not disclose:
+        message = type(error).__name__
+    elif redact is not None:
+        message = redact(str(error))
+    else:
+        message = str(error)
     return ErrorPayload(
         error_type=error_type,
         message=message,
@@ -196,6 +205,10 @@ class ErrorPublisher:
             conflated behaviour: mapping a type discloses its message.
             Note: ``verbose=True`` takes precedence and discloses every message
             regardless of this set.
+        redact: Optional ``str -> str`` function applied to disclosed
+            messages before publishing (ADR-085).  Build it with
+            ``App(redact=...)``; the local log line is redacted by the
+            logging filter instead.
     """
 
     mqtt: MqttPort
@@ -204,6 +217,7 @@ class ErrorPublisher:
     clock: Callable[[], datetime] | None = field(default=None, repr=False)
     verbose: bool = False
     disclose_messages_for: frozenset[type[Exception]] | None = None
+    redact: Callable[[str], str] | None = field(default=None, repr=False)
 
     async def publish(
         self,
@@ -242,6 +256,7 @@ class ErrorPublisher:
                 verbose=self.verbose,
                 correlation_id=correlation_id,
                 disclose_messages_for=self.disclose_messages_for,
+                redact=self.redact,
             )
             payload_json = payload.to_json()
         except Exception:
