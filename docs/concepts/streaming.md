@@ -206,6 +206,7 @@ startup and goes `"offline"` while any source holds it unavailable:
 | `supervisor` | the handler raises (heartbeat `"error"`) | the re-created stream yields its first item |
 | `manual` | the handler calls `ctx.mark_unavailable()` | the handler calls `ctx.mark_available()` |
 | `freshness` | no item for `stale_after` seconds (heartbeat `"stale"`) | the next item arrives |
+| `health:<adapter>` | a health check of its `StreamablePort[T]` or another injected adapter fails ([ADR-029](../adr/ADR-029-adapter-auto-restart-strategy.md)) | the check passes again; an adapter restart also re-creates the stream |
 
 ```python
 @app.stream("ble-feed", stale_after=120, feeds=["radon", "co2"])

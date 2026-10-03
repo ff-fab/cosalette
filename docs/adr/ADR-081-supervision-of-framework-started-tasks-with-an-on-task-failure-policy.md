@@ -282,3 +282,11 @@ A root stream (`@app.stream()` without a name) never publishes an availability t
 ### Additional Negative Consequences
 
 - Named streams add one retained topic each, and root streams behave differently from root telemetry for manual marks and stale_after
+
+## Amendment (2026-10-03) — Minor
+
+!!! note "Editorial note (2026-10-03)"
+    Correction to the 2026-10-03 named-stream amendment: streams are now in the ADR-029 adapter map (cos-kg37), so adapter health checks and adapter restarts cover them. `restart_on_stale` still applies to telemetry only, because the stale-restart map is built from telemetry registrations.
+
+!!! note "Editorial note (2026-10-03)"
+    `ctx.sub_entity()` inside a stream keeps the ADR-031 behaviour (cos-cpbq): the context manager publishes the sub-entity's availability directly, outside the health reporter. A crash takes it offline because the handler leaves the `async with` block, and it comes back when the re-created handler enters the block again. It is not in the heartbeat roster, the reconnect re-announce or the shutdown sweep, and supervisor, manual, freshness, feed and adapter-health sources do not touch it, the same as for device sub-entities.
