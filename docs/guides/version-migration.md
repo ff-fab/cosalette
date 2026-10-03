@@ -670,9 +670,10 @@ Used by:
 
 ### Generated Addresses Honour `mqtt.topic_prefix` (v0.9.3+)
 
-**Only affects apps that set `mqtt.topic_prefix`.** If you leave it unset,
-generated documents are byte-identical to previous releases and there is
-nothing to do.
+**The v0.9.3 prefix change only affects apps that set `mqtt.topic_prefix`.**
+Through v0.10.x, leaving it unset kept generated documents byte-identical to
+the pre-v0.9.3 output. From v0.11.0, every app's document changes for contract
+version `"2"`; see [Availability Channels](#availability-channels-in-generated-asyncapi-v0110).
 
 Before v0.9.3, generated AsyncAPI composed `channel.address` from
 `App(name=...)` and ignored the setting, so every derived artefact

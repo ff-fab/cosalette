@@ -166,8 +166,10 @@ def _validate_non_empty_string(
     errors: list[str],
 ) -> None:
     """Reject an optional channel extension that is not a non-empty string."""
-    value = channel.get(key)
-    if value is not None and (not isinstance(value, str) or not value.strip()):
+    if key not in channel:
+        return
+    value = channel[key]
+    if not isinstance(value, str) or not value.strip():
         errors.append(f"Channel {name}: {key} must be a non-empty string")
 
 

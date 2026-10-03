@@ -105,9 +105,9 @@ def _build_app_principal(
             continue
         if channel.app_name != app_name and channel.scope != "all_apps":
             continue
-        # Framework channels (ADR-086) are already covered by the fixed
-        # availability grants above; skipping them keeps the ACL unchanged.
-        if channel.framework_role is not None:
+        # Availability channels (ADR-086) are covered by the fixed grants
+        # above. Unknown framework roles still need their operation grants.
+        if channel.framework_role == "availability":
             continue
 
         if operation.action == "send":

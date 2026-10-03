@@ -1018,8 +1018,9 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
     When the prefix differs from the app name it is also recorded once at info
     level as ``x-cosalette-topic-prefix`` so a *serialised* document is
     self-describing for consumers detached from the ``App`` object.  The key is
-    omitted when the two coincide, which keeps unprefixed documents byte-identical
-    to those generated before ADR-072; readers fall back to ``info.title``.
+    omitted when the two coincide; readers fall back to ``info.title``. Contract
+    version ``"2"`` still changes unprefixed documents by adding framework
+    availability channels and operations (ADR-086).
 
     Args:
         app: The :class:`~cosalette.App` instance to introspect.
@@ -1127,8 +1128,8 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
         "version": app.version,
         "x-cosalette-contract-version": _CONTRACT_VERSION,
     }
-    # Additive and omitted when it carries no information (prefix == app.name),
-    # so documents for unprefixed apps stay byte-identical to pre-ADR-072 output.
+    # Omit redundant transport metadata when the prefix equals the app identity.
+    # Contract v2 availability channels still change unprefixed output (ADR-086).
     if prefix != app.name:
         info[X_COSALETTE_TOPIC_PREFIX] = prefix
 

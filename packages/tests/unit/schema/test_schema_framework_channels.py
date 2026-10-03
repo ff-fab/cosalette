@@ -186,15 +186,49 @@ class TestLoaderRoundTrip:
         assert reloaded.channels["deskAvailability"].framework_role == "availability"
         assert X_COSALETTE_FRAMEWORK not in re_emitted["channels"]["deskState"]
 
-    @pytest.mark.parametrize("bad", ["", "   ", 1, True, ["availability"]])
-    async def test_malformed_role_is_rejected(self, bad: object) -> None:
+    @pytest.mark.parametrize(
+        "key",
+        [X_COSALETTE_FRAMEWORK, "x-cosalette-app", "x-cosalette-coalescing-group"],
+    )
+    @pytest.mark.parametrize("bad", [None, "", "   ", 1, True, ["availability"], {}])
+    async def test_malformed_string_extension_is_rejected(
+        self, key: str, bad: object
+    ) -> None:
+        """A present optional string key rejects null and every invalid value."""
         # Arrange
         doc = copy.deepcopy(_app().asyncapi())
-        doc["channels"]["deskAvailability"][X_COSALETTE_FRAMEWORK] = bad
+        doc["channels"]["deskAvailability"][key] = bad
 
         # Act / Assert
-        with pytest.raises(SchemaLoadError, match=X_COSALETTE_FRAMEWORK):
+        with pytest.raises(SchemaLoadError, match=key):
             await load_schema(doc)
+
+    @pytest.mark.parametrize(
+        ("key", "attribute"),
+        [
+            (X_COSALETTE_FRAMEWORK, "framework_role"),
+            ("x-cosalette-app", "app_name"),
+            ("x-cosalette-coalescing-group", "coalescing_group"),
+        ],
+    )
+    @pytest.mark.parametrize("value", [None, "future-role"], ids=["omitted", "valid"])
+    async def test_optional_string_extension_accepts_omission_or_nonempty_string(
+        self, key: str, attribute: str, value: str | None
+    ) -> None:
+        """Missing keys retain None; nonempty strings round-trip verbatim."""
+        # Arrange
+        doc = copy.deepcopy(_app().asyncapi())
+        channel = doc["channels"]["deskAvailability"]
+        if value is None:
+            channel.pop(key, None)
+        else:
+            channel[key] = value
+
+        # Act
+        registry = await load_schema(doc)
+
+        # Assert
+        assert getattr(registry.channels["deskAvailability"], attribute) == value
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +355,30 @@ class TestAclUnchanged:
 
         # Assert
         assert actual == expected
+
+    @pytest.mark.parametrize("action", ["send", "receive"])
+    async def test_unknown_framework_role_retains_operation_grant(
+        self, action: str
+    ) -> None:
+        """Future roles need ACL grants for addresses outside fixed permissions."""
+        # Arrange
+        doc = copy.deepcopy(_app().asyncapi())
+        address = "external/framework/diagnostics"
+        doc["channels"]["deskAvailability"].update(
+            {"address": address, X_COSALETTE_FRAMEWORK: "future-role"}
+        )
+        doc["operations"]["publishDeskAvailability"]["action"] = action
+        registry = await load_schema(doc)
+
+        # Act
+        principal = next(
+            p for p in derive_acl_principals(registry) if p.name == "wiz2mqtt"
+        )
+
+        # Assert
+        assert registry.channels["deskAvailability"].framework_role == "future-role"
+        assert (address in principal.publish_topics) is (action == "send")
+        assert (address in principal.subscribe_topics) is (action == "receive")
 
 
 # ---------------------------------------------------------------------------

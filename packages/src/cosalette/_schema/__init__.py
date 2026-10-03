@@ -209,9 +209,10 @@ Its value names the channel's role; the generator emits ``"availability"`` for
 the retained ``online``/``offline`` topic of every entity that owns one.  A
 framework channel carries no ``x-cosalette-archetype`` (the closed archetype
 enum would break older loaders, ADR-054), always carries
-``x-cosalette-discoverable: false``, and is skipped by consumer generation and
-by the per-channel ACL grants.  Readers tolerate unknown role values so a
-future role does not break this loader.
+``x-cosalette-discoverable: false``. Consumer generation excludes every framework
+role. Per-channel ACL grants skip only availability, which is already covered
+by fixed grants; unknown roles retain their operation grants. Readers tolerate
+unknown role values so a future role does not break this loader.
 """
 
 

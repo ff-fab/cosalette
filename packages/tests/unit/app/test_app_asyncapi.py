@@ -9,8 +9,8 @@ Test Techniques Used:
     - Error Guessing: void commands, bare-str payload, NoneType state_model.
     - Decision Table Testing: command state emission logic, schema inference priority.
     - Boundary Value Analysis: empty app, single-segment vs multi-segment router names.
-    - Golden-file Regression: unprefixed document byte-identical to pre-ADR-072
-      output (fixtures/schemas/asyncapi_unprefixed_baseline.json).
+    - Golden-file Regression: unprefixed document matches the contract-v2
+      baseline (fixtures/schemas/asyncapi_unprefixed_baseline.json).
 """
 
 from __future__ import annotations
@@ -2518,8 +2518,8 @@ class TestAsyncapiPrefixCache:
         assert unprefixed["channels"]["deskState"]["address"] == "wiz2mqtt/desk/state"
 
 
-class TestUnprefixedDocumentIsUnchanged:
-    """Hard acceptance criterion: no prefix ⇒ byte-identical to the golden output.
+class TestUnprefixedContractV2Baseline:
+    """Unprefixed output matches the current contract-v2 golden baseline.
 
     The fixture was first generated from the tree *before* the ADR-072 prefix
     change. ADR-086 deliberately revised it once: contract version ``"2"`` adds
@@ -2529,8 +2529,8 @@ class TestUnprefixedDocumentIsUnchanged:
     Test Techniques Used:
         - Regression Testing (golden file): the fixture is compared byte for
           byte; it changes only with a deliberate, ADR-recorded contract bump.
-        - Boundary Value Analysis: the prefix == app.name boundary, where the
-          new code path must degrade exactly to the old one.
+        - Boundary Value Analysis: the prefix == app.name boundary, where
+          explicit and default prefixes must produce the same document.
     """
 
     _GOLDEN = (
@@ -2540,8 +2540,8 @@ class TestUnprefixedDocumentIsUnchanged:
         / "asyncapi_unprefixed_baseline.json"
     )
 
-    def test_document_matches_pre_change_golden_file(self) -> None:
-        """Serialised document is byte-identical to the pre-ADR-072 baseline."""
+    def test_document_matches_contract_v2_golden_file(self) -> None:
+        """Serialised document is byte-identical to the contract-v2 baseline."""
         # Arrange
         app = _build_prefix_app()
         expected = self._GOLDEN.read_text(encoding="utf-8")
@@ -2551,7 +2551,7 @@ class TestUnprefixedDocumentIsUnchanged:
 
         # Assert
         assert actual == expected, (
-            "Unprefixed AsyncAPI output changed — ADR-072 must be additive.\n"
+            "Unprefixed AsyncAPI output differs from the contract-v2 baseline.\n"
             "Regenerate the baseline only when the contract deliberately changes\n"
             "(last deliberate change: ADR-086 availability channels, contract v2)."
         )
