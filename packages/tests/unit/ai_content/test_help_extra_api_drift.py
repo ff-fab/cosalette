@@ -34,13 +34,18 @@ import pytest
 from pydantic import BaseModel
 
 from cosalette import App, Router
+from cosalette._ai_content._help_core import get_core_help
 from cosalette._ai_content._help_extra import get_extra_help
+from cosalette._ai_content._meta import VERSION_FEATURES
+from cosalette._health import HealthReporter
+from cosalette._registration import _StreamRegistration
 from cosalette._runners._contracts import (
     ReturnValidationError,
     normalize_handler_return,
     normalize_return,
     validate_state_payload,
 )
+from cosalette._wiring._task_lifecycle import track_streams
 from cosalette.di import Depends
 from cosalette.mqtt import Payload, Topic
 from cosalette.schema import (
@@ -50,7 +55,7 @@ from cosalette.schema import (
     percent,
     temperature,
 )
-from cosalette.testing import AppHarness
+from cosalette.testing import AppHarness, FakeClock, MockMqttClient
 from tests.fixtures.state_models import production_warning_filters
 
 
@@ -69,6 +74,9 @@ _DOCUMENTED_API_SURFACE: list[tuple[str, Callable[..., object], set[str]]] = [
     ("consumer", percent, {"display_name", "icon"}),
     ("discovery", App.discovery, {"discovery_prefix", "enrich"}),
     ("testing", AppHarness.create, {"run_streams", "run_periodic", "dry_run"}),
+    ("availability", App.stream, {"stale_after", "feeds"}),
+    ("availability", App.add_stream, {"stale_after", "feeds"}),
+    ("availability", Router.stream, {"stale_after", "feeds"}),
 ]
 
 
@@ -126,6 +134,71 @@ class TestHelpExtraDocumentedParamsExist:
 
         assert content is not None
         assert "lifespan=" not in content
+
+
+class TestStreamHealthGuidance:
+    """Pin the guidance to stream recovery and root availability behavior.
+
+    Techniques: Specification-based Testing for documented API signatures;
+    State Transition Testing for manual recovery; Equivalence Partitioning
+    for root-stream freshness without an MQTT availability topic.
+    """
+
+    async def test_stream_items_do_not_clear_documented_manual_marks(self) -> None:
+        """Streams require explicit manual recovery even after fresh items."""
+        content = get_extra_help("availability")
+        assert content is not None
+        assert "yielded items do not clear manual marks" in content
+        mqtt = MockMqttClient()
+        reporter = HealthReporter(mqtt, "app", "1", FakeClock())
+        reporter.track_freshness("feed", 30)
+        await reporter.publish_device_unavailable("feed")
+
+        await reporter.record_success("feed")
+        await reporter.clear_task_failure("feed")
+
+        assert reporter.is_unavailable("feed", source="manual")
+        await reporter.publish_device_available("feed")
+        assert not reporter.is_unavailable("feed")
+
+    async def test_root_stream_guidance_matches_heartbeat_only(self) -> None:
+        """Root streams report staleness without publishing availability."""
+        content = get_extra_help("availability")
+        assert content is not None
+        assert "Root streams are heartbeat-only" in content
+        assert "counts for exit_after_stale=" in content
+        health_help = get_core_help("health")
+        assert health_help is not None
+        assert "telemetry entity or stream with" in health_help
+        assert (
+            "Root streams count for the health file and exit_after_stale" in health_help
+        )
+        assert "restart_on_stale restarts telemetry adapters only" in health_help
+        mqtt = MockMqttClient()
+        clock = FakeClock()
+        reporter = HealthReporter(mqtt, "app", "1", clock)
+        reg = _StreamRegistration(
+            name="feed",
+            func=lambda: None,
+            injection_plan=[],
+            is_root=True,
+            stale_after=1,
+        )
+        track_streams([reg], reporter)
+
+        clock.advance(2)
+        await reporter.check_freshness()
+
+        assert reporter.heartbeat_payload().devices["feed"].status == "stale"
+        assert reporter.longest_stale() == ("feed", 1)
+        assert mqtt.published == []
+
+    def test_pending_version_describes_stream_health_options(self) -> None:
+        """Pending migration guidance exposes new options and recovery rules."""
+        features = " ".join(VERSION_FEATURES["0.11.0"])
+        assert "Named stream health" in features
+        assert "stale_after= and feeds=" in features
+        assert "manual marks require ctx.mark_available()" in features
 
 
 class TestHelpExtraConsumerKeySetMatchesReader:

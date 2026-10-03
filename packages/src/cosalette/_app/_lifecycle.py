@@ -116,6 +116,24 @@ class _LifecycleMixin:
         self,
     ) -> list[_DeviceRegistration | _TelemetryRegistration | _CommandRegistration]: ...
 
+    @property
+    def _announced_registrations(
+        self,
+    ) -> list[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
+    ]:
+        """Registrations that own an availability topic.
+
+        Devices, telemetry and commands plus *named* streams (ADR-081
+        amendment).  Root streams are heartbeat-only and excluded, so they
+        never reach ``{prefix}/availability`` or the ADR-048 cleanup snapshot.
+        """
+        named_streams = [s for s in self._streams if not s.is_root]
+        return [*self._all_registrations, *named_streams]
+
     def run(
         self,
         *,
@@ -278,6 +296,9 @@ class _LifecycleMixin:
             self._commands,
             inbound_list=self._inbounds,
         )
+        _wiring.resolve_stream_health(
+            self._streams, self._devices, self._telemetry, resolved_settings
+        )
 
         # Schema enforcement: validate registrations before MQTT.
         # ADR-072: this is the *identity* half of the split — the network-level
@@ -314,12 +335,13 @@ class _LifecycleMixin:
         # Register fields before installing it so that retained payload has
         # the telemetry shape even with no periodic heartbeat.
         _wiring.track_telemetry_freshness(self._telemetry, health_reporter)
+        _wiring.track_streams(self._streams, health_reporter)
 
         connect_aware = _wiring.register_connect_reannounce(
             mqtt_client,
             cast("App", self),
             health_reporter,
-            self._all_registrations,
+            self._announced_registrations,
             prefix,
             _cleanup_store,
             self._discovery,
@@ -383,7 +405,7 @@ class _LifecycleMixin:
                         cast("App", self),
                         mqtt_client,
                         health_reporter,
-                        self._all_registrations,
+                        self._announced_registrations,
                         prefix,
                         _cleanup_store,
                         connect_aware=connect_aware,
@@ -410,6 +432,7 @@ class _LifecycleMixin:
                         shutdown_event,
                         resolved_adapters,
                         resolved_clock,
+                        health_reporter=health_reporter,
                     )
 
                     adapter_device_map = _wiring.build_adapter_device_map(
@@ -600,13 +623,13 @@ class _LifecycleMixin:
         if self._configure_hooks:
             self._entity_set_is_dynamic = True
             return True
-        # _all_registrations covers devices/telemetry/commands only;
-        # streams/periodic carry no config-removable retained topics (ADR-048).
+        # Named streams own a retained availability topic (ADR-081 amendment),
+        # so a config-disabled stream is dynamic too; periodic tasks own none.
         result = any(
             # callable(True/False) is False — bool has no __call__
             reg.name_spec is not None or callable(reg.enabled_spec)
             for reg in itertools.chain(self._devices, self._telemetry, self._commands)
-        )
+        ) or any(callable(s.enabled_spec) for s in self._streams if not s.is_root)
         self._entity_set_is_dynamic = result
         return result
 
@@ -693,7 +716,7 @@ class _LifecycleMixin:
         Delegates to :func:`_wiring.publish_device_availability`.
         """
         await _wiring.publish_device_availability(
-            self._all_registrations, health_reporter
+            self._announced_registrations, health_reporter
         )
 
     def _build_contexts(

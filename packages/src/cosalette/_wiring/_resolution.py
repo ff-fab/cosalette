@@ -249,6 +249,58 @@ def resolve_stale_after(
             telemetry_list[i] = dataclasses.replace(reg, stale_after=derived)
 
 
+def resolve_stream_health(
+    stream_list: list[_StreamRegistration],
+    device_list: list[_DeviceRegistration],
+    telemetry_list: list[_TelemetryRegistration],
+    settings: Settings,
+) -> None:
+    """Resolve stream ``stale_after`` and validate ``feeds`` (ADR-081 amendment).
+
+    Must run after :func:`resolve_enabled` and name expansion, so ``feeds``
+    is checked against the entities that will actually run.  A callable
+    ``stale_after`` is resolved against *settings*; nothing is derived — a
+    stream without ``stale_after`` has no freshness bound.  Mutates
+    *stream_list* in place.
+
+    Raises:
+        ValueError: If a callable ``stale_after`` resolves to a non-positive
+            value, a ``feeds`` name is not a registered device or telemetry
+            entity, or it names a root entity.
+    """
+    entities = list(itertools.chain(device_list, telemetry_list))
+    known = {r.name for r in entities}
+    roots = {r.name for r in entities if r.is_root}
+    for i, reg in enumerate(stream_list):
+        _validate_feeds(reg, known, roots)
+        spec = reg.stale_after
+        if callable(spec):
+            resolved = spec(settings)
+            _validate_resolved_timeout(
+                resolved, reg.name, label="Stream", param="stale_after"
+            )
+            stream_list[i] = dataclasses.replace(reg, stale_after=resolved)
+
+
+def _validate_feeds(reg: _StreamRegistration, known: set[str], roots: set[str]) -> None:
+    """Raise ValueError if *reg* feeds a root or unregistered entity."""
+    for fed in reg.feeds:
+        if fed in roots:
+            msg = (
+                f"Stream {reg.name!r} feeds root entity {fed!r}: a root "
+                "entity publishes the app-wide {prefix}/availability, which "
+                "one stream must not drive"
+            )
+            raise ValueError(msg)
+        if fed not in known:
+            msg = (
+                f"Stream {reg.name!r} feeds unknown entity {fed!r}; feeds= "
+                "must name registered devices or telemetry entities "
+                f"(known: {sorted(known)})"
+            )
+            raise ValueError(msg)
+
+
 def _validate_resolved_timeout(
     resolved: object, name: str, label: str = "Telemetry", param: str = "timeout"
 ) -> None:

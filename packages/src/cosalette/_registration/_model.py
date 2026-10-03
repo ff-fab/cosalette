@@ -304,6 +304,9 @@ class _StreamRegistration:
     state_model: type | None = None
     behavior: list[str] | None = None
     effects: list[str] | None = None
+    # Health (cos-4iim): opt-in freshness and availability propagation.
+    stale_after: TimeoutSpec | None = None
+    feeds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

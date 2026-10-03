@@ -272,7 +272,8 @@ When a task fails, the supervisor:
 2. Publishes **one** error payload (see below).
 3. Marks the task's entities offline with the availability source
    `"supervisor"`, and sets their heartbeat status to `"error"`.
-   A stream is the exception: see [Stream failures](#stream-failures).
+   Root streams report heartbeat status without an availability topic:
+   see [Stream failures](#stream-failures).
 4. Applies the app's `on_task_failure` policy.
 
 ### The `on_task_failure` policy
@@ -353,22 +354,24 @@ ungrouped telemetry entity whose `init=` raises fails its own task as usual.
 
 ### Stream failures
 
-A stream is not a device: it is not in Home Assistant discovery or the
-AsyncAPI document, and it has no availability topic. A crashed stream is
-reported through the log, the error payload and the heartbeat only:
+A stream is not in Home Assistant discovery, but a named stream owns a
+retained `{prefix}/{stream}/availability` topic. A crashed stream is reported
+like any task:
 
 - the same `CRITICAL` line and the same task-failure payload as any task;
-- status `"error"` under the stream's name in the `{prefix}/status`
-  heartbeat, back to `"ok"` once the re-created stream handles its first
-  item;
+- `"offline"` on `{prefix}/{stream}/availability` under the `supervisor`
+  source, and status `"error"` in the `{prefix}/status` heartbeat;
+- the first item from the re-created stream clears the supervisor mark;
+  it returns to `"online"` and `"ok"` when no other source holds it offline;
 - the same `on_task_failure` policy, restart budget and exit code `4`.
 
-The supervisor never publishes `{prefix}/{stream}/availability`, nor
-`{prefix}/availability` for a root stream. If Home Assistant entities depend
-on a stream's data, let those entities report their own availability: a
-telemetry entity with
-[`stale_after=`](../guides/transport-availability.md#freshness-stale_after)
-goes offline when no fresh data arrives.
+A root stream (`@app.stream()` without a name) is heartbeat-only: its
+payload goes to `{prefix}/error` only and it never publishes
+`{prefix}/availability`. If entities depend on a stream's data, declare
+`@app.stream("feed", feeds=["radon"])` so they go offline with the stream;
+see [Streaming](streaming.md#availability-and-health) and
+[ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)
+(2026-10-03 amendment).
 
 ### The task-failure error payload
 

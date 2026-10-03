@@ -631,9 +631,14 @@ Container Liveness — health file (ADR-083, off by default):
     (missing, older than --max-age = 3 x interval, or a device status in
     --fail-on, default stale; repeat --fail-on to add error)
   • Docker: healthcheck test ["CMD", "myapp", "health"]; Kubernetes: exec probe
-  • App(exit_after_stale=1800) → after a telemetry entity has been stale that
-    long: CRITICAL log, clean shutdown, StaleTelemetryError, CLI exit code 5,
+  • App(exit_after_stale=1800) → after a telemetry entity or stream with
+    stale_after= has been stale that long: CRITICAL log, clean shutdown,
+    StaleTelemetryError, CLI exit code 5,
     so a restart policy recovers (plain Docker never restarts unhealthy)
+  • Root streams count for the health file and exit_after_stale too; their
+    heartbeat-only availability means no MQTT availability topic, not an
+    exemption from liveness checks. Streams require an explicit stale_after=
+    bound; restart_on_stale restarts telemetry adapters only
   • With restart_on_stale, exit_after_stale must outlast the in-place
     recovery, both counted from the stale transition:
     exit_after_stale > check_interval (min(heartbeat_interval, 60 s,

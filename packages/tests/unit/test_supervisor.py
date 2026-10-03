@@ -440,13 +440,13 @@ class TestFailureReport:
         h.health.set_device_status.assert_any_call("b", "error")
 
     @pytest.mark.parametrize("is_root", [False, True], ids=["named", "root"])
-    async def test_stream_entities_get_heartbeat_status_only(
-        self, is_root: bool
-    ) -> None:
-        """``availability=False``: no offline publish, no device roster entry.
+    async def test_stream_entities_marked_like_any_entity(self, is_root: bool) -> None:
+        """A crashed stream is marked under the ``supervisor`` source.
 
-        The single payload still follows the entity, so a root stream's
-        payload is routed with ``is_root=True`` (``{prefix}/error`` only).
+        The reporter decides what that means: a named stream publishes
+        ``offline`` to its own topic, a root stream is heartbeat-only
+        (ADR-081 amendment).  The payload follows the entity, so a root
+        stream's payload is routed with ``is_root=True``.
 
         Technique: Equivalence Partitioning — named vs root stream.
         """
@@ -455,13 +455,14 @@ class TestFailureReport:
         task = asyncio.create_task(_boom(), name="stream:feed")
 
         # Act
-        h.supervisor.supervise(task, entities=[("feed", is_root)], availability=False)
+        h.supervisor.supervise(task, entities=[("feed", is_root)])
         await _settle()
 
         # Assert
-        h.health.mark_stream_failed.assert_called_once_with("feed")
-        h.health.publish_device_unavailable.assert_not_awaited()
-        h.health.set_device_status.assert_not_called()
+        h.health.publish_device_unavailable.assert_awaited_once_with(
+            "feed", is_root=is_root, source=SUPERVISOR_SOURCE
+        )
+        h.health.set_device_status.assert_called_once_with("feed", "error")
         call = h.errors.publish.await_args
         assert call.kwargs["device"] == "feed"
         assert call.kwargs["is_root"] is is_root

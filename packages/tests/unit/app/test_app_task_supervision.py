@@ -506,7 +506,7 @@ class TestTelemetryInitFailure:
 
 
 # ---------------------------------------------------------------------------
-# Stream failures (cos-pbd8): heartbeat status only, no availability topic
+# Stream failures (cos-pbd8): named availability and root heartbeat status
 # ---------------------------------------------------------------------------
 
 
@@ -567,20 +567,19 @@ def _heartbeat_status(harness: AppHarness, entity: str) -> str | None:
 
 
 class TestStreamFailure:
-    """A stream crash is logged, published and shown in the heartbeat only.
+    """A stream crash is logged, published and reflected in availability.
 
-    Streams have no availability topic (cos-pbd8): no
-    ``{prefix}/{stream}/availability`` and, for a root stream, no
-    ``{prefix}/availability`` publish on failure, recovery or shutdown.
+    A named stream owns ``{prefix}/{stream}/availability``: online at
+    startup, offline on a crash, online again at the first item after the
+    restart and offline at shutdown.  A root stream is heartbeat-only and
+    never touches ``{prefix}/availability`` (ADR-081 amendment).
 
     Technique: Specification-based Testing and State Transition Testing.
     """
 
     @pytest.mark.parametrize("root", [False, True], ids=["named", "root"])
-    async def test_crash_publishes_payload_and_no_availability(
-        self, root: bool
-    ) -> None:
-        """Exit policy: one payload, escalation, and no availability topic.
+    async def test_crash_publishes_payload_and_marks_stream(self, root: bool) -> None:
+        """Exit policy: one payload, escalation; only a named stream goes offline.
 
         Technique: Equivalence Partitioning — named stream vs root stream,
         whose payload goes to ``{prefix}/error`` only.
@@ -607,13 +606,21 @@ class TestStreamFailure:
         ]
         per_stream = _payloads(harness, "testapp/feed/error")
         assert len(per_stream) == (0 if root else 1)
-        assert _availability_topics(harness) == []
+        assert "testapp/availability" not in _availability_topics(harness)
+        if root:
+            assert _availability_topics(harness) == []
+        else:
+            assert _availability(harness, "feed")[:2] == [
+                "online",
+                "offline",
+            ]
 
-    async def test_heartbeat_shows_error_then_ok(self) -> None:
-        """The heartbeat reports the dead stream, then its recovery.
+    async def test_offline_on_crash_then_online_at_first_item(self) -> None:
+        """Heartbeat and availability follow the crash and the recovery.
 
-        Technique: State Transition Testing — running -> failed (error) ->
-        restarted -> first item (ok).
+        Technique: State Transition Testing — running (online, ok) ->
+        failed (offline, error) -> restarted -> first item (online, ok) ->
+        shutdown (offline).
         """
         # Arrange
         clock = ManualClock()
@@ -652,6 +659,54 @@ class TestStreamFailure:
         assert attempts == 2
         assert status_after_crash == "error"
         assert status_after_recovery == "ok"
+        assert _availability(harness, "feed") == [
+            "online",
+            "offline",
+            "online",
+            "offline",
+        ]
+
+    async def test_root_stream_never_touches_app_availability(self) -> None:
+        """A root stream's crash and recovery stay in the heartbeat.
+
+        Technique: Equivalence Partitioning — the root-stream partition.
+        """
+        # Arrange
+        clock = ManualClock()
+        harness, _ = _stream_harness(clock, heartbeat_interval=0.5)
+        attempts = 0
+        items = 0
+
+        @harness.app.stream()
+        async def feed(stream: Stream[_Reading]) -> AsyncIterator[None]:
+            nonlocal attempts, items
+            attempts += 1
+            if attempts == 1:
+                msg = "decoder crashed"
+                raise RuntimeError(msg)
+            async for _ in stream:
+                items += 1
+                yield
+
+        run = asyncio.create_task(harness.run())
+        try:
+            # Act
+            await clock.settle(
+                until=lambda: bool(harness.messages_for("testapp/error"))
+            )
+            await harness.advance_time(0.5)
+            status_after_crash = _heartbeat_status(harness, "feed")
+            await harness.advance_time(0.5)
+            await clock.settle(until=lambda: items >= 1)
+            await harness.advance_time(0.5)
+            status_after_recovery = _heartbeat_status(harness, "feed")
+        finally:
+            harness.trigger_shutdown()
+            await asyncio.wait_for(run, timeout=5.0)
+
+        # Assert
+        assert status_after_crash == "error"
+        assert status_after_recovery == "ok"
         assert _availability_topics(harness) == []
 
     async def test_deterministic_crash_uses_up_the_budget(self) -> None:
@@ -676,7 +731,12 @@ class TestStreamFailure:
         assert attempts == 3
         assert caught.value.restart_count == 2
         assert len(_payloads(harness, "testapp/feed/error")) == 3
-        assert _availability_topics(harness) == []
+        # Offline once on the first crash; later crashes are not transitions.
+        assert _availability(harness, "feed") == [
+            "online",
+            "offline",
+            "offline",
+        ]
 
 
 # ---------------------------------------------------------------------------

@@ -430,15 +430,36 @@ async def handle_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": await ssh.read()}  # exception → "offline" published + suppressed
 ```
 
-Root entities (`name=None`) are excluded from the automatic default and must pass an
+Root telemetry/device/command entities (`name=None`) are excluded from the automatic default and must pass an
 explicit `unavailable_on` — they publish to the flat `{app}/availability`, so one failed
 read would declare the whole app unavailable.
 
 Or call `ctx.mark_unavailable()` inside the handler body for conditional unavailability.
 Auto-recovery: the framework publishes `"online"` after the next successful invocation.
+For streams, manual marks require `ctx.mark_available()`; yielded items clear only
+crash and freshness marks.
 Topic: `{app}/{device}/availability`, values `"online"` / `"offline"` (retained, QoS 1).
 Availability carries no error text — *why* it failed stays in `{app}/status` and on the
 error topic.
+
+Named `@app.stream` / `@router.stream` handlers own retained
+`{app}/{stream}/availability` (ADR-081 amendment). Crashes mark them offline under
+`supervisor`; the first yielded item after restart clears that source. Declare
+`stale_after=120` (or a `(Settings) -> float` callable) to go stale/offline after no
+yield for that bound, recovering on the next yield. The default `None` disables
+freshness; streams never derive a bound. `feeds=["radon"]` holds named device or
+telemetry targets offline under `stream:{name}` while any source holds the stream
+offline; targets' own sources remain independent. Unknown or root targets fail at
+bootstrap. `App.add_stream` accepts the same health options.
+For Router inclusion, `feeds=` targets matching router-local device/telemetry
+names receive the combined router/include prefix. Unmatched names reference
+app-global entities; router-local matches take precedence when both exist.
+
+Root streams (`@app.stream()`) are heartbeat-only: they never publish availability
+or touch `{app}/availability`, and cannot declare `feeds=`. Their explicit
+`stale_after=` still affects the heartbeat, health file and `exit_after_stale=`.
+`restart_on_stale` does not restart stream adapters. Streams remain outside Home
+Assistant discovery.
 
 Both consumer targets wire availability automatically: Home Assistant gets dual-topic
 `availability_mode: "all"` (ADR-058); openHAB gets a single-topic `availabilityTopic` on
@@ -451,6 +472,8 @@ ghost entities). Works by default — no `store=` wiring needed. Pass `store=Non
 opt out of persistence entirely. Use `retained_cleanup=False` to opt out of only the
 ADR-048 cleanup (keeping persistence for `persist=`), vs `store=None` which drops
 persistence too. See ADR-048, `cosalette ai help persistence`.
+Named streams participate with availability only; their state topics are not in
+the cleanup snapshot. Root streams are excluded.
 
 MQTT 5 retained expiry is opt-in with `MQTT__PROTOCOL_VERSION=5`. Its retained-message
 ledger is bounded to 1,000 topics and 16 MiB of UTF-8 topic and payload data; a retained publish

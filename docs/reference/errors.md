@@ -508,6 +508,11 @@ decision at CRITICAL first. Attributes: `entity` and `stale_for`. The CLI exits
 with code 5 (`EXIT_STALE`), so a process supervisor with a restart policy
 restarts the container.
 
+A stream declared with `@app.stream(..., stale_after=...)` counts too: its
+`entity` is the stream name, and the message still begins with `Telemetry`
+([ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md),
+2026-10-03 amendment).
+
 ## Error Publishing Pipeline
 
 The framework includes a built-in error publishing system for reporting

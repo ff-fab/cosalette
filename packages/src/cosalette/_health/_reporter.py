@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -31,9 +33,9 @@ class DeviceStatus:
     """
 
     status: str = "ok"
-    # Freshness fields (ADR-080), set only for telemetry entities. A ``None``
-    # ``consecutive_failures`` means "not tracked" and omits both keys, so
-    # device, command and stream entries keep their one-key shape.
+    # Freshness fields (ADR-080), set only for telemetry entities and streams
+    # with ``stale_after``. A ``None`` ``consecutive_failures`` means "not
+    # tracked" and omits both keys, so other entries keep their one-key shape.
     last_success_at: str | None = None
     consecutive_failures: int | None = None
     # Failure-streak fields (ADR-082), ``None`` while the entity is healthy.
@@ -94,6 +96,8 @@ class _Freshness:
     stale_after: float | None
     is_root: bool
     last_success: float
+    # Archetype label for the stale / fresh-again log lines.
+    label: str = "Telemetry"
     last_success_at: str | None = None
     consecutive_failures: int = 0
     last_error_type: str | None = None
@@ -217,13 +221,27 @@ class HealthReporter:
         default_factory=dict,
         repr=False,
     )
-    # Heartbeat-only statuses of supervised streams (ADR-081).  Kept apart
-    # from ``_devices``: a stream has no availability topic, so it must never
-    # be re-announced or marked offline on shutdown.
-    _stream_statuses: dict[str, DeviceStatus] = field(
+    # Entities with no availability topic (root streams): they take part in
+    # the multi-source bookkeeping and the heartbeat, but nothing is ever
+    # published for them, so they never touch ``{prefix}/availability``
+    # (ADR-081, 2026-10-03 amendment).
+    _heartbeat_only: set[str] = field(
+        init=False,
+        default_factory=set,
+        repr=False,
+    )
+    # Stream name -> the entities it feeds (``@app.stream(feeds=...)``).
+    _feeds: dict[str, tuple[str, ...]] = field(
         init=False,
         default_factory=dict,
         repr=False,
+    )
+    # A transition includes MQTT publication and feed propagation. Holding
+    # its entity lock across both prevents a recovery from overtaking it.
+    # Validated feeds point only to devices/telemetry, so acquiring a fed
+    # entity's lock while holding a stream's lock cannot form a cycle.
+    _availability_locks: dict[str, asyncio.Lock] = field(
+        init=False, default_factory=dict, repr=False
     )
 
     def __post_init__(self) -> None:
@@ -241,15 +259,20 @@ class HealthReporter:
         stale_after: float | None,
         *,
         is_root: bool = False,
+        label: str = "Telemetry",
     ) -> None:
-        """Start tracking freshness for a telemetry entity.
+        """Start tracking freshness for a telemetry entity or stream.
 
         The staleness clock starts now, so an entity that never completes a
         cycle — a dead task, a failing ``init=`` — still goes stale.  With
         *stale_after* ``None`` the entity is tracked for the heartbeat only.
+        *label* names the archetype in the stale and fresh-again log lines.
         """
         self._freshness[device] = _Freshness(
-            stale_after=stale_after, is_root=is_root, last_success=self.clock.now()
+            stale_after=stale_after,
+            is_root=is_root,
+            last_success=self.clock.now(),
+            label=label,
         )
 
     async def record_success(self, device: str) -> FailureStreak | None:
@@ -280,7 +303,7 @@ class HealthReporter:
         entry.failing_since_at = ""
         entry.next_reminder = 0.0
         if self.is_unavailable(device, source="freshness"):
-            logger.info("Telemetry '%s' is fresh again", device)
+            logger.info("%s '%s' is fresh again", entry.label, device)
             await self.publish_device_available(
                 device, is_root=entry.is_root, source="freshness"
             )
@@ -337,28 +360,31 @@ class HealthReporter:
         logs one WARNING, both on the transition only.  Returns the names
         of the entities that became stale in this check.
         """
-        now = self.clock.now()
         newly_stale: list[str] = []
         for device, entry in list(self._freshness.items()):
             if entry.stale_after is None:
                 continue
-            age = now - entry.last_success
-            if age < entry.stale_after or self.is_unavailable(
-                device, source="freshness"
-            ):
-                continue
-            logger.warning(
-                "Telemetry '%s' is stale: no fresh data for %.0fs "
-                "(stale_after=%.0fs, last error: %s)",
-                device,
-                age,
-                entry.stale_after,
-                entry.last_error_type or "none",
-            )
-            await self.publish_device_unavailable(
-                device, is_root=entry.is_root, source="freshness"
-            )
-            newly_stale.append(device)
+            async with self._availability_lock(device):
+                # Re-evaluate after waiting: a stream may have yielded while
+                # an earlier publication held this lock.
+                age = self.clock.now() - entry.last_success
+                if age < entry.stale_after or self.is_unavailable(
+                    device, source="freshness"
+                ):
+                    continue
+                logger.warning(
+                    "%s '%s' is stale: no fresh data for %.0fs "
+                    "(stale_after=%.0fs, last error: %s)",
+                    entry.label,
+                    device,
+                    age,
+                    entry.stale_after,
+                    entry.last_error_type or "none",
+                )
+                await self._mark_unavailable(
+                    device, is_root=entry.is_root, source="freshness"
+                )
+                newly_stale.append(device)
         return newly_stale
 
     def longest_stale(self) -> tuple[str, float] | None:
@@ -424,6 +450,38 @@ class HealthReporter:
         self._unavailable.pop(device, None)
         self._freshness.pop(device, None)
 
+    def track_heartbeat_only(self, entity: str) -> None:
+        """Track *entity* in the heartbeat without an availability topic.
+
+        Used for root streams (ADR-081, 2026-10-03 amendment): every
+        availability source still applies to their heartbeat status, but no
+        ``"online"`` / ``"offline"`` is ever published for them, so they
+        never touch the app-wide ``{prefix}/availability``.  The entity is
+        listed as ``"ok"`` from now on.
+        """
+        self._heartbeat_only.add(entity)
+        self._devices.setdefault(entity, DeviceStatus())
+
+    def set_feeds(self, stream: str, fed: Sequence[str]) -> None:
+        """Declare that *stream* feeds the named, non-root entities *fed*.
+
+        Whenever *stream* goes offline, from any source, each fed entity is
+        marked offline under the source ``stream:{stream}``; when *stream* is
+        online again that source is cleared.  The fed entities' other
+        sources stay independent (ADR-077).
+        """
+        if fed:
+            self._feeds[stream] = tuple(fed)
+
+    def _topic_for(self, device: str, *, is_root: bool) -> str | None:
+        """Return *device*'s availability topic, ``None`` if it has none."""
+        if device in self._heartbeat_only:
+            return None
+        if is_root:
+            self._root_devices.add(device)
+            return f"{self.topic_prefix}/availability"
+        return f"{self.topic_prefix}/{device}/availability"
+
     async def publish_device_available(
         self,
         device: str,
@@ -440,21 +498,22 @@ class HealthReporter:
         *source* is provided, it clears only that source's unavailable mark;
         another active source keeps the device offline.
         """
-        if is_root:
-            topic = f"{self.topic_prefix}/availability"
-            self._root_devices.add(device)
-        else:
-            topic = f"{self.topic_prefix}/{device}/availability"
-        if source is not None:
-            sources = self._unavailable.get(device)
-            if sources is not None:
-                sources.discard(source)
-                if not sources:
-                    self._unavailable.pop(device, None)
-        if self.is_unavailable(device):
-            return
-        await self._safe_publish(topic, "online")
-        self.set_device_status(device)
+        async with self._availability_lock(device):
+            topic = self._topic_for(device, is_root=is_root)
+            was_unavailable = self.is_unavailable(device)
+            if source is not None:
+                sources = self._unavailable.get(device)
+                if sources is not None:
+                    sources.discard(source)
+                    if not sources:
+                        self._unavailable.pop(device, None)
+            if self.is_unavailable(device):
+                return
+            self.set_device_status(device)
+            if topic is not None:
+                await self._safe_publish(topic, "online")
+            if was_unavailable:
+                await self._propagate_to_fed(device, available=True)
 
     async def publish_device_unavailable(
         self,
@@ -476,22 +535,43 @@ class HealthReporter:
         calling :meth:`set_device_status` afterwards, as the telemetry runner
         does with ``"error"``.
         """
-        if is_root:
-            topic = f"{self.topic_prefix}/availability"
-            self._root_devices.add(device)
-        else:
-            topic = f"{self.topic_prefix}/{device}/availability"
+        async with self._availability_lock(device):
+            await self._mark_unavailable(device, is_root=is_root, source=source)
+
+    async def _mark_unavailable(
+        self, device: str, *, is_root: bool, source: str
+    ) -> None:
+        """Apply an offline transition while the entity lock is held."""
+        topic = self._topic_for(device, is_root=is_root)
         was_unavailable = self.is_unavailable(device)
         self._unavailable.setdefault(device, set()).add(source)
-        if not was_unavailable:
-            await self._safe_publish(topic, "offline")
         self.set_device_status(device, "unavailable")
+        if not was_unavailable and topic is not None:
+            await self._safe_publish(topic, "offline")
+        if not was_unavailable:
+            await self._propagate_to_fed(device, available=False)
+
+    def _availability_lock(self, device: str) -> asyncio.Lock:
+        """Return the stable lock for an entity's availability publications."""
+        lock = self._availability_locks.get(device)
+        if lock is None:
+            lock = self._availability_locks[device] = asyncio.Lock()
+        return lock
+
+    async def _propagate_to_fed(self, stream: str, *, available: bool) -> None:
+        """Mirror a stream's availability transition onto the entities it feeds."""
+        source = f"stream:{stream}"
+        for fed in self._feeds.get(stream, ()):
+            if not available:
+                await self.publish_device_unavailable(fed, source=source)
+            elif self.is_unavailable(fed, source=source):
+                await self.publish_device_available(fed, source=source)
 
     async def clear_task_failure(self, device: str, *, is_root: bool = False) -> None:
         """Clear the task supervisor's mark after a re-created task recovers.
 
-        Called at a supervised task's first successful cycle or first device
-        ``yield`` (ADR-081); streams use :meth:`clear_stream_failure`.  Removes the
+        Called at a supervised task's first successful cycle, first device
+        ``yield`` or first stream item (ADR-081).  Removes the
         ``"supervisor"`` availability source and the ``error`` status; a
         no-op when the supervisor never marked *device*.  Another source
         still holding the entity offline keeps it offline (ADR-077).
@@ -504,26 +584,6 @@ class HealthReporter:
         if self.is_unavailable(device):
             self.set_device_status(device, "unavailable")
 
-    def mark_stream_failed(self, stream: str) -> None:
-        """Record a supervised stream's task failure in the heartbeat.
-
-        A stream has no availability topic (it is not a device, and is
-        excluded from discovery and AsyncAPI), so its failure shows only as
-        ``"error"`` under its name in ``{prefix}/status`` (ADR-081).
-        """
-        self._stream_statuses[stream] = DeviceStatus(status="error")
-
-    def clear_stream_failure(self, stream: str) -> None:
-        """Set a failed stream back to ``"ok"`` once it yields an item again.
-
-        A no-op unless :meth:`mark_stream_failed` marked *stream*.
-        """
-        entry = self._stream_statuses.get(stream)
-        if entry is None or entry.status != "error":
-            return
-        logger.info("Stream '%s' recovered after its task was restarted", stream)
-        self._stream_statuses[stream] = DeviceStatus(status="ok")
-
     def heartbeat_payload(self) -> HeartbeatPayload:
         """Build the current heartbeat snapshot without publishing it.
 
@@ -535,11 +595,8 @@ class HealthReporter:
             uptime_s=int(self.clock.now() - self._start_time),
             version=self.version,
             devices={
-                **self._stream_statuses,
-                **{
-                    name: self._device_snapshot(name, status)
-                    for name, status in self._devices.items()
-                },
+                name: self._device_snapshot(name, status)
+                for name, status in self._devices.items()
             },
         )
 
@@ -603,9 +660,12 @@ class HealthReporter:
 
     async def _publish_live_availability(self, device: str) -> None:
         """Publish ``"offline"`` if any source marks *device* unavailable, else
-        ``"online"``."""
-        payload = "offline" if self.is_unavailable(device) else "online"
-        await self._safe_publish(self._availability_topic(device), payload)
+        ``"online"``.  A heartbeat-only entity publishes nothing."""
+        if device in self._heartbeat_only:
+            return
+        async with self._availability_lock(device):
+            payload = "offline" if self.is_unavailable(device) else "online"
+            await self._safe_publish(self._availability_topic(device), payload)
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.
@@ -617,13 +677,12 @@ class HealthReporter:
         """
         logger.info("Health reporter shutting down — publishing offline")
         for device in list(self._devices):
-            topic = self._availability_topic(device)
-            await self._safe_publish(topic, "offline")
+            if device not in self._heartbeat_only:
+                await self._safe_publish(self._availability_topic(device), "offline")
 
         status_topic = f"{self.topic_prefix}/status"
         await self._safe_publish(status_topic, "offline")
         self._devices.clear()
-        self._stream_statuses.clear()
         self._root_devices.clear()
         self._unavailable.clear()
         self._freshness.clear()

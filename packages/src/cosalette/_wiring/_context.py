@@ -135,6 +135,7 @@ def build_stream_contexts(
     shutdown_event: asyncio.Event,
     adapters: dict[type, object],
     clock: ClockPort,
+    health_reporter: HealthReporter | None = None,
 ) -> dict[str, DeviceContext]:
     """Build a stream-scoped DeviceContext for every registered stream handler.
 
@@ -151,6 +152,10 @@ def build_stream_contexts(
     against it (ADR-045 amendment, 2026-08-07).  Stream handlers are async
     generators yielding ``None``, so there is no return value to validate —
     an explicit ``state_model`` is the only available contract source.
+
+    *health_reporter* makes ``ctx.mark_unavailable()`` / ``ctx.mark_available()``
+    work under the ``manual`` source (ADR-081 amendment).  A root stream is
+    heartbeat-only, so its manual marks never reach ``{prefix}/availability``.
 
     See also: :func:`build_contexts` for the device/telemetry variant.
     """
@@ -175,6 +180,7 @@ def build_stream_contexts(
                 state_model=reg.state_model,
                 handler_name=_callable_qualname(reg.func),
                 tolerate_not_connected=True,
+                health_reporter=health_reporter,
             )
     return contexts
 

@@ -206,6 +206,32 @@ def track_telemetry_freshness(
         health_reporter.track_freshness(reg.name, stale_after, is_root=reg.is_root)
 
 
+def track_streams(
+    streams: Sequence[_StreamRegistration],
+    health_reporter: HealthReporter,
+) -> None:
+    """Register stream health before any startup heartbeat (ADR-081 amendment).
+
+    Every stream reports ``ok`` in the heartbeat from startup.  A root
+    stream is heartbeat-only: its availability sources (supervisor, manual,
+    freshness) change its heartbeat status but never publish, so it cannot
+    touch the app-wide ``{prefix}/availability``.  A resolved
+    ``stale_after`` is tracked like a telemetry bound, and ``feeds`` are
+    recorded for availability propagation.
+    """
+    for reg in streams:
+        if reg.is_root:
+            health_reporter.track_heartbeat_only(reg.name)
+        else:
+            health_reporter.set_device_status(reg.name, "ok")
+        bound = reg.stale_after
+        if isinstance(bound, (int, float)) and not isinstance(bound, bool):
+            health_reporter.track_freshness(
+                reg.name, float(bound), is_root=reg.is_root, label="Stream"
+            )
+        health_reporter.set_feeds(reg.name, reg.feeds)
+
+
 def start_freshness_task(
     telemetry: Sequence[_TelemetryRegistration],
     heartbeat_interval: float | None,

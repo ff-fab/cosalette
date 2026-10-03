@@ -252,6 +252,26 @@ schema.
     [ADR-012](../adr/ADR-012-health-and-availability-reporting.md) (2026-10-02
     amendment) and
     [ADR-077](../adr/ADR-077-automatic-transport-availability-for-the-telemetry-and-device-archetypes.md).
+
+### Stream Availability
+
+A **named** stream (`@app.stream("feed")`) owns `{prefix}/{stream}/availability`
+with the same QoS, retain flag and payload as a device. It is announced
+`"online"` at startup and on every (re)connect, published `"offline"` at
+shutdown, and goes `"offline"` while any source holds it unavailable: a task
+crash (`supervisor`), `ctx.mark_unavailable()` (`manual`), or a lapsed
+`stale_after=` (`freshness`). The next yielded item clears the crash and
+freshness marks; a manual mark requires `ctx.mark_available()`. It returns
+`"online"` only when every source has cleared. A stream declared
+with `feeds=[...]` also holds each fed entity's own availability topic
+`"offline"` while it is offline.
+
+A **root** stream (`@app.stream()`) is heartbeat-only: it never publishes an
+availability topic and never touches the app-wide `{prefix}/availability`.
+See
+[ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)
+(2026-10-03 amendment) and [Streaming](../concepts/streaming.md#availability-and-health).
+
 ### Sub-Entity Availability
 
 Sub-entities follow the same pattern one level deeper:
