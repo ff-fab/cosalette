@@ -25,6 +25,11 @@ from cosalette._schema import ChannelSchema, SchemaRegistry, _prefix_depth
 # Rejects control chars, newlines, quotes, broker metacharacters.
 _SAFE_ACL_RE = re.compile(r"^[A-Za-z0-9_./:{}+#-]+$")
 
+# Topic levels an availability topic may sit below the prefix.  An entity name
+# is at most include_router prefix / Router prefix / name, each one validated
+# segment (``validate_mqtt_name``), and an ADR-031 sub-entity adds one more.
+_MAX_AVAILABILITY_LEVELS = 4
+
 
 def _validate_acl_value(value: str, label: str) -> None:
     """Raise ValueError if *value* contains unsafe ACL characters."""
@@ -40,6 +45,20 @@ class AclPrincipal:
     name: str
     publish_topics: tuple[str, ...]
     subscribe_topics: tuple[str, ...]
+
+
+def _availability_filters(base: str) -> list[str]:
+    """Return filters matching every availability topic below *base*.
+
+    MQTT allows ``#`` only as the last level, so ``{base}/#/availability`` is
+    not a filter; each depth gets its own ``+`` filter instead.  Zero levels is
+    a root entity (ADR-058), one a flat device, deeper ones Router-prefixed
+    names and their sub-entities (ADR-031).
+    """
+    return [
+        "/".join([base, *["+"] * levels, "availability"])
+        for levels in range(_MAX_AVAILABILITY_LEVELS + 1)
+    ]
 
 
 def _find_channel(
@@ -90,11 +109,7 @@ def _build_app_principal(
         f"{prefix}/schema/status",
         f"{prefix}/{REGISTRY_TOPIC_SUFFIX}",
         f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-        # A root entity (ADR-058) has no device segment, so its availability
-        # lands on {prefix}/availability — which the single-segment wildcard
-        # below does not match (_health/_reporter.py:162).
-        f"{prefix}/availability",
-        f"{prefix}/+/availability",
+        *_availability_filters(prefix),
         f"{prefix}/+/error",
     ]
     subscribe_topics: list[str] = ["cosalette/schema/update"]
@@ -185,9 +200,7 @@ def _build_monitor_principal(topic_prefix: str | None) -> AclPrincipal:
         f"{p}/status",
         f"{p}/error",
         f"{p}/+/error",
-        # Root entity (ADR-058) availability has no device segment.
-        f"{p}/availability",
-        f"{p}/+/availability",
+        *_availability_filters(p),
         f"{p}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
     ]
     return AclPrincipal(
