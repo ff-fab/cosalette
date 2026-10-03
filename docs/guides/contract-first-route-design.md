@@ -472,7 +472,7 @@ with a read/write thermostat setpoint:
   "info": {
     "title": "thermo2mqtt",
     "version": "1.0.0",
-    "x-cosalette-contract-version": "1"
+    "x-cosalette-contract-version": "2"
   },
   "channels": {
     "temperatureState": {
@@ -488,6 +488,14 @@ with a read/write thermostat setpoint:
       "messages": {"message": {"payload": {"$ref": "#/components/schemas/SetpointCommand"}}},
       "x-cosalette-archetype": "command",
       "x-cosalette-summary": "Update the target temperature setpoint"
+    },
+    "temperatureAvailability": {
+      "address": "thermo2mqtt/temperature/availability",
+      "x-cosalette-app": "thermo2mqtt",
+      "messages": {"message": {"payload": {"type": "string", "enum": ["online", "offline"]}}},
+      "bindings": {"mqtt": {"qos": 1, "retain": true}},
+      "x-cosalette-framework": "availability",
+      "x-cosalette-discoverable": false
     }
   },
   "operations": { "..." : "..." },
@@ -506,6 +514,17 @@ with a read/write thermostat setpoint:
 |--------------------|-----------|
 | `state_model=` on decorator | handler return-type annotation |
 | `payload_model=` on decorator | `Annotated[T, Payload()]` / `payload: T` convention |
+
+!!! info "Framework availability channels"
+
+    Since contract version `"2"`, the document also lists one availability
+    channel per device, telemetry, command and named stream, such as
+    `temperatureAvailability` above (`setpointAvailability` is elided). These
+    channels carry `x-cosalette-framework: "availability"` instead of an
+    archetype and describe the retained `online`/`offline` topic the framework
+    publishes for you. You never declare them. `--table` leaves them out, so
+    each entity is listed once. See
+    [ADR-086](../adr/ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md).
 
 !!! note "Module-level code runs"
 

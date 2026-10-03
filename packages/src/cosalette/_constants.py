@@ -30,3 +30,20 @@ REGISTRY_TOPIC_SUFFIX = "_meta/registry"
 # ADR-069: retained, machine-readable ``state_model`` declaration-drift
 # snapshot, published as ``{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}``.
 STATE_MODEL_DRIFT_TOPIC_SUFFIX = "_meta/state_model_drift"
+
+AVAILABILITY_PAYLOADS = ("online", "offline")
+"""The two retained payloads an availability topic carries (ADR-012)."""
+
+
+def availability_topic(prefix: str, name: str, *, is_root: bool) -> str:
+    """Return the retained availability topic entity *name* publishes on.
+
+    A root entity (ADR-058) uses the app-wide ``{prefix}/availability`` — flat,
+    even when a Router prefix put a ``/`` into its name — and every other
+    entity ``{prefix}/{name}/availability``.  The health reporter, the AsyncAPI
+    generator and the consumer generators all resolve through here, so the
+    topic the runtime publishes and the one the schema documents cannot drift.
+    """
+    if is_root:
+        return f"{prefix}/availability"
+    return f"{prefix}/{name}/availability"

@@ -670,9 +670,10 @@ Used by:
 
 ### Generated Addresses Honour `mqtt.topic_prefix` (v0.9.3+)
 
-**Only affects apps that set `mqtt.topic_prefix`.** If you leave it unset,
-generated documents are byte-identical to previous releases and there is
-nothing to do.
+**The v0.9.3 prefix change only affects apps that set `mqtt.topic_prefix`.**
+Through v0.10.x, leaving it unset kept generated documents byte-identical to
+the pre-v0.9.3 output. From v0.11.0, every app's document changes for contract
+version `"2"`; see [Availability Channels](#availability-channels-in-generated-asyncapi-v0110).
 
 Before v0.9.3, generated AsyncAPI composed `channel.address` from
 `App(name=...)` and ignored the setting, so every derived artefact
@@ -700,6 +701,32 @@ Two behaviour changes to expect:
 Home Assistant `object_id` and `unique_id` are unchanged, including for
 multi-segment prefixes, so existing entities are not orphaned. See
 [ADR-072](../adr/ADR-072-prefix-aware-asyncapi-generation-and-the-identity-vs-address-split.md).
+
+### Availability Channels in Generated AsyncAPI (v0.11.0+)
+
+**Affects every app.** Generated documents now have one framework availability
+channel per device, telemetry, command and named stream, a matching
+`publish…Availability` operation, and `x-cosalette-contract-version: "2"`.
+Unprefixed documents are no longer byte-identical to earlier releases.
+
+The topics themselves do not change: the framework already published them.
+The document now describes them. After upgrading:
+
+- **Regenerate committed schema artefacts.** Re-run `cosalette schema dump`
+  (or `schema init`) for every schema baseline you commit, and update any
+  golden-file test that compares generated output byte for byte.
+- **The retained `{prefix}/_meta/registry` snapshot changes.** It is built from
+  the same document, so it now lists the availability channels too. Tools that
+  diff or cache that snapshot see the change once.
+- **Tools that iterate channels.** A channel with
+  `x-cosalette-framework: "availability"` has no `x-cosalette-archetype`. Skip
+  it if your tooling expects every channel to be an app registration. Older
+  cosalette loaders ignore the unknown key.
+
+Home Assistant discovery, openHAB output and generated broker ACLs are
+unchanged, so nothing has to be redeployed to the broker or to Home Assistant.
+See
+[ADR-086](../adr/ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md).
 
 ### Schema Inference Priority
 
@@ -815,6 +842,7 @@ Before upgrading cosalette:
 6. **Audit every `state_model=`** (v0.9.0+) — confirm the payload really matches the
    model, and drop return annotations that disagree with it
 7. **Regenerate AsyncAPI contracts** — `cosalette schema dump > asyncapi.yaml`
+   (required for v0.11.0+: contract version `"2"` adds availability channels)
 8. **Run quality gates** — `task check` (lint + typecheck + tests)
 9. **Update downstream consumers** — if MQTT topics changed due to Router prefixes,
    or if a `state_model` with optional fields now omits keys it used to publish as

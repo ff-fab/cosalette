@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from cosalette._clock import ClockPort
+from cosalette._constants import availability_topic
 from cosalette._json import dumps
 from cosalette._mqtt import MqttNotConnectedError, MqttPort, WillConfig
 
@@ -479,8 +480,7 @@ class HealthReporter:
             return None
         if is_root:
             self._root_devices.add(device)
-            return f"{self.topic_prefix}/availability"
-        return f"{self.topic_prefix}/{device}/availability"
+        return availability_topic(self.topic_prefix, device, is_root=is_root)
 
     async def publish_device_available(
         self,
@@ -620,9 +620,9 @@ class HealthReporter:
         Root devices (registered with ``is_root=True``) publish to the flat
         ``{prefix}/availability``; all others use ``{prefix}/{device}/availability``.
         """
-        if device in self._root_devices:
-            return f"{self.topic_prefix}/availability"
-        return f"{self.topic_prefix}/{device}/availability"
+        return availability_topic(
+            self.topic_prefix, device, is_root=device in self._root_devices
+        )
 
     async def reannounce(self) -> None:
         """Re-publish current availability for all currently-tracked devices.

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from cosalette._constants import (
     REGISTRY_TOPIC_SUFFIX,
     STATE_MODEL_DRIFT_TOPIC_SUFFIX,
+    availability_topic,
 )
 from cosalette._mqtt import (
     ConnectCallback,
@@ -338,7 +339,7 @@ def build_skip_topics(prefix: str, device_names: frozenset[str]) -> frozenset[st
 
     for name in device_names:
         skip.add(f"{prefix}/{name}/error")
-        skip.add(f"{prefix}/{name}/availability")
+        skip.add(availability_topic(prefix, name, is_root=False))
 
     return frozenset(skip)
 

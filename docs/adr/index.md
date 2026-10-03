@@ -98,3 +98,4 @@ rationale, and consequences.
 | [ADR-083](ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md) | Opt-in health file and a health CLI probe for container liveness | Accepted | 2026-10-02 |
 | [ADR-084](ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md) | Adapter reset() restart protocol and opt-in restart on stale telemetry | Accepted | 2026-10-02 |
 | [ADR-085](ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md) | Optional redaction hook for logs and disclosed error messages | Accepted | 2026-10-02 |
+| [ADR-086](ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md) | Framework availability channels in the generated AsyncAPI document | Accepted | 2026-10-03 |

@@ -3,9 +3,55 @@
   "info": {
     "title": "wiz2mqtt",
     "version": "2.1.0",
-    "x-cosalette-contract-version": "1"
+    "x-cosalette-contract-version": "2"
   },
   "channels": {
+    "availability": {
+      "address": "wiz2mqtt/availability",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline"
+            ]
+          }
+        }
+      },
+      "bindings": {
+        "mqtt": {
+          "qos": 1,
+          "retain": true
+        }
+      },
+      "x-cosalette-framework": "availability",
+      "x-cosalette-discoverable": false
+    },
+    "deskAvailability": {
+      "address": "wiz2mqtt/desk/availability",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline"
+            ]
+          }
+        }
+      },
+      "bindings": {
+        "mqtt": {
+          "qos": 1,
+          "retain": true
+        }
+      },
+      "x-cosalette-framework": "availability",
+      "x-cosalette-discoverable": false
+    },
     "deskCommand": {
       "address": "wiz2mqtt/desk/set",
       "x-cosalette-app": "wiz2mqtt",
@@ -49,6 +95,29 @@
         }
       },
       "x-cosalette-archetype": "device"
+    },
+    "rebootAvailability": {
+      "address": "wiz2mqtt/reboot/availability",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline"
+            ]
+          }
+        }
+      },
+      "bindings": {
+        "mqtt": {
+          "qos": 1,
+          "retain": true
+        }
+      },
+      "x-cosalette-framework": "availability",
+      "x-cosalette-discoverable": false
     },
     "rebootCommand": {
       "address": "wiz2mqtt/reboot/set",
@@ -116,6 +185,29 @@
       },
       "x-cosalette-archetype": "device"
     },
+    "uptimeAvailability": {
+      "address": "wiz2mqtt/uptime/availability",
+      "x-cosalette-app": "wiz2mqtt",
+      "messages": {
+        "message": {
+          "payload": {
+            "type": "string",
+            "enum": [
+              "online",
+              "offline"
+            ]
+          }
+        }
+      },
+      "bindings": {
+        "mqtt": {
+          "qos": 1,
+          "retain": true
+        }
+      },
+      "x-cosalette-framework": "availability",
+      "x-cosalette-discoverable": false
+    },
     "uptimeState": {
       "address": "wiz2mqtt/uptime/state",
       "x-cosalette-app": "wiz2mqtt",
@@ -130,10 +222,28 @@
     }
   },
   "operations": {
+    "publishAvailability": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/availability"
+      }
+    },
+    "publishDeskAvailability": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/deskAvailability"
+      }
+    },
     "publishDeskState": {
       "action": "send",
       "channel": {
         "$ref": "#/channels/deskState"
+      }
+    },
+    "publishRebootAvailability": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/rebootAvailability"
       }
     },
     "publishRebootState": {
@@ -146,6 +256,12 @@
       "action": "send",
       "channel": {
         "$ref": "#/channels/statusState"
+      }
+    },
+    "publishUptimeAvailability": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/uptimeAvailability"
       }
     },
     "publishUptimeState": {

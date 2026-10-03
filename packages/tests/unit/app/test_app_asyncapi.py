@@ -9,8 +9,8 @@ Test Techniques Used:
     - Error Guessing: void commands, bare-str payload, NoneType state_model.
     - Decision Table Testing: command state emission logic, schema inference priority.
     - Boundary Value Analysis: empty app, single-segment vs multi-segment router names.
-    - Golden-file Regression: unprefixed document byte-identical to pre-ADR-072
-      output (fixtures/schemas/asyncapi_unprefixed_baseline.json).
+    - Golden-file Regression: unprefixed document matches the contract-v2
+      baseline (fixtures/schemas/asyncapi_unprefixed_baseline.json).
 """
 
 from __future__ import annotations
@@ -28,6 +28,19 @@ from cosalette._runners._stream_types import Stream
 from cosalette.mqtt import Payload
 
 pytestmark = pytest.mark.unit
+
+
+def _app_channels(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return the app-owned channels, excluding framework channels (ADR-086).
+
+    Every entity that owns availability also gets a framework availability
+    channel; tests about archetype channels count only the app-owned ones.
+    """
+    return {
+        cid: ch
+        for cid, ch in doc["channels"].items()
+        if "x-cosalette-framework" not in ch
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +652,7 @@ class TestDeviceChannel:
             pass
 
         doc = app.asyncapi()
-        channels = doc["channels"]
+        channels = _app_channels(doc)
         operations = doc["operations"]
 
         # (a) Two channels: state (send) and command (receive)
@@ -651,7 +664,13 @@ class TestDeviceChannel:
         assert state_ch.get("x-cosalette-archetype") == "device"
         assert state_ch["address"].endswith("/state")
         state_op_name = next(
-            (op for op in operations if operations[op]["action"] == "send"), None
+            (
+                op
+                for op in operations
+                if operations[op]["action"] == "send"
+                and operations[op]["channel"]["$ref"] == "#/channels/coverState"
+            ),
+            None,
         )
         assert state_op_name is not None
         state_op = operations[state_op_name]
@@ -700,7 +719,7 @@ class TestDeviceChannel:
             pass
 
         doc = app.asyncapi()
-        channels = doc["channels"]
+        channels = _app_channels(doc)
 
         # (a) Exactly one channel — the state channel only
         assert len(channels) == 1, (
@@ -1353,7 +1372,7 @@ class TestRootRegistrationAddress:
 
         doc = app.asyncapi()
         # Find the channel — its ID is based on the function name
-        channels = doc["channels"]
+        channels = _app_channels(doc)
         assert len(channels) == 1
         ch = next(iter(channels.values()))
         assert ch["address"] == "bridge/state", (
@@ -1369,7 +1388,7 @@ class TestRootRegistrationAddress:
             pass
 
         doc = app.asyncapi()
-        channels = doc["channels"]
+        channels = _app_channels(doc)
         assert len(channels) == 1
         ch = next(iter(channels.values()))
         assert ch["address"] == "bridge/set", (
@@ -1714,7 +1733,7 @@ class TestRouterPrefixedRootAddress:
             return {}
 
         doc = app.asyncapi()
-        channels = doc["channels"]
+        channels = _app_channels(doc)
         assert len(channels) == 1
         ch = next(iter(channels.values()))
         assert ch["address"] == "bridge/state", (
@@ -1749,7 +1768,7 @@ class TestRouterChannelIdUnderscore:
         app.include_router(router)
 
         doc = app.asyncapi()
-        ch_ids = list(doc["channels"].keys())
+        ch_ids = list(_app_channels(doc).keys())
         assert ch_ids == ["sensorsTemperatureProbeState"], (
             f"Expected ['sensorsTemperatureProbeState'], got {ch_ids!r}"
         )
@@ -2318,11 +2337,15 @@ class TestTopicPrefixAwareAddresses:
         # Assert
         addresses = {cid: ch["address"] for cid, ch in sorted(doc["channels"].items())}
         assert addresses == {
+            "availability": "house/wiz/availability",
+            "deskAvailability": "house/wiz/desk/availability",
             "deskCommand": "house/wiz/desk/set",
             "deskState": "house/wiz/desk/state",
+            "rebootAvailability": "house/wiz/reboot/availability",
             "rebootCommand": "house/wiz/reboot/set",
             "rebootState": "house/wiz/reboot/state",
             "statusState": "house/wiz/state",
+            "uptimeAvailability": "house/wiz/uptime/availability",
             "uptimeState": "house/wiz/uptime/state",
         }, f"Prefixed addresses diverged: {addresses!r}"
 
@@ -2495,14 +2518,19 @@ class TestAsyncapiPrefixCache:
         assert unprefixed["channels"]["deskState"]["address"] == "wiz2mqtt/desk/state"
 
 
-class TestUnprefixedDocumentIsUnchanged:
-    """Hard acceptance criterion: no prefix ⇒ byte-identical to pre-ADR-072 output.
+class TestUnprefixedContractV2Baseline:
+    """Unprefixed output matches the current contract-v2 golden baseline.
+
+    The fixture was first generated from the tree *before* the ADR-072 prefix
+    change. ADR-086 deliberately revised it once: contract version ``"2"`` adds
+    the framework availability channels and their publish operations. Any
+    other change to the unprefixed document is still a regression.
 
     Test Techniques Used:
-        - Regression Testing (golden file): the fixture was generated from the
-          tree *before* the prefix change and is compared byte for byte.
-        - Boundary Value Analysis: the prefix == app.name boundary, where the
-          new code path must degrade exactly to the old one.
+        - Regression Testing (golden file): the fixture is compared byte for
+          byte; it changes only with a deliberate, ADR-recorded contract bump.
+        - Boundary Value Analysis: the prefix == app.name boundary, where
+          explicit and default prefixes must produce the same document.
     """
 
     _GOLDEN = (
@@ -2512,8 +2540,8 @@ class TestUnprefixedDocumentIsUnchanged:
         / "asyncapi_unprefixed_baseline.json"
     )
 
-    def test_document_matches_pre_change_golden_file(self) -> None:
-        """Serialised document is byte-identical to the pre-ADR-072 baseline."""
+    def test_document_matches_contract_v2_golden_file(self) -> None:
+        """Serialised document is byte-identical to the contract-v2 baseline."""
         # Arrange
         app = _build_prefix_app()
         expected = self._GOLDEN.read_text(encoding="utf-8")
@@ -2523,8 +2551,9 @@ class TestUnprefixedDocumentIsUnchanged:
 
         # Assert
         assert actual == expected, (
-            "Unprefixed AsyncAPI output changed — ADR-072 must be additive.\n"
-            "Regenerate the baseline only when the contract deliberately changes."
+            "Unprefixed AsyncAPI output differs from the contract-v2 baseline.\n"
+            "Regenerate the baseline only when the contract deliberately changes\n"
+            "(last deliberate change: ADR-086 availability channels, contract v2)."
         )
 
     def test_explicit_app_name_prefix_matches_golden_file(self) -> None:

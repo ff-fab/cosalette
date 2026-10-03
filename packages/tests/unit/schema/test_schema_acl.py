@@ -417,6 +417,20 @@ async def _dumped_registry(topic_prefix: str | None = None) -> SchemaRegistry:
     return await load_schema(app.asyncapi(topic_prefix=topic_prefix))
 
 
+def _mqtt_filter_matches(topic_filter: str, topic: str) -> bool:
+    """Return whether an MQTT *topic_filter* (with ``+`` / ``#``) matches *topic*."""
+    filter_parts = topic_filter.split("/")
+    topic_parts = topic.split("/")
+    for index, part in enumerate(filter_parts):
+        if part == "#":
+            return True
+        if index >= len(topic_parts):
+            return False
+        if part not in ("+", topic_parts[index]):
+            return False
+    return len(filter_parts) == len(topic_parts)
+
+
 class TestFindChannelResolvesChannelKeys:
     """cos-tc2v: operations reference channel *keys*, not addresses.
 
@@ -468,7 +482,15 @@ class TestFindChannelResolvesChannelKeys:
         granted = set(app_principal.publish_topics) | set(
             app_principal.subscribe_topics
         )
-        assert {ch.address for ch in registry.channels.values()} <= granted
+        app_owned = {
+            ch.address for ch in registry.channels.values() if ch.framework_role is None
+        }
+        assert app_owned <= granted
+        # Framework availability channels (ADR-086) are covered by the fixed
+        # availability grants rather than literal per-channel entries.
+        for ch in registry.channels.values():
+            if ch.framework_role is not None:
+                assert any(_mqtt_filter_matches(f, ch.address) for f in granted)
 
     def test_address_keyed_registry_still_resolves(self) -> None:
         """Fallback: a hand-written, address-keyed network schema keeps working."""

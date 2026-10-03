@@ -290,3 +290,11 @@ A root stream (`@app.stream()` without a name) never publishes an availability t
 
 !!! note "Editorial note (2026-10-03)"
     `ctx.sub_entity()` inside a stream keeps the ADR-031 behaviour (cos-cpbq): the context manager publishes the sub-entity's availability directly, outside the health reporter. A crash takes it offline because the handler leaves the `async with` block, and it comes back when the re-created handler enters the block again. It is not in the heartbeat roster, the reconnect re-announce or the shutdown sweep, and supervisor, manual, freshness, feed and adapter-health sources do not touch it, the same as for device sub-entities.
+
+## Amendment (2026-10-03) — Minor
+
+!!! note "Editorial note (2026-10-03)"
+    Follow-up cos-0iyk is resolved by ADR-086. The generated AsyncAPI document now has a framework availability channel (`x-cosalette-framework: "availability"`) for every entity that owns availability, named streams included, not only for streams. This replaces the 2026-10-03 named-stream amendment's note that no availability channel is generated for any archetype.
+
+!!! note "Editorial note (2026-10-03)"
+    Correction to point (4) of the 2026-10-03 named-stream amendment's rationale: availability is not auto-wired for every archetype. It is owned by devices, telemetry, commands and named streams. Root streams are heartbeat-only and publish no availability topic. Sub-entities created with `ctx.sub_entity()` publish their own topic outside the health reporter and are not in the generated schema (ADR-086).

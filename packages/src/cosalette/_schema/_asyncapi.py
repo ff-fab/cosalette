@@ -27,7 +27,12 @@ from typing import (
     override,
 )
 
-from cosalette._schema import X_COSALETTE_DISCOVERABLE, X_COSALETTE_TOPIC_PREFIX
+from cosalette._constants import AVAILABILITY_PAYLOADS, availability_topic
+from cosalette._schema import (
+    X_COSALETTE_DISCOVERABLE,
+    X_COSALETTE_FRAMEWORK,
+    X_COSALETTE_TOPIC_PREFIX,
+)
 
 if TYPE_CHECKING:
     from pydantic.json_schema import GenerateJsonSchema
@@ -41,7 +46,8 @@ if TYPE_CHECKING:
 # Contract-shape version — bump when the generated dict structure changes
 # ---------------------------------------------------------------------------
 
-_CONTRACT_VERSION = "1"
+_CONTRACT_VERSION = "2"
+"""``"2"`` adds one framework availability channel per owning entity (ADR-086)."""
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +101,8 @@ def _add_channel_extensions(
         channel_dict["x-cosalette-app"] = channel.app_name
     if channel.archetype:
         channel_dict["x-cosalette-archetype"] = channel.archetype
+    if channel.framework_role:
+        channel_dict[X_COSALETTE_FRAMEWORK] = channel.framework_role
     if channel.scope:
         channel_dict["x-cosalette-scope"] = channel.scope
     if channel.coalescing_group:
@@ -888,6 +896,78 @@ def _emit_inbound_operation(
     operations[op_name] = operation
 
 
+_AVAILABILITY_SUFFIX = "Availability"
+_ROOT_AVAILABILITY_CHANNEL = "availability"
+
+
+def _availability_owners(app: App) -> list[tuple[str, bool]]:
+    """Return ``(name, is_root)`` for every entity that owns availability.
+
+    Mirrors the runtime announcement (``_announced_registrations`` fed to
+    ``publish_device_availability``): devices, telemetry and commands, plus
+    *named* streams — root streams are heartbeat-only (ADR-081).  Like the
+    ``/state`` channels, deferred ``enabled=`` registrations are listed as
+    registered; a literal ``enabled=False`` never registers at all.
+    """
+    regs = [
+        *app.devices,
+        *app.telemetry_registrations,
+        *app.commands,
+        *(s for s in app.stream_registrations if not s.is_root),
+    ]
+    return [(reg.name, reg.is_root) for reg in regs]
+
+
+def _emit_availability_channels(
+    app: App,
+    prefix: str,
+    channels: dict[str, Any],
+    operations: dict[str, Any],
+) -> None:
+    """Emit one framework availability channel per owned topic (ADR-086).
+
+    Deduplicated by topic, which covers both runtime rules at once: a
+    telemetry and a command sharing a name announce once, and every root
+    entity shares the app-wide ``{prefix}/availability``.  The channel carries
+    ``x-cosalette-framework`` instead of an archetype, so older loaders accept
+    it (ADR-054), and ``x-cosalette-discoverable: false``, so older consumer
+    generators skip it.
+    """
+    seen: set[str] = set()
+    for name, is_root in _availability_owners(app):
+        address = availability_topic(prefix, name, is_root=is_root)
+        if address in seen:
+            continue
+        seen.add(address)
+        if is_root:
+            channel_name, camel = _ROOT_AVAILABILITY_CHANNEL, ""
+        else:
+            channel_name = _reg_name_to_channel_id(name, _AVAILABILITY_SUFFIX)
+            camel = _to_camel_case(name)
+        channels[channel_name] = {
+            "address": address,
+            "x-cosalette-app": app.name,
+            "messages": {
+                "message": {
+                    "payload": {"type": "string", "enum": list(AVAILABILITY_PAYLOADS)}
+                }
+            },
+            "bindings": {"mqtt": {"qos": 1, "retain": True}},
+            X_COSALETTE_FRAMEWORK: "availability",
+            X_COSALETTE_DISCOVERABLE: False,
+        }
+        op_name, op_dict = _build_operation_dict(
+            _SEND_ACTION,
+            channel_name,
+            _PUBLISH_VERB,
+            camel,
+            _AVAILABILITY_SUFFIX,
+            (),
+            None,
+        )
+        operations[op_name] = op_dict
+
+
 def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str, Any]:
     """Build a canonical AsyncAPI 3.0.0 document dict from *app* registrations.
 
@@ -919,6 +999,11 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
        the effective source for streams).
     3. Fallback: ``{"type": "object"}``.
 
+    **Availability** (ADR-086): every entity that owns an availability topic at
+    runtime gets one framework channel (``x-cosalette-framework:
+    availability``) with a retained ``"online"``/``"offline"`` string payload;
+    see :func:`_emit_availability_channels`.
+
     Generated document includes ``x-cosalette-contract-version`` in the ``info``
     section to track the contract-shape version independently from the app version.
 
@@ -933,8 +1018,9 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
     When the prefix differs from the app name it is also recorded once at info
     level as ``x-cosalette-topic-prefix`` so a *serialised* document is
     self-describing for consumers detached from the ``App`` object.  The key is
-    omitted when the two coincide, which keeps unprefixed documents byte-identical
-    to those generated before ADR-072; readers fall back to ``info.title``.
+    omitted when the two coincide; readers fall back to ``info.title``. Contract
+    version ``"2"`` still changes unprefixed documents by adding framework
+    availability channels and operations (ADR-086).
 
     Args:
         app: The :class:`~cosalette.App` instance to introspect.
@@ -1031,6 +1117,8 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
             is_root=reg.is_root,
         )
 
+    _emit_availability_channels(app, prefix, channels, operations)
+
     _emit_inbound_channels(
         app.name, channels, operations, component_defs, app.inbound_registrations
     )
@@ -1040,8 +1128,8 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
         "version": app.version,
         "x-cosalette-contract-version": _CONTRACT_VERSION,
     }
-    # Additive and omitted when it carries no information (prefix == app.name),
-    # so documents for unprefixed apps stay byte-identical to pre-ADR-072 output.
+    # Omit redundant transport metadata when the prefix equals the app identity.
+    # Contract v2 availability channels still change unprefixed output (ADR-086).
     if prefix != app.name:
         info[X_COSALETTE_TOPIC_PREFIX] = prefix
 

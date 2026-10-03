@@ -513,6 +513,16 @@ dependencies). Contract metadata also surfaces in the **registry snapshot** —
 `build_registry_snapshot()` / `format_registry_table()` and the `cosalette_inspect_app` MCP tool,
 which gained `streams` and `periodic` sections in 0.6.0.
 
+**Availability channels (ADR-086, contract version `"2"`).** The generated document has one
+retained availability channel per entity that owns one: each named device, telemetry, command
+and named stream gets `{name}Availability` on `{prefix}/{name}/availability` (online/offline);
+a root entity adds one flat `availability` channel on `{prefix}/availability`. Root streams get
+none, and `ctx.sub_entity()` topics are not in the schema. These channels carry
+`x-cosalette-framework: "availability"` and `x-cosalette-discoverable: false` with no
+`x-cosalette-archetype`, so HA/openHAB discovery, `schema acl` and the `manifest --table` rows
+are unchanged. Regenerate committed schema artefacts after upgrading; code that walks every
+channel should skip the ones with `x-cosalette-framework`.
+
 See `cosalette ai help manifest`, `cosalette ai help contracts`.
 
 ### Consumer discovery metadata
@@ -639,9 +649,9 @@ async def diagnostics() -> dict:
 
 It is then excluded from `schema ha-discovery`/`openhab` and does not trip the
 per-channel discovery gate; `x-cosalette-discoverable: false` is emitted on the
-generated channel only when set, so default documents stay byte-identical. The
-gate is evaluated per channel: every consumer-visible channel that emits nothing
-is reported by name. A top-level array-of-objects property (`events: list[Event]`)
+generated channel only when set (framework availability channels always carry
+it, ADR-086). The gate is evaluated per channel: every consumer-visible channel
+that emits nothing is reported by name. A top-level array-of-objects property (`events: list[Event]`)
 emits no entity — it has no single value. Give it one with
 `consumer(aggregate="count")` (ADR-076): one declaration renders in both targets
 (`JSONPATH:$.events.length()` for openHAB, `{{ value_json.events | length }}` for
