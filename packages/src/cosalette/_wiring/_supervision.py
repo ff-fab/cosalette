@@ -11,38 +11,48 @@ from __future__ import annotations
 import asyncio
 import functools
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cosalette._health import HealthCheckRunner
-    from cosalette._registration import _DeviceRegistration, _TelemetryRegistration
+    from cosalette._registration import (
+        _DeviceRegistration,
+        _StreamRegistration,
+        _TelemetryRegistration,
+    )
     from cosalette._supervisor import TaskSupervisor
     from cosalette._wiring._context import DeviceInfo
+
+    type _EntityRegistration = (
+        _DeviceRegistration | _TelemetryRegistration | _StreamRegistration
+    )
 
 
 def entity_task_members(
     task_name: str,
     devices: Sequence[_DeviceRegistration],
     telemetry: Sequence[_TelemetryRegistration],
-) -> list[_DeviceRegistration | _TelemetryRegistration]:
-    """Return the registrations an entity task (device, telemetry, group) runs."""
+    streams: Sequence[_StreamRegistration] = (),
+) -> list[_EntityRegistration]:
+    """Return the registrations an entity task (device, telemetry, group,
+    stream) runs."""
     kind, _, ident = task_name.partition(":")
-    selectors = {
-        "device": lambda: [device for device in devices if device.name == ident],
-        "telemetry": lambda: [
-            registration
-            for registration in telemetry
-            if registration.name == ident and registration.group is None
-        ],
-        "group": lambda: [
-            registration for registration in telemetry if registration.group == ident
-        ],
+    if kind in ("group", "telemetry"):
+        return _telemetry_task_members(kind, ident, telemetry)
+    candidates: dict[str, Sequence[_EntityRegistration]] = {
+        "device": devices,
+        "stream": streams,
     }
-    selector = selectors.get(kind)
-    return cast(
-        "list[_DeviceRegistration | _TelemetryRegistration]",
-        selector() if selector is not None else [],
-    )
+    return [reg for reg in candidates.get(kind, ()) if reg.name == ident]
+
+
+def _telemetry_task_members(
+    kind: str, ident: str, telemetry: Sequence[_TelemetryRegistration]
+) -> list[_EntityRegistration]:
+    """Select group members or one ungrouped telemetry registration."""
+    if kind == "group":
+        return [reg for reg in telemetry if reg.group == ident]
+    return [reg for reg in telemetry if reg.name == ident and reg.group is None]
 
 
 def supervise_entity_tasks(
@@ -51,16 +61,20 @@ def supervise_entity_tasks(
     devices: Sequence[_DeviceRegistration],
     telemetry: Sequence[_TelemetryRegistration],
     restart_entities: Callable[[list[str]], asyncio.Task[None]],
+    streams: Sequence[_StreamRegistration] = (),
 ) -> None:
-    """Supervise device, telemetry and group tasks.
+    """Supervise device, telemetry, group and stream tasks.
 
     *restart_entities* re-creates the one task serving the given entity
-    names; a coalescing group is always re-created whole.
+    names; a coalescing group is always re-created whole.  A named stream
+    goes offline under the supervisor source; a root stream is
+    heartbeat-only and its error payload goes to ``{prefix}/error``.  Both
+    clear at the first item after a restart.
     """
     for task in tasks:
         if task.done():
             continue
-        members = entity_task_members(task.get_name(), devices, telemetry)
+        members = entity_task_members(task.get_name(), devices, telemetry, streams)
         names = [reg.name for reg in members]
         supervisor.supervise(
             task,

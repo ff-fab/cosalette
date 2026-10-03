@@ -208,11 +208,47 @@ configuration — no custom templates needed.
 
 ### Sub-Entity Availability
 
-Devices can spawn temporary sub-components with their own availability lifecycle
+Devices and streams can spawn temporary sub-components with their own availability lifecycle
 using `ctx.sub_entity()` (ADR-031). Entering the context manager publishes
 `"online"` to `{prefix}/{device}/{sub}/availability`; exiting publishes
 `"offline"` and clears retained state — mirroring the device-level pattern one
 topic level deeper.
+
+A sub-entity of a root stream uses `{prefix}/{sub}/availability`, because a root
+stream's topic base is the app prefix.
+
+Sub-entity availability is published by the context manager itself, not by the
+`HealthReporter` (ADR-031). It follows the `async with` block and nothing else:
+
+- A crash takes it `"offline"`, because the handler leaves the block. It comes
+  back `"online"` only when the re-created handler enters the block again.
+- It is not in the `{prefix}/status` heartbeat `devices` map. A reconnect does
+  not re-announce it, and the app's graceful-shutdown sweep does not touch it.
+- An adapter health-check failure, `ctx.mark_unavailable()`, `stale_after=` and
+  `feeds=` hold the parent entity offline but leave the sub-entity's topic as it
+  is.
+
+For a device or named stream parent, a Home Assistant entity can combine the
+parent's availability topic with the sub-entity's topic. Set
+[`availability_mode: all`](https://www.home-assistant.io/integrations/sensor.mqtt/#configuration-variables)
+so both must be online; the default `latest` follows whichever topic published
+last and can hide a parent's outage:
+
+```yaml
+mqtt:
+  sensor:
+    - name: "Radio battery"
+      state_topic: "myapp/radio/battery/state"
+      value_template: "{{ value_json.level }}"
+      availability:
+        - topic: "myapp/radio/availability"
+        - topic: "myapp/radio/battery/availability"
+      availability_mode: all
+```
+
+A root stream has no parent availability topic: `{prefix}/availability` is
+app-wide and does not reflect its health. Use a named stream for the parent-topic
+approach; root stream health remains in the heartbeat.
 
 See [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
 for the full design.
@@ -421,6 +457,13 @@ async def cpu_temp(ctx: DeviceContext) -> dict[str, object]:
     # No BlePort dependency — unaffected by BLE health check failures
     return {"celsius": read_cpu_temp()}
 ```
+
+Streams are mapped too. A `Stream[T]` handler depends on the
+`StreamablePort[T]` adapter behind it, plus any adapter it injects directly. A
+failing check takes a named stream offline (a root stream shows it in its
+heartbeat status), and an adapter restart cancels the stream and re-creates it,
+which closes the port and opens it again. `restart_on_stale` still covers
+telemetry only.
 
 ### Failure Counting
 

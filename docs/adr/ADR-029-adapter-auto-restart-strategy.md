@@ -9,7 +9,7 @@ tags: [lifecycle, health]
 
 ## Status
 
-Accepted **Date:** 2026-04-03 | Amended **Date:** 2026-10-02
+Accepted **Date:** 2026-04-03 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03
 
 ## Context
 
@@ -251,3 +251,11 @@ unnecessarily.
 
 !!! note "Editorial note (2026-10-02)"
     Decision 3 also holds when the health check passes: once `max_restarts` is spent (`restart_exhausted`), the adapter's devices stay `"offline"` until the process restarts, even if later health checks pass. Before this, a passing check published them `"online"` again.
+
+## Amendment (2026-10-03) — Minor
+
+!!! note "Editorial note (2026-10-03)"
+    Stream handlers are part of the adapter-to-device map (cos-kg37). A `Stream[T]` parameter maps the stream to the registered `StreamablePort[T]` adapter, matched by item type the same way the stream runner finds its port; other adapters the handler injects map as for devices. A failing health check takes a named stream offline under its `health:<adapter>` source (a root stream shows it in its heartbeat status only), and a restart cancels the stream task and re-creates it. Re-creating it closes the port and opens it again, so the new task gets a fresh `Stream[T]` bound to the restarted adapter.
+
+!!! note "Editorial note (2026-10-03)"
+    Stream tasks restarted by the ADR-081 supervisor go through the same name-to-task map as device tasks, so a later adapter restart cancels the live stream task and never starts a second handler.

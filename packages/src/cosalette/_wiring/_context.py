@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any, NamedTuple, get_origin
+from typing import TYPE_CHECKING, Any, NamedTuple, get_args, get_origin
 
 from cosalette._clock import ClockPort
 from cosalette._context import DeviceContext
@@ -23,7 +23,7 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._command_runner import CommandRunner
-from cosalette._runners._stream_types import StreamablePort
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._runners._trigger import arms_locally, arms_via_mqtt
 from cosalette._settings import Settings
@@ -46,16 +46,23 @@ class DeviceInfo(NamedTuple):
 
 def build_adapter_device_map(
     all_registrations: Sequence[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
     resolved_adapters: dict[type, object],
 ) -> dict[type, list[DeviceInfo]]:
-    """Map each adapter port type to the devices that depend on it.
+    """Map each adapter port type to the entities that depend on it.
 
     Scans each registration's ``injection_plan`` to find adapter port
     types (types present in *resolved_adapters* but not in
     ``KNOWN_INJECTABLE_TYPES``).  Returns a mapping from adapter port
     type to a list of ``DeviceInfo(name, is_root)`` tuples.
+
+    Streams count too: a stream depends on the ``StreamablePort[T]`` behind
+    its ``Stream[T]`` parameter, so an ADR-029 adapter restart re-creates
+    it and a failing health check marks it offline.
 
     A device name appears at most once per adapter type, even when
     telemetry and command registrations share a name (scoped uniqueness).
@@ -63,9 +70,15 @@ def build_adapter_device_map(
     adapter_types = set(resolved_adapters) - set(KNOWN_INJECTABLE_TYPES)
     result: dict[type, list[DeviceInfo]] = {t: [] for t in adapter_types}
     seen: dict[type, set[str]] = {t: set() for t in adapter_types}
+    # Stream item type -> its StreamablePort[T] key, matched like the runner.
+    stream_ports = {
+        get_args(t)[0]: t for t in adapter_types if get_origin(t) is StreamablePort
+    }
 
     for reg in all_registrations:
         for _, param_type in reg.injection_plan:
+            if get_origin(param_type) is Stream:
+                param_type = stream_ports.get(get_args(param_type)[0], param_type)
             if param_type in adapter_types and reg.name not in seen[param_type]:
                 seen[param_type].add(reg.name)
                 result[param_type].append(DeviceInfo(reg.name, reg.is_root))
