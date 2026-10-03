@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.11.0](https://github.com/ff-fab/cosalette/compare/v0.10.6...v0.11.0) (2026-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **telemetry:** behavior change for error-topic consumers. A persisting telemetry error is now republished on {prefix}/error and {prefix}/{device}/error as a reminder (2nd, 4th, 8th, ... failure in the first hour, then hourly) instead of being published once, and telemetry error payloads now carry details.count and details.first_seen instead of an empty details object. Consumers that treat every error message as a new incident should read details.count. Pass App(error_reminder_interval=None) to restore onset-only publishing.
+* **telemetry:** named telemetry entities now go "offline" when they have had no fresh cycle for the derived stale_after bound, even without a failed poll, and heartbeat telemetry entries gain last_success_at and consecutive_failures (status may now be "stale"). Pass stale_after=None to opt an entity out.
+
+### Features
+
+* **health:** add named stream availability ([#490](https://github.com/ff-fab/cosalette/issues/490)) ([60aef3d](https://github.com/ff-fab/cosalette/commit/60aef3d12ad5d55c9149b8bc17809d372da41201))
+* **health:** stale-entity resolution, health file probe, adapter reset() restart and redaction hook ([#488](https://github.com/ff-fab/cosalette/issues/488)) ([e536450](https://github.com/ff-fab/cosalette/commit/e5364500f3c96e825219a931cb539ebcb030def6))
+* **schema:** add availability channels to generated AsyncAPI ([#492](https://github.com/ff-fab/cosalette/issues/492)) ([8327969](https://github.com/ff-fab/cosalette/commit/832796985d3da7d854444e11ba55fa5c7685a707))
+* **supervision:** supervise framework-started tasks ([952a470](https://github.com/ff-fab/cosalette/commit/952a4707351b8157d993d176eb408aba705a6ca7))
+* **telemetry:** remind on persistent errors and log recovery duration ([#487](https://github.com/ff-fab/cosalette/issues/487)) ([635f5d9](https://github.com/ff-fab/cosalette/commit/635f5d97f1770c1c753a15d628d646cd4b4b0192))
+* **telemetry:** track freshness and mark stale entities offline ([#482](https://github.com/ff-fab/cosalette/issues/482)) ([6eaf745](https://github.com/ff-fab/cosalette/commit/6eaf7452c291266c0f388db10bb32386e86e3bbd))
+
+
+### Bug Fixes
+
+* **health:** align ADR-029 adapter restart with its decision ([#485](https://github.com/ff-fab/cosalette/issues/485)) ([aa83c98](https://github.com/ff-fab/cosalette/commit/aa83c98d99645b96665d34fceb848e5cc2ce3045))
+* **health:** publish live availability on first connect and every reconnect ([#483](https://github.com/ff-fab/cosalette/issues/483)) ([74c3372](https://github.com/ff-fab/cosalette/commit/74c3372393cab583e2eabaf69e7836579d770bd8))
+* **health:** restart streams with their adapter and document stream sub-entity availability ([#491](https://github.com/ff-fab/cosalette/issues/491)) ([63e320c](https://github.com/ff-fab/cosalette/commit/63e320c1be02318f69e4b5e59a9e3693492e6abe))
+* **health:** restore stranded device tasks when an adapter recovers ([#486](https://github.com/ff-fab/cosalette/issues/486)) ([db7e24a](https://github.com/ff-fab/cosalette/commit/db7e24aa3f3dbe1b4999bf9db9cbd45921cf5478))
+* **schema:** grant nested availability and error topics in ACL ([#493](https://github.com/ff-fab/cosalette/issues/493)) ([0d92699](https://github.com/ff-fab/cosalette/commit/0d92699de11b61a1545fc3906e3c2a10ba5dc099))
+* **telemetry:** count every terminal poll failure toward the circuit breaker ([#481](https://github.com/ff-fab/cosalette/issues/481)) ([aabf7fd](https://github.com/ff-fab/cosalette/commit/aabf7fd891914749ddd3b27512119a8d03816a25))
+* **telemetry:** derive jitter-safe freshness bounds ([#489](https://github.com/ff-fab/cosalette/issues/489)) ([22b2a9c](https://github.com/ff-fab/cosalette/commit/22b2a9c911b0f38326e36efe9a5edcfa10862b63))
+* **telemetry:** publish offline on every terminal poll failure ([#479](https://github.com/ff-fab/cosalette/issues/479)) ([34c4f5f](https://github.com/ff-fab/cosalette/commit/34c4f5f4909c690a6ec2f9af3370795cec8979b2))
+
 ## [0.10.6](https://github.com/ff-fab/cosalette/compare/v0.10.5...v0.10.6) (2026-10-01)
 
 
