@@ -10,6 +10,7 @@ from cosalette._schema import (
     TOPIC_PREFIX_SAFE_RE,
     X_COSALETTE_CONSUMER,
     X_COSALETTE_DISCOVERABLE,
+    X_COSALETTE_FRAMEWORK,
     X_COSALETTE_HA_DISCOVERY,
     X_COSALETTE_OPENHAB,
     X_COSALETTE_TOPIC_PREFIX,
@@ -158,6 +159,18 @@ def _validate_discoverable(
         errors.append(f"Channel {name}: x-cosalette-discoverable must be a boolean")
 
 
+def _validate_non_empty_string(
+    name: str,
+    channel: dict[str, Any],
+    key: str,
+    errors: list[str],
+) -> None:
+    """Reject an optional channel extension that is not a non-empty string."""
+    value = channel.get(key)
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        errors.append(f"Channel {name}: {key} must be a non-empty string")
+
+
 def _validate_channel_extensions(
     name: str,
     channel: dict[str, Any],
@@ -168,15 +181,12 @@ def _validate_channel_extensions(
     _validate_archetype(name, channel, errors)
     _validate_discoverable(name, channel, errors)
 
-    cg = channel.get("x-cosalette-coalescing-group")
-    if cg is not None and (not isinstance(cg, str) or not cg.strip()):
-        errors.append(
-            f"Channel {name}: x-cosalette-coalescing-group must be a non-empty string"
-        )
-
-    app = channel.get("x-cosalette-app")
-    if app is not None and (not isinstance(app, str) or not app.strip()):
-        errors.append(f"Channel {name}: x-cosalette-app must be a non-empty string")
+    for key in (
+        "x-cosalette-coalescing-group",
+        "x-cosalette-app",
+        X_COSALETTE_FRAMEWORK,
+    ):
+        _validate_non_empty_string(name, channel, key, errors)
 
     scope = channel.get("x-cosalette-scope")
     if scope is not None and not isinstance(scope, str):
@@ -563,6 +573,7 @@ def _extract_channels(doc: dict[str, Any]) -> dict[str, ChannelSchema]:
             properties=_extract_properties(payload_schema),
             ha_entities=_build_ha_entity_specs(payload_schema),
             discoverable=channel_data.get(X_COSALETTE_DISCOVERABLE, True) is not False,
+            framework_role=channel_data.get(X_COSALETTE_FRAMEWORK),
         )
 
     return channels

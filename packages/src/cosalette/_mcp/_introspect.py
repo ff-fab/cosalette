@@ -296,6 +296,10 @@ def _group_channels_by_archetype(
     """Group channels by x-cosalette-archetype (or 'other' if missing)."""
     groups: dict[str, list[tuple[str, str, str]]] = {}
     for ch_name, ch in sorted(channels.items()):
+        # Framework availability channels (ADR-086) mirror one per entity;
+        # listing them would double every row of the manifest table.
+        if "x-cosalette-framework" in ch:
+            continue
         arch = ch.get("x-cosalette-archetype", "other")
         address = ch.get("address", "")
         summary = ch.get("x-cosalette-summary", "")

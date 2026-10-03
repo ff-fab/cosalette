@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from cosalette._constants import availability_topic
 from cosalette._schema import (
     ChannelSchema,
     ConsumerMetadata,
@@ -224,18 +225,6 @@ def _framework_prefix(registry: SchemaRegistry, app: str) -> str:
     return registry.topic_prefix or app
 
 
-def _device_availability_topic(prefix: str, device_name: str, *, is_root: bool) -> str:
-    """Return the retained availability topic *device_name* publishes on.
-
-    Mirrors ``HealthReporter._availability_topic``: root devices use the flat
-    ``{prefix}/availability``, named devices ``{prefix}/{device}/availability``.
-    Both consumer generators resolve through here so the rule cannot drift.
-    """
-    if is_root:
-        return f"{prefix}/availability"
-    return f"{prefix}/{device_name}/availability"
-
-
 def _availability_block(
     prefix: str, device_name: str, *, is_root: bool
 ) -> dict[str, Any]:
@@ -256,7 +245,7 @@ def _availability_block(
     retained ``{prefix}/availability`` payload stale at "online" — still marks
     the entity unavailable (F18).
     """
-    device_topic = _device_availability_topic(prefix, device_name, is_root=is_root)
+    device_topic = availability_topic(prefix, device_name, is_root=is_root)
     if is_root:
         return {
             "availability": [
@@ -756,13 +745,15 @@ def validate_consumer_aggregates(registry: SchemaRegistry) -> None:
 def _is_consumer_visible(channel: ChannelSchema) -> bool:
     """True if the channel should appear in consumer generation output.
 
-    Excludes the framework-internal ``all_apps`` scope and the ``stream``
-    archetype (ADR-054), and honours an author's explicit opt-out via
+    Excludes the framework-internal ``all_apps`` scope, framework-owned
+    channels such as availability (``x-cosalette-framework``, ADR-086) and the
+    ``stream`` archetype (ADR-054), and honours an author's explicit opt-out via
     ``discoverable=False`` (ADR-073) — the supported way to declare a channel
     intentionally not a Home Assistant / openHAB entity.
     """
     return (
         channel.scope != "all_apps"
+        and channel.framework_role is None
         and channel.archetype not in ("stream", "inbound")
         and channel.discoverable
     )
@@ -1510,7 +1501,7 @@ class OpenHabGenerator:
         Thing's properties the merge runs in channel-address then
         property-name order; later entries win for the same key.
         """
-        avail_topic = _device_availability_topic(
+        avail_topic = availability_topic(
             _framework_prefix(self.registry, app),
             device,
             is_root=_is_root_device(self.registry, device),

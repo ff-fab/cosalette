@@ -202,6 +202,18 @@ not trip the per-channel discovery gate — the supported way to declare a chann
 intentionally not a consumer entity.
 """
 
+X_COSALETTE_FRAMEWORK = "x-cosalette-framework"
+"""Channel-level extension marking a framework-owned channel (ADR-086).
+
+Its value names the channel's role; the generator emits ``"availability"`` for
+the retained ``online``/``offline`` topic of every entity that owns one.  A
+framework channel carries no ``x-cosalette-archetype`` (the closed archetype
+enum would break older loaders, ADR-054), always carries
+``x-cosalette-discoverable: false``, and is skipped by consumer generation and
+by the per-channel ACL grants.  Readers tolerate unknown role values so a
+future role does not break this loader.
+"""
+
 
 class HaDiscoveryMeta(TypedDict, total=False):
     """Valid keys for x-cosalette-ha-discovery.
@@ -406,6 +418,12 @@ class ChannelSchema:
     ``False`` when the author registered it with ``discoverable=False`` (emitted
     as ``x-cosalette-discoverable: false``). Defaults to ``True`` so documents
     without the key — every one generated before ADR-073 — behave unchanged.
+    """
+    framework_role: str | None = None
+    """The ``x-cosalette-framework`` role of a framework-owned channel (ADR-086).
+
+    ``"availability"`` for a generated availability channel; ``None`` for every
+    registration-owned channel and for documents without the key.
     """
 
 
