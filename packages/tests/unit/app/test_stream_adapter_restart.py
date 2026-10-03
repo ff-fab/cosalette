@@ -17,6 +17,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
 
 import pytest
@@ -161,6 +162,53 @@ class TestStreamAdapterRestart:
         # Assert: online -> offline (health) -> online (recovered) -> shutdown
         payloads = [p for p, _, _ in harness.messages_for(topic)]
         assert payloads == ["online", "offline", "online", "offline"]
+
+    @pytest.mark.parametrize("name", ["radio", None], ids=["named", "root"])
+    async def test_stream_health_failure_and_recovery(self, name: str | None) -> None:
+        # Arrange
+        port = _RadioPort()
+        app = App(
+            name=PREFIX,
+            version="1.0.0",
+            store=None,
+            heartbeat_interval=1.0,
+            health_check_interval=10.0,
+            restart_after_failures=0,
+        )
+        app.adapter(StreamablePort[_Frame], lambda: port)
+
+        @app.stream(name)
+        async def radio(stream: Stream[_Frame]) -> AsyncIterator[None]:
+            async for _ in stream:
+                yield
+
+        harness = _harness(app)
+        task = asyncio.create_task(harness.run())
+        topic = f"{PREFIX}/radio/availability"
+        await harness.wait_for_publish_count(f"{PREFIX}/status", 1)
+        clock = harness.clock
+        assert isinstance(clock, ManualClock)
+        await clock.settle(until=lambda: port.opens == 1)
+
+        # Act
+        port.healthy = False
+        await harness.advance_time(10.0)
+        await harness.advance_time(1.0)  # heartbeat after the failed probe settles
+        failed = json.loads(harness.messages_for(f"{PREFIX}/status")[-1][0])
+        port.healthy = True
+        await harness.advance_time(10.0)
+        await harness.advance_time(1.0)  # heartbeat after the recovery settles
+        recovered = json.loads(harness.messages_for(f"{PREFIX}/status")[-1][0])
+        harness.trigger_shutdown()
+        await task
+
+        # Assert: root health changes the heartbeat without an availability topic.
+        assert failed["devices"]["radio"]["status"] == "unavailable"
+        assert recovered["devices"]["radio"]["status"] == "ok"
+        assert harness.messages_for(f"{PREFIX}/availability") == []
+        payloads = [p for p, _, _ in harness.messages_for(topic)]
+        expected = [] if name is None else ["online", "offline", "online", "offline"]
+        assert payloads == expected
 
     async def test_supervisor_restart_then_adapter_restart_keeps_one_handler(
         self,

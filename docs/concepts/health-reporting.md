@@ -226,10 +226,29 @@ Sub-entity availability is published by the context manager itself, not by the
   not re-announce it, and the app's graceful-shutdown sweep does not touch it.
 - An adapter health-check failure, `ctx.mark_unavailable()`, `stale_after=` and
   `feeds=` hold the parent entity offline but leave the sub-entity's topic as it
-  is. A Home Assistant entity that should follow those can use the parent's
-  availability topic as a second
-  [availability](https://www.home-assistant.io/integrations/mqtt/#availability)
-  entry.
+  is.
+
+For a device or named stream parent, a Home Assistant entity can combine the
+parent's availability topic with the sub-entity's topic. Set
+[`availability_mode: all`](https://www.home-assistant.io/integrations/sensor.mqtt/#configuration-variables)
+so both must be online; the default `latest` follows whichever topic published
+last and can hide a parent's outage:
+
+```yaml
+mqtt:
+  sensor:
+    - name: "Radio battery"
+      state_topic: "myapp/radio/battery/state"
+      value_template: "{{ value_json.level }}"
+      availability:
+        - topic: "myapp/radio/availability"
+        - topic: "myapp/radio/battery/availability"
+      availability_mode: all
+```
+
+A root stream has no parent availability topic: `{prefix}/availability` is
+app-wide and does not reflect its health. Use a named stream for the parent-topic
+approach; root stream health remains in the heartbeat.
 
 See [ADR-031 — Sub-Entity Context Manager](../adr/ADR-031-sub-entity-context-manager.md)
 for the full design.

@@ -37,14 +37,22 @@ def entity_task_members(
     """Return the registrations an entity task (device, telemetry, group,
     stream) runs."""
     kind, _, ident = task_name.partition(":")
-    if kind == "group":
-        return [reg for reg in telemetry if reg.group == ident]
+    if kind in ("group", "telemetry"):
+        return _telemetry_task_members(kind, ident, telemetry)
     candidates: dict[str, Sequence[_EntityRegistration]] = {
         "device": devices,
-        "telemetry": [reg for reg in telemetry if reg.group is None],
         "stream": streams,
     }
     return [reg for reg in candidates.get(kind, ()) if reg.name == ident]
+
+
+def _telemetry_task_members(
+    kind: str, ident: str, telemetry: Sequence[_TelemetryRegistration]
+) -> list[_EntityRegistration]:
+    """Select group members or one ungrouped telemetry registration."""
+    if kind == "group":
+        return [reg for reg in telemetry if reg.group == ident]
+    return [reg for reg in telemetry if reg.name == ident and reg.group is None]
 
 
 def supervise_entity_tasks(
