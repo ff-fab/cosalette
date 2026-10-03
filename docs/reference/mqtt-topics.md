@@ -260,7 +260,9 @@ with the same QoS, retain flag and payload as a device. It is announced
 `"online"` at startup and on every (re)connect, published `"offline"` at
 shutdown, and goes `"offline"` while any source holds it unavailable: a task
 crash (`supervisor`), `ctx.mark_unavailable()` (`manual`), or a lapsed
-`stale_after=` (`freshness`). The next item restores it. A stream declared
+`stale_after=` (`freshness`). The next yielded item clears the crash and
+freshness marks; a manual mark requires `ctx.mark_available()`. It returns
+`"online"` only when every source has cleared. A stream declared
 with `feeds=[...]` also holds each fed entity's own availability topic
 `"offline"` while it is offline.
 

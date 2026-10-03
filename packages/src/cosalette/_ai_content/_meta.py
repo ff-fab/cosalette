@@ -600,6 +600,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
     "0.11.0": [
+        "Named stream health (ADR-081 amendment): @app.stream, @router.stream "
+        "and App.add_stream now support opt-in stale_after= and feeds=. Named "
+        "streams own retained availability, go offline on crashes/manual marks/"
+        "staleness, and hold fed device/telemetry entities offline under "
+        "stream:{name}. Yielded items clear crash and freshness marks; manual "
+        "marks require ctx.mark_available(). Root streams never publish "
+        "availability; their freshness still counts for the health file and "
+        "exit_after_stale=. Removed named streams get availability cleanup "
+        "(see: cosalette ai help availability).",
         "Telemetry freshness (ADR-080): a named @app.telemetry entity with no "
         "fresh cycle for stale_after seconds publishes retained 'offline' and "
         "logs one WARNING, even when no poll failed (dead task, hung poll, an "
@@ -640,7 +649,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "repeatable --fail-on, default stale) for Docker HEALTHCHECK or "
         "Kubernetes exec probes. Off by default. App(exit_after_stale=...) "
         "shuts the app down with exit code 5 (StaleTelemetryError) once a "
-        "telemetry entity has been stale that long (see: cosalette ai help "
+        "telemetry entity or explicitly tracked stream has been stale that "
+        "long (see: cosalette ai help "
         "health).",
         "`<app> schema ...` and other subcommands no longer start the app "
         "before running the subcommand (bug fix).",

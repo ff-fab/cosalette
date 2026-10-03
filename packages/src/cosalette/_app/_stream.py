@@ -150,7 +150,8 @@ class _StreamMixin:
                 The next item restores it.  The bound also feeds
                 ``exit_after_stale=`` and the health file.  ``None``
                 (default) disables freshness tracking — nothing is derived.
-                On a root stream the bound is heartbeat-only.
+                On a root stream no availability topic is published; the
+                heartbeat, health file and ``exit_after_stale=`` still apply.
             feeds: Names of devices or telemetry entities whose
                 availability follows this stream.  While the stream is
                 offline for any reason, each fed entity is held
@@ -173,7 +174,8 @@ class _StreamMixin:
             ``{prefix}/{stream}/availability`` topic (ADR-081 amendment):
             it goes ``offline`` when the handler crashes, on
             ``ctx.mark_unavailable()``, or when ``stale_after`` lapses, and
-            back ``online`` on the next item.  A root stream is
+            back ``online`` on the next item for crash or freshness marks;
+            manual marks require ``ctx.mark_available()``. A root stream is
             heartbeat-only and never touches the app-wide
             ``{prefix}/availability``.  Stream ``state`` topics appear in
             the generated AsyncAPI document like any other entity.

@@ -348,7 +348,7 @@ class App(
                 ``details.first_seen``.  ``None`` disables reminders, leaving
                 only the onset and the recovery line.  Defaults to 3600.
                 See ADR-082.
-            exit_after_stale: Seconds a telemetry entity may stay ``stale``
+            exit_after_stale: Seconds a telemetry entity or stream may stay ``stale``
                 (ADR-080) before the app logs CRITICAL and shuts down with
                 exit code 5, so a container restart policy can recover it.
                 Counted from the moment the entity went stale.  ``None``
@@ -848,16 +848,9 @@ class App(
                 allow_deferred_duplicate_check=True,
             )
 
-        for reg in router._streams:
-            transformed = self._transform_registration(
-                reg, combined_prefix, router_tags, include_tags
-            )
-            self._append_included_registration(
-                cast(_StreamRegistration, transformed),
-                self._streams,
-                existing_names,
-                allow_deferred_duplicate_check=False,
-            )
+        self._copy_stream_registrations(
+            router, combined_prefix, router_tags, include_tags, existing_names
+        )
 
         inbound_names = {reg.name for reg in self._inbounds}
         for reg in router._inbounds:
@@ -867,6 +860,40 @@ class App(
                 raise ValueError(msg)
             inbound_names.add(new_name)
             self._inbounds.append(replace(reg, name=new_name))
+
+    def _copy_stream_registrations(
+        self,
+        router: Router,
+        combined_prefix: str | None,
+        router_tags: list[str],
+        include_tags: list[str],
+        existing_names: set[str],
+    ) -> None:
+        """Copy streams, prefixing feed references to static router-local entities."""
+        local_feed_targets = {
+            reg.name
+            for reg in (*router._devices, *router._telemetry)
+            if reg.name_spec is None
+        }
+        for reg in router._streams:
+            reg = replace(
+                reg,
+                feeds=tuple(
+                    self._apply_prefix(fed, combined_prefix)
+                    if fed in local_feed_targets
+                    else fed
+                    for fed in reg.feeds
+                ),
+            )
+            transformed = self._transform_registration(
+                reg, combined_prefix, router_tags, include_tags
+            )
+            self._append_included_registration(
+                cast(_StreamRegistration, transformed),
+                self._streams,
+                existing_names,
+                allow_deferred_duplicate_check=False,
+            )
 
     def _merge_reactors(self, router: Router) -> None:
         """Merge reactors with validation that state_type is registered."""

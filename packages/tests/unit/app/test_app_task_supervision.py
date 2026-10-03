@@ -506,7 +506,7 @@ class TestTelemetryInitFailure:
 
 
 # ---------------------------------------------------------------------------
-# Stream failures (cos-pbd8): heartbeat status only, no availability topic
+# Stream failures (cos-pbd8): named availability and root heartbeat status
 # ---------------------------------------------------------------------------
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from collections.abc import Sequence
@@ -235,6 +236,13 @@ class HealthReporter:
         default_factory=dict,
         repr=False,
     )
+    # A transition includes MQTT publication and feed propagation. Holding
+    # its entity lock across both prevents a recovery from overtaking it.
+    # Validated feeds point only to devices/telemetry, so acquiring a fed
+    # entity's lock while holding a stream's lock cannot form a cycle.
+    _availability_locks: dict[str, asyncio.Lock] = field(
+        init=False, default_factory=dict, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Capture the start time for uptime calculation."""
@@ -352,29 +360,31 @@ class HealthReporter:
         logs one WARNING, both on the transition only.  Returns the names
         of the entities that became stale in this check.
         """
-        now = self.clock.now()
         newly_stale: list[str] = []
         for device, entry in list(self._freshness.items()):
             if entry.stale_after is None:
                 continue
-            age = now - entry.last_success
-            if age < entry.stale_after or self.is_unavailable(
-                device, source="freshness"
-            ):
-                continue
-            logger.warning(
-                "%s '%s' is stale: no fresh data for %.0fs "
-                "(stale_after=%.0fs, last error: %s)",
-                entry.label,
-                device,
-                age,
-                entry.stale_after,
-                entry.last_error_type or "none",
-            )
-            await self.publish_device_unavailable(
-                device, is_root=entry.is_root, source="freshness"
-            )
-            newly_stale.append(device)
+            async with self._availability_lock(device):
+                # Re-evaluate after waiting: a stream may have yielded while
+                # an earlier publication held this lock.
+                age = self.clock.now() - entry.last_success
+                if age < entry.stale_after or self.is_unavailable(
+                    device, source="freshness"
+                ):
+                    continue
+                logger.warning(
+                    "%s '%s' is stale: no fresh data for %.0fs "
+                    "(stale_after=%.0fs, last error: %s)",
+                    entry.label,
+                    device,
+                    age,
+                    entry.stale_after,
+                    entry.last_error_type or "none",
+                )
+                await self._mark_unavailable(
+                    device, is_root=entry.is_root, source="freshness"
+                )
+                newly_stale.append(device)
         return newly_stale
 
     def longest_stale(self) -> tuple[str, float] | None:
@@ -488,21 +498,22 @@ class HealthReporter:
         *source* is provided, it clears only that source's unavailable mark;
         another active source keeps the device offline.
         """
-        topic = self._topic_for(device, is_root=is_root)
-        was_unavailable = self.is_unavailable(device)
-        if source is not None:
-            sources = self._unavailable.get(device)
-            if sources is not None:
-                sources.discard(source)
-                if not sources:
-                    self._unavailable.pop(device, None)
-        if self.is_unavailable(device):
-            return
-        if topic is not None:
-            await self._safe_publish(topic, "online")
-        self.set_device_status(device)
-        if was_unavailable:
-            await self._propagate_to_fed(device, available=True)
+        async with self._availability_lock(device):
+            topic = self._topic_for(device, is_root=is_root)
+            was_unavailable = self.is_unavailable(device)
+            if source is not None:
+                sources = self._unavailable.get(device)
+                if sources is not None:
+                    sources.discard(source)
+                    if not sources:
+                        self._unavailable.pop(device, None)
+            if self.is_unavailable(device):
+                return
+            self.set_device_status(device)
+            if topic is not None:
+                await self._safe_publish(topic, "online")
+            if was_unavailable:
+                await self._propagate_to_fed(device, available=True)
 
     async def publish_device_unavailable(
         self,
@@ -524,14 +535,28 @@ class HealthReporter:
         calling :meth:`set_device_status` afterwards, as the telemetry runner
         does with ``"error"``.
         """
+        async with self._availability_lock(device):
+            await self._mark_unavailable(device, is_root=is_root, source=source)
+
+    async def _mark_unavailable(
+        self, device: str, *, is_root: bool, source: str
+    ) -> None:
+        """Apply an offline transition while the entity lock is held."""
         topic = self._topic_for(device, is_root=is_root)
         was_unavailable = self.is_unavailable(device)
         self._unavailable.setdefault(device, set()).add(source)
+        self.set_device_status(device, "unavailable")
         if not was_unavailable and topic is not None:
             await self._safe_publish(topic, "offline")
-        self.set_device_status(device, "unavailable")
         if not was_unavailable:
             await self._propagate_to_fed(device, available=False)
+
+    def _availability_lock(self, device: str) -> asyncio.Lock:
+        """Return the stable lock for an entity's availability publications."""
+        lock = self._availability_locks.get(device)
+        if lock is None:
+            lock = self._availability_locks[device] = asyncio.Lock()
+        return lock
 
     async def _propagate_to_fed(self, stream: str, *, available: bool) -> None:
         """Mirror a stream's availability transition onto the entities it feeds."""
@@ -638,8 +663,9 @@ class HealthReporter:
         ``"online"``.  A heartbeat-only entity publishes nothing."""
         if device in self._heartbeat_only:
             return
-        payload = "offline" if self.is_unavailable(device) else "online"
-        await self._safe_publish(self._availability_topic(device), payload)
+        async with self._availability_lock(device):
+            payload = "offline" if self.is_unavailable(device) else "online"
+            await self._safe_publish(self._availability_topic(device), payload)
 
     async def shutdown(self) -> None:
         """Gracefully shut down: publish ``"offline"`` for everything.

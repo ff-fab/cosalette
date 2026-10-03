@@ -257,7 +257,7 @@ async def run_lifespan_and_devices(
 
     *health_file* turns on the opt-in health file, written from here on
     whether or not the broker is reachable; *exit_after_stale* ends the app
-    once a telemetry entity has been stale that long (ADR-083).
+    once a telemetry entity or stream has been stale that long (ADR-083).
     *restart_on_stale* restarts the adapters a newly stale entity depends
     on through *health_check_runner* (ADR-084).
     """

@@ -1131,9 +1131,15 @@ Defaults by Archetype (ADR-077):
   @app.command — OPT-IN, unchanged. Defaults to None (off): a command runs on
     demand, so a failed command says nothing about whether the device is
     reachable. Declare unavailable_on=(ExcType, ...) to participate.
-  Root entities (name=None) — OPT-IN in every archetype. They publish to the
+  Root telemetry/device/command entities (name=None) — OPT-IN. They publish to the
     flat {app}/availability, so one failed read would declare the whole app
     unavailable; pass an explicit unavailable_on to opt a root entity in.
+  @app.stream / @router.stream — a named stream owns retained
+    {app}/{stream}/availability. A task crash marks it offline (supervisor);
+    the first yielded item after restart clears that source. Manual marks
+    require ctx.mark_available(); yielded items do not clear manual marks.
+    Root streams are heartbeat-only: they never publish any availability
+    topic and never touch {app}/availability.
 
 Freshness — stale_after (ADR-080):
   Failure-driven availability cannot see a dead task, a hung poll or an error
@@ -1155,6 +1161,32 @@ Freshness — stale_after (ADR-080):
   failure mark that still holds the entity offline. A custom BackoffStrategy
   without a max_delay attribute is credited 60 s per retry; set stale_after
   explicitly if it sleeps longer.
+
+Stream Freshness and Feeds (ADR-081 amendment):
+  @app.stream / @router.stream accept stale_after= and feeds=; App.add_stream
+  accepts the same options. stale_after=None (default) disables tracking:
+  streams never derive a freshness bound. An explicit finite positive bound
+  or (Settings) -> float callable enables it. Each yielded item records
+  success; no yield for the bound marks the stream stale/offline, and the
+  next yielded item clears only the freshness source. Tracked streams carry
+  last_success_at and consecutive_failures in the heartbeat.
+  feeds=["radon", "co2"] holds each named device/telemetry target offline
+  under stream:{name} while ANY source holds the stream offline. Targets'
+  own sources stay independent. Unknown or root targets fail at bootstrap;
+  On Router inclusion, a feeds= target matching a device/telemetry name
+  inside that router receives the combined router/include prefix. Unmatched
+  names refer to app-global entities; router-local targets take precedence
+  when both exist.
+  feeds= is rejected on root streams. Root stream freshness appears in the
+  heartbeat and health file and counts for exit_after_stale=, without an
+  availability topic. restart_on_stale does not restart stream adapters.
+  ```python
+  @app.stream("feed", stale_after=120, feeds=["radon"])
+  async def feed(stream: cosalette.Stream[Reading]):
+      async for reading in stream:
+          await update_reading(reading)
+          yield
+  ```
 
 Error reminders — error_reminder_interval (ADR-082):
   A repeated same-type telemetry error is not published again on every cycle,
@@ -1182,7 +1214,9 @@ Two Forms:
 
   2. Dynamic — ctx.mark_unavailable():
      Call from inside any handler body for conditional unavailability (e.g. a
-     pre-flight reachability check). Same auto-recovery semantics apply.
+     pre-flight reachability check). Telemetry/device/command success clears
+     their manual mark. In streams, pair it with ctx.mark_available(): a
+     yielded item clears only crash/freshness marks.
 
 Static Form Example:
   ```python
@@ -1225,7 +1259,7 @@ Telemetry Example (no parameter needed):
     payload is still reported on the error topic but does not claim the device
     is unreachable
 
-Auto-Recovery:
+Auto-Recovery (telemetry/device/command):
   After ANY successful invocation (no exception raised, not suppressed by
   unavailable_on) — a command handler call, or a telemetry/device poll — the
   framework:
@@ -1272,13 +1306,15 @@ No-Op Safety:
   (e.g. in tests using the device_context fixture directly).
 
 Orphaned Topic Cleanup (removed entities):
-  When a device/telemetry/command is removed from config between restarts, its
+  When a device/telemetry/command or named stream is removed between restarts, its
   retained state/availability topics would linger on the broker forever (a
   "ghost" entity in Home Assistant). Apps with store= configured clear these
   automatically on the first MQTT connect — an empty retained publish to the
   removed entity's state/availability topics. No-op without a store; only
   state/availability are ever cleared (never /set, status, error, _meta). See
   ADR-048.
+  Named streams participate with availability only; their state topics are
+  not included in this cleanup snapshot. Root streams are excluded.
 
   MQTT 5 expiry safety net (ADR-078): when mqtt.protocol_version is '5', every
   retained publish carries MessageExpiryInterval (default 86400 s / 24 h).

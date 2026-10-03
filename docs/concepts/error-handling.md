@@ -272,7 +272,8 @@ When a task fails, the supervisor:
 2. Publishes **one** error payload (see below).
 3. Marks the task's entities offline with the availability source
    `"supervisor"`, and sets their heartbeat status to `"error"`.
-   A stream is the exception: see [Stream failures](#stream-failures).
+   Root streams report heartbeat status without an availability topic:
+   see [Stream failures](#stream-failures).
 4. Applies the app's `on_task_failure` policy.
 
 ### The `on_task_failure` policy
@@ -360,8 +361,8 @@ like any task:
 - the same `CRITICAL` line and the same task-failure payload as any task;
 - `"offline"` on `{prefix}/{stream}/availability` under the `supervisor`
   source, and status `"error"` in the `{prefix}/status` heartbeat;
-- back to `"online"` and `"ok"` once the re-created stream yields its first
-  item;
+- the first item from the re-created stream clears the supervisor mark;
+  it returns to `"online"` and `"ok"` when no other source holds it offline;
 - the same `on_task_failure` policy, restart budget and exit code `4`.
 
 A root stream (`@app.stream()` without a name) is heartbeat-only: its

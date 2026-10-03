@@ -75,7 +75,7 @@ class _RouterStreamMixin:
         # Router only records the registration; no adapter check here.
 
         plan = build_injection_plan(func)
-        is_root = effective_name == _callable_qualname(func)
+        is_root = name is None
         fed = validate_stream_health(
             effective_name, stale_after=stale_after, feeds=feeds, is_root=is_root
         )
@@ -134,7 +134,9 @@ class _RouterStreamMixin:
             tags: Additional tags for this stream.
             stale_after: Opt-in freshness bound (see ``App.stream``).
             feeds: Entity names whose availability follows this stream
-                (see ``App.stream``).  Not allowed on a root stream.
+                (see ``App.stream``). Static router-local device and telemetry
+                names follow the router and inclusion prefixes; other
+                names refer to entities on the app. Not allowed on a root stream.
 
         Returns:
             The decorated function, unchanged.
