@@ -9,7 +9,7 @@ tags: [health, telemetry, devices, mqtt, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-09-12 | Amended **Date:** 2026-09-12 | Amended **Date:** 2026-10-02
+Accepted **Date:** 2026-09-12 | Amended **Date:** 2026-09-12 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03
 
 ## Context
 
@@ -159,3 +159,8 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-10-02)"
     **Decision on a consecutive-cycle `unavailable_after=` threshold (cos-4mv5.10): not added.** The downstream proposal (airthings2mqtt, cosalette-apps cap-oxdp) asked for `unavailable_after: int = 1`, the number of consecutive failed cycles before `offline`. Since ADR-080 the requested behaviour is expressible with existing parameters: `unavailable_on=None` switches the immediate failure mark off and `stale_after=N × interval` publishes `offline` once roughly N cycles have produced no fresh data, recovering on the next fresh cycle. Within a cycle, `retry=` remains the tolerance knob. A second, count-based threshold would duplicate the time-based one and reintroduce the hysteresis machinery this ADR avoided. The downstream evidence available at decision time does not argue otherwise: the three airthings2mqtt outages were entities stuck `online` while delivering no data (fixed by the terminal-failure publish and ADR-080 freshness), not flapping availability; airthings2mqtt already tolerates transient BLE errors with `retry=3`; and it still runs 0.10.6, which predates the terminal-failure fix, so there is no field report of flapping caused by it. Revisit through a new issue if 0.11.0 field data shows `retry=` plus the freshness composition is insufficient. The composition is documented in the transport-availability guide and pinned by a test.
+
+## Amendment (2026-10-03) — Minor
+
+!!! note "Editorial note (2026-10-03)"
+    Clarification of the 2026-10-02 decision on cos-4mv5.10: unavailable_on=None plus stale_after is an elapsed-time freshness policy, not an equivalent consecutive-failed-cycle threshold. The runner waits interval after a completed cycle, and each cycle may additionally consume timeout, retries and backoff. Consequently stale_after=N × interval can expire after fewer than N completed failures, or during a running cycle. Choose the elapsed-time window according to the application's acceptable data age and account for cycle duration. The decision remains not to add unavailable_after: the available downstream evidence concerns prolonged missing data rather than flapping after the terminal-failure fix, and the elapsed-time policy directly addresses that evidence without additional hysteresis state. This deliberately leaves exact completed-failure counting unsupported. Revisit in a new issue if 0.11.0 field data demonstrates a need for count-based tolerance. Tests demonstrate fast-failure tolerance within the freshness window and expiry during a slow cycle, rather than equivalence to failure counting.

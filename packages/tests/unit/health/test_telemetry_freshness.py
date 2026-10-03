@@ -27,6 +27,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -146,10 +147,10 @@ class TestDeriveStaleAfter:
     @pytest.mark.parametrize(
         ("interval", "timeout", "retry", "expected"),
         [
-            pytest.param(1500.0, 120.0, 3, 3660.0, id="retry-and-timeout"),
+            pytest.param(1500.0, 120.0, 3, 3696.0, id="retry-and-timeout"),
             pytest.param(60.0, None, 0, 120.0, id="no-timeout-no-retry"),
             pytest.param(10.0, 5.0, 0, 25.0, id="timeout-only"),
-            pytest.param(10.0, None, 2, 140.0, id="retry-allowance-only"),
+            pytest.param(10.0, None, 2, 164.0, id="retry-allowance-only"),
         ],
     )
     def test_interval_formula(
@@ -159,7 +160,7 @@ class TestDeriveStaleAfter:
         retry: int,
         expected: float,
     ) -> None:
-        """The interval formula has no hidden factors or jitter."""
+        """The interval formula budgets deterministic maximum jitter."""
         reg = _reg(interval=interval, timeout=timeout, retry=retry)
 
         assert derive_stale_after(reg) == expected
@@ -167,14 +168,14 @@ class TestDeriveStaleAfter:
     @pytest.mark.parametrize(
         ("backoff", "expected"),
         [
-            pytest.param(None, 140.0, id="default-backoff-60"),
+            pytest.param(None, 164.0, id="default-backoff-72"),
             pytest.param(FixedBackoff(delay=5.0), 140.0, id="short-cap-keeps-floor"),
-            pytest.param(ExponentialBackoff(max_delay=60.0), 140.0, id="cap-at-floor"),
+            pytest.param(FixedBackoff(delay=50.0), 140.0, id="cap-at-floor"),
             pytest.param(
-                ExponentialBackoff(max_delay=300.0), 620.0, id="long-exponential-cap"
+                ExponentialBackoff(max_delay=300.0), 740.0, id="long-exponential-cap"
             ),
-            pytest.param(LinearBackoff(max_delay=90.0), 200.0, id="long-linear-cap"),
-            pytest.param(FixedBackoff(delay=120.0), 260.0, id="long-fixed-delay"),
+            pytest.param(LinearBackoff(max_delay=90.0), 236.0, id="long-linear-cap"),
+            pytest.param(FixedBackoff(delay=120.0), 308.0, id="long-fixed-delay"),
         ],
     )
     def test_retry_allowance_follows_backoff_cap(
@@ -200,6 +201,11 @@ class TestDeriveStaleAfter:
             pytest.param(True, id="bool"),
             pytest.param("300", id="non-numeric"),
             pytest.param(float("inf"), id="infinite"),
+            pytest.param(float("nan"), id="nan"),
+            pytest.param(float("-inf"), id="negative-infinite"),
+            pytest.param(10**1000, id="overflowing-integer"),
+            pytest.param(-(10**1000), id="negative-overflowing-integer"),
+            pytest.param(-1, id="negative"),
         ],
     )
     def test_custom_backoff_without_usable_cap_uses_floor(self, cap: object) -> None:
@@ -249,6 +255,26 @@ class TestDeriveStaleAfter:
         reg = _reg(interval=None, schedule=CronSchedule("0 0/5 * * * ?"))
 
         assert derive_stale_after(reg) == 600.0
+
+    @pytest.mark.parametrize(
+        "reg",
+        [
+            _reg(interval=1e308),
+            _reg(timeout=1e308, retry=2),
+            _reg(backoff=FixedBackoff(1e308), retry=2),
+            _reg(retry=10**1000),
+        ],
+        ids=["period", "timeout", "retry-sleeps", "retry-count"],
+    )
+    def test_derived_overflow_raises_actionable_value_error(
+        self, reg: _TelemetryRegistration
+    ) -> None:
+        """Overflow must not create an infinite, ineffective watchdog.
+
+        Technique: Boundary Value Analysis — finite inputs overflow arithmetic.
+        """
+        with pytest.raises(ValueError, match="Derived stale_after.*finite.*explicitly"):
+            derive_stale_after(reg)
 
     def test_cron_uses_the_longest_gap(self) -> None:
         """An irregular schedule (08:00, 10:00) is bounded by its 22 h gap."""
@@ -312,8 +338,8 @@ class TestResolveStaleAfter:
         resolve_timeouts(app._telemetry, settings)  # noqa: SLF001
         resolve_stale_after(app._telemetry, settings)  # noqa: SLF001
 
-        # 2*10 + 4*(1+1) + 60*1
-        assert app._telemetry[0].stale_after == 88.0  # noqa: SLF001
+        # 2*10 + 4*(1+1) + 72*1
+        assert app._telemetry[0].stale_after == 100.0  # noqa: SLF001
 
 
 class TestStaleAfterPerDevice:
@@ -833,6 +859,93 @@ class TestFreshnessEndToEnd:
     Technique: State Transition Testing through the real wiring.
     """
 
+    async def test_maximum_jitter_retry_cycle_stays_online(self) -> None:
+        """A valid long retry cycle completes before derived freshness expires.
+
+        Technique: Boundary Value Analysis — maximum positive jitter, three
+        retries, and an interval small relative to the backoff cap.
+        """
+        calls = 0
+
+        def factory() -> Any:
+            async def sensor() -> dict[str, int]:
+                nonlocal calls
+                calls += 1
+                if 2 <= calls <= 4:
+                    raise TransportError("transient read failure")
+                return {"value": calls}
+
+            return sensor
+
+        with patch("cosalette._retry.random.uniform", return_value=1.2):
+            payloads = await _run_for(
+                factory,
+                seconds=1100,
+                timeout=None,
+                retry=3,
+                retry_on=(TransportError,),
+                backoff=FixedBackoff(300),
+            )
+
+        assert calls >= 5
+        assert payloads == ["online"]
+
+    async def test_slow_failure_expires_by_elapsed_time_and_recovers(self) -> None:
+        """Freshness can expire after one failed cycle, before another finishes.
+
+        Technique: State Transition Testing — online, elapsed-time stale,
+        recovery; slow handler duration is additional to the interval.
+        """
+        clock = ManualClock()
+        harness = AppHarness.create(clock=clock)
+        calls = 0
+        completed_failures = 0
+
+        @harness.app.telemetry(
+            "sensor", interval=10, timeout=None, stale_after=35, unavailable_on=None
+        )
+        async def sensor() -> dict[str, int]:
+            nonlocal calls, completed_failures
+            calls += 1
+            if calls in (2, 3):
+                await clock.sleep(20)
+                if calls == 2:
+                    completed_failures += 1
+                    raise TransportError("slow failed read")
+            return {"value": calls}
+
+        task = asyncio.create_task(harness.run())
+        try:
+            await harness.wait_for_publish_count(AVAILABILITY, 1)
+            await harness.wait_for_publish_count("testapp/sensor/state", 1)
+            await clock.settle()
+            for _ in range(7):
+                await harness.advance_time(5)
+
+            assert completed_failures == 1
+            assert calls == 2
+            assert _payloads(harness.mqtt, AVAILABILITY) == ["online", "offline"]
+
+            # Freshness stays offline while the subsequent slow cycle runs.
+            for _ in range(2):
+                await harness.advance_time(5)
+            assert calls == 3
+            assert completed_failures == 1
+            assert _payloads(harness.mqtt, AVAILABILITY) == ["online", "offline"]
+
+            for _ in range(4):
+                await harness.advance_time(5)
+            await harness.wait_for_publish_count(AVAILABILITY, 3)
+            assert calls == 3
+            assert _payloads(harness.mqtt, AVAILABILITY) == [
+                "online",
+                "offline",
+                "online",
+            ]
+        finally:
+            harness.trigger_shutdown()
+            await task
+
     async def test_failure_outside_unavailable_on_goes_stale(self) -> None:
         """An error the transport mark ignores is still caught by freshness."""
 
@@ -903,7 +1016,7 @@ class TestFreshnessEndToEnd:
     ) -> None:
         """``unavailable_on=None`` + ``stale_after`` tolerates a lone failed cycle.
 
-        The composition that stands in for a consecutive-cycle
+        Elapsed-time tolerance, rather than a consecutive-cycle
         ``unavailable_after=`` threshold (ADR-077 amendment, cos-4mv5.10).
 
         Technique: Decision Table Testing — failure mark on/off for one

@@ -203,14 +203,14 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
     return {"value": payload["v"]}  # a KeyError here does NOT mark it offline
 ```
 
-!!! tip "Tolerating a few failed cycles"
-    `retry=` tolerates transient failures *within* a cycle.  To tolerate whole
-    failed cycles — a slow poller whose BLE read occasionally drops — disable the
-    failure mark with `unavailable_on=None` and let [freshness](#freshness-stale_after)
-    decide: the entity goes `"offline"` only once it has had no fresh cycle for
-    `stale_after` seconds.  `stale_after=3 * interval` approximates "offline after
-    three consecutive failed cycles".  There is no separate `unavailable_after=`
-    count (ADR-077).
+!!! tip "Tolerating temporary failures"
+    `retry=` tolerates transient failures *within* a cycle. To tolerate a period
+    without fresh data, disable the failure mark with `unavailable_on=None` and
+    choose an explicit [freshness](#freshness-stale_after) duration, such as
+    `stale_after=180`. The entity goes `"offline"` after 180 seconds without a
+    fresh cycle. This is elapsed-time tolerance, not a consecutive-failure count:
+    handler execution, timeout, retries and backoff add to each post-cycle
+    `interval`. There is no separate `unavailable_after=` count (ADR-077).
 
 !!! warning "Root entities are excluded from the default"
     A root entity publishes to the flat `{app}/availability`, so one failed read
@@ -256,11 +256,17 @@ async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 
 *period* is the `interval`, or the longest gap between a cron `schedule`'s next
 fire times; a disabled `timeout` counts as `0`.  The per-retry *allowance* is the
-backoff's `max_delay` — `FixedBackoff`'s `delay` — but never less than 60 s, the
-default cap of the built-in strategies.  It ignores jitter, so the default is
-deterministic.  For
+backoff's `max_delay`, including its maximum positive jitter, but never less
+than 60 s. Built-in constructor caps are before jitter; their read-only
+`max_delay` properties include the +20% bound. The default backoff therefore
+allows 72 s per retry. The bound is deterministic, independent of sampled jitter. For
 `interval=300, retry=2` and the default timeout (one interval), the bound is
-`600 + 300 × 3 + 120 = 1620` s; for `interval=60` with no retries it is 180 s.
+`600 + 300 × 3 + 144 = 1644` s; for `interval=60` with no retries it is 180 s.
+
+With `timeout=None`, handler execution has no finite upper bound. The derived
+default budgets intervals and backoff sleeps but cannot guarantee completion
+of an arbitrarily slow handler; set an explicit `stale_after` for the freshness
+window your application needs.
 
 The freshness mark is a separate availability source: clearing it never brings
 an entity online while a failure mark (`unavailable_on`, `ctx.mark_unavailable()`)
@@ -280,9 +286,9 @@ publish because the broker was down does not count as a failure.
 !!! tip "Custom backoff strategies"
     A built-in backoff with a cap above 60 s widens the derived bound
     automatically — `ExponentialBackoff(max_delay=300)` with `retry=3` allows
-    900 s for the backoff sleeps.  A custom `BackoffStrategy` is credited with
-    60 s per retry unless it exposes a numeric `max_delay` attribute; otherwise
-    set `stale_after=` explicitly.
+    1080 s for the backoff sleeps.  A custom `BackoffStrategy` is credited with
+    60 s per retry unless it exposes a finite numeric `max_delay` attribute
+    including any jitter; otherwise set `stale_after=` explicitly.
 
 ---
 

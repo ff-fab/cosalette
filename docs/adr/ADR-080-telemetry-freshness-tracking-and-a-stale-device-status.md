@@ -9,7 +9,7 @@ tags: [telemetry, health, mqtt, lifecycle, error-handling]
 
 ## Status
 
-Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03
 
 ## Context
 
@@ -135,3 +135,24 @@ _Scale: 1 (poor) to 5 (excellent)_
 ### Additional Negative Consequences
 
 - BackoffStrategy gains an optional, duck-typed max_delay attribute that custom strategies must know about to benefit
+
+## Amendment (2026-10-03) — Corrective
+
+**Rationale:** PR #489 review found that two-period slack does not always cover positive jitter: interval=10, retry=2 and FixedBackoff(120) can sleep 288 seconds, exceeding the previous 260-second bound.
+
+> **Justification for amendment (not supersession):** The 0.11.0 freshness decision and max_delay properties have not been released. This correction is confined to the resolution helper and new backoff properties, only widens derived defaults, and has no downstream migration cost.
+
+### Revised Decision
+
+Derive stale_after as 2 × period + timeout × (retry + 1) + max(60 s, maximum sleep) × retry. The built-in strategies expose max_delay as their actual maximum sleep, including the deterministic upper bound of +20% jitter; constructor max_delay and FixedBackoff delay remain pre-jitter configuration. The default backoff therefore contributes 72 seconds per retry. A custom strategy's optional max_delay must bound its actual delay, including any jitter. Missing, boolean, non-numeric, non-finite or unrepresentable custom caps fall back to 60 seconds; configure stale_after explicitly if that fallback is insufficient. Reject an unrepresentable derived bound with a clear ValueError. A disabled timeout contributes zero and cannot bound unbounded handler execution.
+
+!!! note "Editorial note (2026-10-03)"
+    This correction replaces the 2026-10-02 amendment's exclusion of jitter and its claim that two-period slack absorbs jitter. The calculation uses a fixed maximum jitter factor, not a random sample, so it remains deterministic. Existing derived values never shrink; defaults using the 60-second pre-jitter cap now allow 72 seconds per retry.
+
+### Additional Positive Consequences
+
+- Legitimate retries with maximum positive jitter remain inside the derived bound when handler attempts are bounded by timeout.
+
+### Additional Negative Consequences
+
+- The larger deterministic allowance can delay stale detection; custom strategies remain responsible for supplying a truthful maximum sleep.

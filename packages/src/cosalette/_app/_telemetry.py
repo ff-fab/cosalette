@@ -275,7 +275,7 @@ class _TelemetryMixin:
                 published, suppressed by ``publish=``, or ``None``.  Omitted,
                 a **named** entity derives ``2 × interval + timeout ×
                 (retry + 1) + allowance × retry``, where the allowance is
-                the backoff's ``max_delay`` but at least 60 s (a cron
+                the backoff's ``max_delay`` including jitter, at least 60 s (a cron
                 schedule uses its longest gap as the interval); **root**
                 entities derive ``None`` and must pass a value to
                 participate.  Accepts a positive float or a settings
@@ -702,7 +702,7 @@ class _TelemetryMixin:
                 published, suppressed by ``publish=``, or ``None``.  Omitted,
                 a **named** entity derives ``2 × interval + timeout ×
                 (retry + 1) + allowance × retry``, where the allowance is
-                the backoff's ``max_delay`` but at least 60 s (a cron
+                the backoff's ``max_delay`` including jitter, at least 60 s (a cron
                 schedule uses its longest gap as the interval); **root**
                 entities derive ``None`` and must pass a value to
                 participate.  Accepts a positive float or a settings

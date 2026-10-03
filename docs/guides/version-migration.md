@@ -419,7 +419,7 @@ publishes retained `"offline"`, even when no poll *failed* — a dead task, a hu
 poll without a timeout, or an error outside `unavailable_on`.  The next fresh cycle
 publishes `"online"`.  When omitted, `stale_after` is derived as
 `2 × period + timeout × (retry + 1) + allowance × retry`, where the allowance
-is the backoff's `max_delay` but at least 60 s; root entities are excluded.
+is the backoff's `max_delay` including jitter, at least 60 s; root entities are excluded.
 
 The `{prefix}/status` heartbeat changes shape too: a stale entity reports
 `"status": "stale"` (outranking `"error"`), and every telemetry entry gains

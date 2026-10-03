@@ -1142,7 +1142,8 @@ Freshness — stale_after (ADR-080):
   whose value a PublishStrategy suppressed) is older than stale_after, logs one
   WARNING, and publishes "online" on the next fresh cycle.
     stale_after omitted → derived: 2*period + timeout*(retry+1) + allowance*retry
-                          (allowance = backoff max_delay, at least 60 s)
+                          (allowance = backoff max_delay including jitter,
+                           at least 60 s)
                           (period = interval, or a cron schedule's longest gap)
     stale_after omitted on a root entity → disabled (opt in explicitly)
     stale_after=1800 / callable / SettingRef → explicit bound in seconds
@@ -1249,10 +1250,10 @@ When to Use Each Form:
   | Pre-flight reachability check          | ctx.mark_unavailable()  |
   | Mixed: exception + manual check        | Both together           |
 
-  To tolerate whole failed cycles (retry= only tolerates failures within one
-  cycle), pair unavailable_on=None with stale_after=N * interval: the entity
-  goes offline only after ~N cycles without fresh data. There is no separate
-  unavailable_after= count (ADR-077).
+  To tolerate temporary failures, pair unavailable_on=None with an explicit
+  stale_after duration: offline follows elapsed time without fresh data. This
+  is not a consecutive-cycle count; timeout, retries and backoff add to cycle
+  duration. There is no separate unavailable_after= count (ADR-077).
 
 Topic Convention:
   • Named device:  {app}/{device}/availability  (retained, QoS 1)

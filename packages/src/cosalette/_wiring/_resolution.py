@@ -21,6 +21,7 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
 )
+from cosalette._retry import _DEFAULT_BACKOFF
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._trigger import arms_via_mqtt
 from cosalette._settings import Settings
@@ -143,8 +144,7 @@ def resolve_timeouts(
 _STALE_BACKOFF_ALLOWANCE = 60.0
 """Minimum per-retry backoff allowance (seconds) in the derived ``stale_after``.
 
-Equal to the default ``max_delay`` cap of the built-in backoff strategies.
-Jitter-free so the derived bound is deterministic (ADR-080).
+Preserves the original allowance floor; known maximum delays include jitter.
 """
 
 
@@ -153,11 +153,17 @@ def _backoff_allowance(backoff: object) -> float:
 
     A strategy without a finite numeric ``max_delay`` gets the 60 s floor.
     """
-    cap = getattr(backoff, "max_delay", None)
+    cap = getattr(_DEFAULT_BACKOFF if backoff is None else backoff, "max_delay", None)
     usable = isinstance(cap, int | float) and not isinstance(cap, bool)
-    if not usable or not math.isfinite(cap):
+    if not usable:
         return _STALE_BACKOFF_ALLOWANCE
-    return max(_STALE_BACKOFF_ALLOWANCE, float(cap))
+    try:
+        numeric_cap = float(cap)
+    except OverflowError:
+        return _STALE_BACKOFF_ALLOWANCE
+    if not math.isfinite(numeric_cap):
+        return _STALE_BACKOFF_ALLOWANCE
+    return max(_STALE_BACKOFF_ALLOWANCE, numeric_cap)
 
 
 _CRON_GAP_SAMPLES = 16
@@ -189,7 +195,10 @@ def derive_stale_after(reg: _TelemetryRegistration) -> float:
     polls, plus the worst-case duration of one cycle's attempts and its
     backoff sleeps.  *period* is the interval, or a cron schedule's longest
     gap; a disabled timeout counts as ``0``; *allowance* is the backoff's
-    ``max_delay``, never below 60 s.
+    ``max_delay`` including jitter, never below 60 s.
+
+    With timeout disabled, handler duration is unbounded; an explicit freshness
+    window may be needed. Non-finite derived arithmetic fails at startup.
     """
     period = (
         _longest_cron_gap(reg.schedule)
@@ -198,7 +207,21 @@ def derive_stale_after(reg: _TelemetryRegistration) -> float:
     )
     timeout = cast("float | None", reg.timeout) or 0.0
     allowance = _backoff_allowance(reg.backoff)
-    return 2 * period + timeout * (reg.retry + 1) + allowance * reg.retry
+    try:
+        derived = 2 * period + timeout * (reg.retry + 1) + allowance * reg.retry
+    except OverflowError as exc:
+        msg = (
+            f"Derived stale_after for {reg.name!r} exceeds finite seconds; "
+            "set stale_after explicitly"
+        )
+        raise ValueError(msg) from exc
+    if not math.isfinite(derived) or derived <= 0:
+        msg = (
+            f"Derived stale_after for {reg.name!r} must be finite and positive; "
+            "set stale_after explicitly"
+        )
+        raise ValueError(msg)
+    return derived
 
 
 def resolve_stale_after(

@@ -606,7 +606,7 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "error outside unavailable_on); the next fresh cycle publishes "
         "'online'. Values a PublishStrategy suppresses count as fresh. The "
         "default is derived as 2*period + timeout*(retry+1) + allowance*retry "
-        "(allowance = the backoff's max_delay, at least 60 s); root "
+        "(allowance = the backoff's max_delay including jitter, at least 60 s); root "
         "entities are excluded and stale_after=None opts out. The status "
         "heartbeat reports 'stale' (outranking 'error') and every telemetry "
         "entry gains last_success_at and consecutive_failures (behaviour "
