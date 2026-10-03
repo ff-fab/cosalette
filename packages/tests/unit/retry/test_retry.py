@@ -3,7 +3,7 @@
 Test Techniques Used:
 - Boundary Value Analysis: Backoff delay at attempt 1, at max_delay cap
 - State Transition Testing: CircuitBreaker closed → open → half-open → closed
-- Specification-based: Protocol compliance, jitter bounds
+- Specification-based: Protocol compliance, jitter bounds, max_delay cap
 """
 
 from __future__ import annotations
@@ -116,6 +116,53 @@ class TestFixedBackoff:
     def test_repr(self) -> None:
         strategy = FixedBackoff(delay=7.5)
         assert repr(strategy) == "FixedBackoff(delay=7.5)"
+
+
+class TestMaxDelay:
+    """Built-in strategies expose their maximum delay including jitter as ``max_delay``.
+
+    Technique: Specification-based Testing — one case per strategy.
+    """
+
+    @pytest.mark.parametrize(
+        ("strategy", "expected"),
+        [
+            pytest.param(ExponentialBackoff(max_delay=300.0), 360.0, id="exponential"),
+            pytest.param(LinearBackoff(max_delay=90.0), 108.0, id="linear"),
+            pytest.param(FixedBackoff(delay=7.5), 9.0, id="fixed-is-its-delay"),
+        ],
+    )
+    def test_max_delay_reports_cap(
+        self,
+        strategy: ExponentialBackoff | LinearBackoff | FixedBackoff,
+        expected: float,
+    ) -> None:
+        """``max_delay`` includes maximum positive jitter."""
+        # Act
+        result = strategy.max_delay
+
+        # Assert
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "strategy",
+        [
+            ExponentialBackoff(base=300.0, max_delay=300.0),
+            LinearBackoff(step=90.0, max_delay=90.0),
+            FixedBackoff(delay=120.0),
+        ],
+    )
+    def test_max_delay_bounds_positive_jitter_and_is_read_only(
+        self, strategy: ExponentialBackoff | LinearBackoff | FixedBackoff
+    ) -> None:
+        """The advertised maximum is attainable and cannot be reassigned.
+
+        Technique: Boundary Value Analysis + Specification-based Testing.
+        """
+        with patch("cosalette._retry.random.uniform", return_value=1.2):
+            assert strategy.delay(1) == strategy.max_delay
+        with pytest.raises(AttributeError):
+            strategy.max_delay = 1.0  # ty: ignore[invalid-assignment]
 
 
 class TestCircuitBreaker:

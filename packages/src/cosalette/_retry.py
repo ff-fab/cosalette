@@ -8,13 +8,17 @@ from __future__ import annotations
 import random
 from typing import Protocol, override, runtime_checkable
 
+_MAX_JITTER_FACTOR = 1.2
+
 
 @runtime_checkable
 class BackoffStrategy(Protocol):
     """Backoff-delay contract for telemetry retry.
 
     The framework calls ``delay(attempt)`` between retry attempts.
-    Attempt numbers are 1-based.
+    Attempt numbers are 1-based.  A strategy may also expose a ``max_delay``
+    attribute (seconds, including any jitter); the derived ``stale_after`` default
+    allows that long per retry when it exceeds 60 s (ADR-080).
     """
 
     def delay(self, attempt: int) -> float:
@@ -26,6 +30,9 @@ class ExponentialBackoff:
     """Exponential backoff with ±20% jitter.
 
     ``min(base * 2^(attempt-1), max_delay)``
+
+    The constructor's ``max_delay`` caps raw delay before jitter. The
+    ``max_delay`` property includes maximum positive jitter.
     """
 
     __slots__ = ("_base", "_max_delay")
@@ -34,9 +41,14 @@ class ExponentialBackoff:
         self._base = base
         self._max_delay = max_delay
 
+    @property
+    def max_delay(self) -> float:
+        """Longest possible delay in seconds, including positive jitter."""
+        return self._max_delay * _MAX_JITTER_FACTOR
+
     def delay(self, attempt: int) -> float:
         raw = min(float(self._base * (2 ** (attempt - 1))), self._max_delay)
-        return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
+        return raw * random.uniform(0.8, _MAX_JITTER_FACTOR)  # noqa: S311
 
     @override
     def __repr__(self) -> str:
@@ -44,7 +56,11 @@ class ExponentialBackoff:
 
 
 class LinearBackoff:
-    """Linear backoff: ``min(step * attempt, max_delay)`` with ±20% jitter."""
+    """Linear backoff: ``min(step * attempt, max_delay)`` with ±20% jitter.
+
+    The constructor's ``max_delay`` caps raw delay before jitter. The
+    ``max_delay`` property includes maximum positive jitter.
+    """
 
     __slots__ = ("_step", "_max_delay")
 
@@ -52,9 +68,14 @@ class LinearBackoff:
         self._step = step
         self._max_delay = max_delay
 
+    @property
+    def max_delay(self) -> float:
+        """Longest possible delay in seconds, including positive jitter."""
+        return self._max_delay * _MAX_JITTER_FACTOR
+
     def delay(self, attempt: int) -> float:
         raw = min(self._step * attempt, self._max_delay)
-        return raw * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
+        return raw * random.uniform(0.8, _MAX_JITTER_FACTOR)  # noqa: S311
 
     @override
     def __repr__(self) -> str:
@@ -62,15 +83,24 @@ class LinearBackoff:
 
 
 class FixedBackoff:
-    """Fixed backoff: constant delay with ±20% jitter."""
+    """Fixed backoff: constant delay with ±20% jitter.
+
+    The constructor's ``delay`` is before jitter. The ``max_delay`` property
+    includes maximum positive jitter.
+    """
 
     __slots__ = ("_delay",)
 
     def __init__(self, delay: float = 5.0) -> None:
         self._delay = delay
 
+    @property
+    def max_delay(self) -> float:
+        """Longest possible delay in seconds, including positive jitter."""
+        return self._delay * _MAX_JITTER_FACTOR
+
     def delay(self, attempt: int) -> float:  # noqa: ARG002
-        return self._delay * random.uniform(0.8, 1.2)  # noqa: S311  # jitter, not cryptographic
+        return self._delay * random.uniform(0.8, _MAX_JITTER_FACTOR)  # noqa: S311
 
     @override
     def __repr__(self) -> str:

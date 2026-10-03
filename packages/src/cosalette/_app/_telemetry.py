@@ -274,10 +274,12 @@ class _TelemetryMixin:
                 cycle is fresh when the handler returns and its result is
                 published, suppressed by ``publish=``, or ``None``.  Omitted,
                 a **named** entity derives ``2 × interval + timeout ×
-                (retry + 1) + 60 s × retry`` (a cron schedule uses its
-                longest gap as the interval); **root** entities derive
-                ``None`` and must pass a value to participate.  Accepts a
-                positive float or a settings callable such as
+                (retry + 1) + allowance × retry``, where the allowance is
+                the backoff's ``max_delay`` including jitter, at least 60 s (a cron
+                schedule uses its longest gap as the interval); **root**
+                entities derive ``None`` and must pass a value to
+                participate.  Accepts a positive float or a settings
+                callable such as
                 ``setting_ref(...)``; ``None`` disables the check.  With a
                 dict-returning ``name=`` callable, a callable receives each
                 device's config instead, exactly like ``timeout=``.
@@ -699,10 +701,12 @@ class _TelemetryMixin:
                 cycle is fresh when the handler returns and its result is
                 published, suppressed by ``publish=``, or ``None``.  Omitted,
                 a **named** entity derives ``2 × interval + timeout ×
-                (retry + 1) + 60 s × retry`` (a cron schedule uses its
-                longest gap as the interval); **root** entities derive
-                ``None`` and must pass a value to participate.  Accepts a
-                positive float or a settings callable such as
+                (retry + 1) + allowance × retry``, where the allowance is
+                the backoff's ``max_delay`` including jitter, at least 60 s (a cron
+                schedule uses its longest gap as the interval); **root**
+                entities derive ``None`` and must pass a value to
+                participate.  Accepts a positive float or a settings
+                callable such as
                 ``setting_ref(...)``; ``None`` disables the check.
             timeout: Per-invocation backstop for the handler await.
                 When omitted, auto-defaults to the resolved poll

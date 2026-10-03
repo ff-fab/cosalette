@@ -418,7 +418,8 @@ See [Retry / Backoff](telemetry-advanced.md#retry-backoff).
 publishes retained `"offline"`, even when no poll *failed* — a dead task, a hung
 poll without a timeout, or an error outside `unavailable_on`.  The next fresh cycle
 publishes `"online"`.  When omitted, `stale_after` is derived as
-`2 × period + timeout × (retry + 1) + 60 s × retry`; root entities are excluded.
+`2 × period + timeout × (retry + 1) + allowance × retry`, where the allowance
+is the backoff's `max_delay` including jitter, at least 60 s; root entities are excluded.
 
 The `{prefix}/status` heartbeat changes shape too: a stale entity reports
 `"status": "stale"` (outranking `"error"`), and every telemetry entry gains
@@ -432,8 +433,8 @@ device entry, rather than reading `status`, need updating.
 async def read_noisy(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 ```
 
-Set `stale_after=` explicitly if you use a backoff that sleeps longer than 60 s
-per retry.  See
+A custom `BackoffStrategy` without a `max_delay` attribute is credited with 60 s
+per retry; set `stale_after=` explicitly if it sleeps longer.  See
 [Transport Availability Signaling](transport-availability.md#freshness-stale_after).
 
 ### Fix: offline availability survives an MQTT outage (v0.11.0+)

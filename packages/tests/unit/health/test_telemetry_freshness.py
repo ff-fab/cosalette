@@ -14,6 +14,8 @@ Test Techniques Used:
     - Equivalence Partitioning: telemetry vs. non-telemetry heartbeat entries;
       dict-name (per-device config) vs. list-name (settings) callables
     - Specification-based Testing: the pinned derived-default formula
+    - Boundary Value Analysis: backoff max_delay below, at and above the
+      60 s per-retry allowance floor
     - Mock-based Isolation: MockMqttClient records publishes, FakeClock and
       ManualClock drive time
 """
@@ -25,6 +27,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -34,6 +37,7 @@ from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._mqtt import MqttNotConnectedError
 from cosalette._registration import _UNSET, _TelemetryRegistration
+from cosalette._retry import ExponentialBackoff, FixedBackoff, LinearBackoff
 from cosalette._router import Router
 from cosalette._runners._telemetry_runner import TelemetryRunner
 from cosalette._settings import Settings
@@ -103,6 +107,7 @@ def _reg(
     schedule: CronSchedule | None = None,
     timeout: object = None,
     retry: int = 0,
+    backoff: object = None,
     is_root: bool = False,
     stale_after: object = _UNSET,
 ) -> _TelemetryRegistration:
@@ -114,6 +119,7 @@ def _reg(
         schedule=schedule,
         timeout=timeout,  # ty: ignore[invalid-argument-type]
         retry=retry,
+        backoff=backoff,  # ty: ignore[invalid-argument-type]
         is_root=is_root,
         stale_after=stale_after,  # ty: ignore[invalid-argument-type]
     )
@@ -133,7 +139,7 @@ def _last_heartbeat(mock_mqtt: MockMqttClient) -> dict[str, Any]:
 
 
 class TestDeriveStaleAfter:
-    """The derived default is pinned: ``2p + t(r+1) + 60r`` (ADR-080).
+    """The derived default is pinned: ``2p + t(r+1) + max(60, cap) r`` (ADR-080).
 
     Technique: Specification-based Testing — exact values for the formula.
     """
@@ -141,10 +147,10 @@ class TestDeriveStaleAfter:
     @pytest.mark.parametrize(
         ("interval", "timeout", "retry", "expected"),
         [
-            pytest.param(1500.0, 120.0, 3, 3660.0, id="retry-and-timeout"),
+            pytest.param(1500.0, 120.0, 3, 3696.0, id="retry-and-timeout"),
             pytest.param(60.0, None, 0, 120.0, id="no-timeout-no-retry"),
             pytest.param(10.0, 5.0, 0, 25.0, id="timeout-only"),
-            pytest.param(10.0, None, 2, 140.0, id="retry-allowance-only"),
+            pytest.param(10.0, None, 2, 164.0, id="retry-allowance-only"),
         ],
     )
     def test_interval_formula(
@@ -154,16 +160,121 @@ class TestDeriveStaleAfter:
         retry: int,
         expected: float,
     ) -> None:
-        """The interval formula has no hidden factors or jitter."""
+        """The interval formula budgets deterministic maximum jitter."""
         reg = _reg(interval=interval, timeout=timeout, retry=retry)
 
         assert derive_stale_after(reg) == expected
+
+    @pytest.mark.parametrize(
+        ("backoff", "expected"),
+        [
+            pytest.param(None, 164.0, id="default-backoff-72"),
+            pytest.param(FixedBackoff(delay=5.0), 140.0, id="short-cap-keeps-floor"),
+            pytest.param(FixedBackoff(delay=50.0), 140.0, id="cap-at-floor"),
+            pytest.param(
+                ExponentialBackoff(max_delay=300.0), 740.0, id="long-exponential-cap"
+            ),
+            pytest.param(LinearBackoff(max_delay=90.0), 236.0, id="long-linear-cap"),
+            pytest.param(FixedBackoff(delay=120.0), 308.0, id="long-fixed-delay"),
+        ],
+    )
+    def test_retry_allowance_follows_backoff_cap(
+        self, backoff: object, expected: float
+    ) -> None:
+        """Each retry allows the backoff's ``max_delay``, never below 60 s.
+
+        Technique: Boundary Value Analysis — cap below, at and above 60 s.
+        """
+        # Arrange
+        reg = _reg(interval=10.0, timeout=None, retry=2, backoff=backoff)
+
+        # Act
+        result = derive_stale_after(reg)
+
+        # Assert
+        assert result == expected
+
+    @pytest.mark.parametrize(
+        "cap",
+        [
+            pytest.param(None, id="no-attribute-value"),
+            pytest.param(True, id="bool"),
+            pytest.param("300", id="non-numeric"),
+            pytest.param(float("inf"), id="infinite"),
+            pytest.param(float("nan"), id="nan"),
+            pytest.param(float("-inf"), id="negative-infinite"),
+            pytest.param(10**1000, id="overflowing-integer"),
+            pytest.param(-(10**1000), id="negative-overflowing-integer"),
+            pytest.param(-1, id="negative"),
+        ],
+    )
+    def test_custom_backoff_without_usable_cap_uses_floor(self, cap: object) -> None:
+        """A custom strategy whose ``max_delay`` is unusable gets 60 s per retry.
+
+        Technique: Error Guessing — duck-typed attribute of the wrong shape.
+        """
+
+        # Arrange
+        class _Custom:
+            max_delay = cap
+
+            def delay(self, attempt: int) -> float:  # noqa: ARG002
+                return 1.0
+
+        reg = _reg(interval=10.0, timeout=None, retry=2, backoff=_Custom())
+
+        # Act
+        result = derive_stale_after(reg)
+
+        # Assert
+        assert result == 140.0
+
+    def test_custom_backoff_cap_is_honoured(self) -> None:
+        """A custom strategy exposing a numeric ``max_delay`` sets the allowance.
+
+        Technique: Specification-based Testing — the documented duck-typed hook.
+        """
+
+        # Arrange
+        class _Custom:
+            max_delay = 600
+
+            def delay(self, attempt: int) -> float:  # noqa: ARG002
+                return 600.0
+
+        reg = _reg(interval=10.0, timeout=None, retry=1, backoff=_Custom())
+
+        # Act
+        result = derive_stale_after(reg)
+
+        # Assert
+        assert result == 620.0
 
     def test_cron_uses_the_regular_period(self) -> None:
         """A five-minute cron schedule derives two periods: 600 s."""
         reg = _reg(interval=None, schedule=CronSchedule("0 0/5 * * * ?"))
 
         assert derive_stale_after(reg) == 600.0
+
+    @pytest.mark.parametrize(
+        "reg",
+        [
+            _reg(interval=1e308),
+            _reg(timeout=1e308, retry=2),
+            _reg(backoff=FixedBackoff(1e308), retry=2),
+            _reg(retry=10**1000),
+        ],
+        ids=["period", "timeout", "retry-sleeps", "retry-count"],
+    )
+    def test_derived_overflow_raises_actionable_value_error(
+        self, reg: _TelemetryRegistration
+    ) -> None:
+        """Overflow must not create an infinite, ineffective watchdog.
+
+        Technique: Boundary Value Analysis — finite inputs overflow arithmetic.
+        """
+        with pytest.raises(ValueError, match="Derived stale_after.*finite.*explicitly"):
+            derive_stale_after(reg)
 
     def test_cron_uses_the_longest_gap(self) -> None:
         """An irregular schedule (08:00, 10:00) is bounded by its 22 h gap."""
@@ -227,8 +338,8 @@ class TestResolveStaleAfter:
         resolve_timeouts(app._telemetry, settings)  # noqa: SLF001
         resolve_stale_after(app._telemetry, settings)  # noqa: SLF001
 
-        # 2*10 + 4*(1+1) + 60*1
-        assert app._telemetry[0].stale_after == 88.0  # noqa: SLF001
+        # 2*10 + 4*(1+1) + 72*1
+        assert app._telemetry[0].stale_after == 100.0  # noqa: SLF001
 
 
 class TestStaleAfterPerDevice:
@@ -748,6 +859,93 @@ class TestFreshnessEndToEnd:
     Technique: State Transition Testing through the real wiring.
     """
 
+    async def test_maximum_jitter_retry_cycle_stays_online(self) -> None:
+        """A valid long retry cycle completes before derived freshness expires.
+
+        Technique: Boundary Value Analysis — maximum positive jitter, three
+        retries, and an interval small relative to the backoff cap.
+        """
+        calls = 0
+
+        def factory() -> Any:
+            async def sensor() -> dict[str, int]:
+                nonlocal calls
+                calls += 1
+                if 2 <= calls <= 4:
+                    raise TransportError("transient read failure")
+                return {"value": calls}
+
+            return sensor
+
+        with patch("cosalette._retry.random.uniform", return_value=1.2):
+            payloads = await _run_for(
+                factory,
+                seconds=1100,
+                timeout=None,
+                retry=3,
+                retry_on=(TransportError,),
+                backoff=FixedBackoff(300),
+            )
+
+        assert calls >= 5
+        assert payloads == ["online"]
+
+    async def test_slow_failure_expires_by_elapsed_time_and_recovers(self) -> None:
+        """Freshness can expire after one failed cycle, before another finishes.
+
+        Technique: State Transition Testing — online, elapsed-time stale,
+        recovery; slow handler duration is additional to the interval.
+        """
+        clock = ManualClock()
+        harness = AppHarness.create(clock=clock)
+        calls = 0
+        completed_failures = 0
+
+        @harness.app.telemetry(
+            "sensor", interval=10, timeout=None, stale_after=35, unavailable_on=None
+        )
+        async def sensor() -> dict[str, int]:
+            nonlocal calls, completed_failures
+            calls += 1
+            if calls in (2, 3):
+                await clock.sleep(20)
+                if calls == 2:
+                    completed_failures += 1
+                    raise TransportError("slow failed read")
+            return {"value": calls}
+
+        task = asyncio.create_task(harness.run())
+        try:
+            await harness.wait_for_publish_count(AVAILABILITY, 1)
+            await harness.wait_for_publish_count("testapp/sensor/state", 1)
+            await clock.settle()
+            for _ in range(7):
+                await harness.advance_time(5)
+
+            assert completed_failures == 1
+            assert calls == 2
+            assert _payloads(harness.mqtt, AVAILABILITY) == ["online", "offline"]
+
+            # Freshness stays offline while the subsequent slow cycle runs.
+            for _ in range(2):
+                await harness.advance_time(5)
+            assert calls == 3
+            assert completed_failures == 1
+            assert _payloads(harness.mqtt, AVAILABILITY) == ["online", "offline"]
+
+            for _ in range(4):
+                await harness.advance_time(5)
+            await harness.wait_for_publish_count(AVAILABILITY, 3)
+            assert calls == 3
+            assert _payloads(harness.mqtt, AVAILABILITY) == [
+                "online",
+                "offline",
+                "online",
+            ]
+        finally:
+            harness.trigger_shutdown()
+            await task
+
     async def test_failure_outside_unavailable_on_goes_stale(self) -> None:
         """An error the transport mark ignores is still caught by freshness."""
 
@@ -801,3 +999,49 @@ class TestFreshnessEndToEnd:
         )
 
         assert payloads == ["online"]
+
+    @pytest.mark.parametrize(
+        ("unavailable_on", "expected"),
+        [
+            pytest.param(None, ["online"], id="freshness-only-tolerates-one-cycle"),
+            pytest.param(
+                (TransportError,),
+                ["online", "offline", "online"],
+                id="failure-mark-fires-on-first-cycle",
+            ),
+        ],
+    )
+    async def test_unavailable_on_none_defers_offline_to_stale_after(
+        self, unavailable_on: tuple[type[Exception], ...] | None, expected: list[str]
+    ) -> None:
+        """``unavailable_on=None`` + ``stale_after`` tolerates a lone failed cycle.
+
+        Elapsed-time tolerance, rather than a consecutive-cycle
+        ``unavailable_after=`` threshold (ADR-077 amendment, cos-4mv5.10).
+
+        Technique: Decision Table Testing — failure mark on/off for one
+        transient failed cycle inside the ``stale_after`` window.
+        """
+        # Arrange
+        calls = 0
+
+        def factory() -> Any:
+            async def sensor() -> dict[str, int]:
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise TransportError("one dropped BLE read")
+                return {"value": calls}
+
+            return sensor
+
+        # Act
+        payloads = await _run_for(
+            factory,
+            seconds=60,
+            stale_after=35.0,
+            unavailable_on=unavailable_on,
+        )
+
+        # Assert
+        assert payloads == expected
