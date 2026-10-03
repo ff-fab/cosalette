@@ -1,9 +1,9 @@
 """Tests for adapter health checks.
 
 Covers HealthCheckable protocol detection, AdapterHealthStatus value object,
-adapter-to-device DI mapping, and the HealthCheckRunner periodic loop
-(startup checks, availability toggling, timeout, log deduplication,
-multi-adapter independence, timestamp tracking).
+adapter-to-device DI mapping (including a stream's StreamablePort), and the
+HealthCheckRunner periodic loop (startup checks, availability toggling,
+timeout, log deduplication, multi-adapter independence, timestamp tracking).
 
 Techniques: protocol isinstance, frozen-dataclass immutability, AsyncMock,
 FakeClock, caplog level assertions, asyncio task cancellation,
@@ -23,7 +23,8 @@ import pytest
 from cosalette import App, HealthCheckable
 from cosalette._context import DeviceContext
 from cosalette._health import AdapterHealthStatus, HealthCheckRunner, HealthReporter
-from cosalette._registration import _DeviceRegistration
+from cosalette._registration import _DeviceRegistration, _StreamRegistration
+from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._settings import Settings
 from cosalette._wiring import DeviceInfo, build_adapter_device_map
 from cosalette._wiring._adapter_lifecycle import detect_health_checkable
@@ -252,6 +253,54 @@ class TestBuildAdapterDeviceMap:
         regs = [_make_reg("dev", injection_plan=[("adapter", _PortA)])]
         result = build_adapter_device_map(regs, {})
         assert result == {}
+
+    @pytest.mark.parametrize("is_root", [False, True])
+    def test_stream_maps_to_its_streamable_port(self, is_root: bool) -> None:
+        """A stream depends on the StreamablePort[T] behind its Stream[T]."""
+        # Arrange
+        regs = [_make_stream_reg("radio", is_root=is_root)]
+        adapters: dict[type, object] = {
+            StreamablePort[_Frame]: _HealthyAdapter(),
+            StreamablePort[_OtherFrame]: _HealthyAdapter(),
+            _PortA: _HealthyAdapter(),
+        }
+
+        # Act
+        result = build_adapter_device_map(regs, adapters)
+
+        # Assert: the matching port and the plain injected adapter only
+        assert result[StreamablePort[_Frame]] == [DeviceInfo("radio", is_root)]
+        assert result[_PortA] == [DeviceInfo("radio", is_root)]
+        assert result[StreamablePort[_OtherFrame]] == []
+
+    def test_stream_without_matching_port_maps_nothing(self) -> None:
+        regs = [_make_stream_reg("radio")]
+        adapters: dict[type, object] = {StreamablePort[_OtherFrame]: object()}
+
+        result = build_adapter_device_map(regs, adapters)
+
+        assert result == {StreamablePort[_OtherFrame]: []}
+
+
+class _Frame:
+    """Stream item type."""
+
+
+class _OtherFrame:
+    """A different stream item type."""
+
+
+def _make_stream_reg(name: str, *, is_root: bool = False) -> _StreamRegistration:
+    async def _noop() -> AsyncIterator[None]:
+        if False:
+            yield
+
+    return _StreamRegistration(
+        name=name,
+        func=_noop,
+        injection_plan=[("stream", Stream[_Frame]), ("port", _PortA)],
+        is_root=is_root,
+    )
 
 
 # ---------------------------------------------------------------------------

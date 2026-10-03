@@ -436,7 +436,7 @@ class _LifecycleMixin:
                     )
 
                     adapter_device_map = _wiring.build_adapter_device_map(
-                        self._all_registrations, resolved_adapters
+                        [*self._all_registrations, *self._streams], resolved_adapters
                     )
                     telemetry_adapter_device_map = _wiring.build_adapter_device_map(
                         self._telemetry, resolved_adapters

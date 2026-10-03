@@ -118,54 +118,64 @@ def start_device_tasks(
     return tasks, task_map
 
 
-def _supervise_periodic_and_streams(
+def _supervise_periodic(
     supervisor: TaskSupervisor,
     periodic: Sequence[_PeriodicRegistration],
     periodic_tasks: list[asyncio.Task[None]],
     periodic_providers: dict[type, Any],
-    streams: Sequence[_StreamRegistration],
-    stream_tasks: list[asyncio.Task[None]],
-    start_stream: Callable[[_StreamRegistration], list[asyncio.Task[None]]],
 ) -> None:
-    """Supervise periodic and stream tasks with their restart factories.
+    """Supervise periodic tasks with their restart factories.
 
-    The starters create one task per registration in order, so tasks and
+    The starter creates one task per registration in order, so tasks and
     registrations pair up positionally.  A re-created task is appended to
     the same list so phase-4 teardown cancels it.
     """
 
-    def _restart(
-        start: Callable[[], list[asyncio.Task[None]]],
-        tasks: list[asyncio.Task[None]],
-    ) -> asyncio.Task[None]:
-        (new_task,) = start()
-        prune_done(tasks)
-        tasks.append(new_task)
+    def _restart(reg: _PeriodicRegistration) -> asyncio.Task[None]:
+        (new_task,) = start_periodic_tasks([reg], periodic_providers)
+        prune_done(periodic_tasks)
+        periodic_tasks.append(new_task)
         return new_task
 
     for reg, task in zip(periodic, periodic_tasks, strict=True):
         supervisor.supervise(
-            task,
-            registrations=[reg],
-            restart=functools.partial(
-                _restart,
-                functools.partial(start_periodic_tasks, [reg], periodic_providers),
-                periodic_tasks,
-            ),
+            task, registrations=[reg], restart=functools.partial(_restart, reg)
         )
-    for reg, task in zip(streams, stream_tasks, strict=True):
-        supervisor.supervise(
-            task,
-            # A named stream goes offline under the supervisor source; a root
-            # stream is heartbeat-only (its availability never publishes) and
-            # its error payload goes to {prefix}/error.  Both clear at the
-            # first item after a restart.
-            entities=[(reg.name, reg.is_root)],
-            registrations=[reg],
-            restart=functools.partial(
-                _restart, functools.partial(start_stream, reg), stream_tasks
-            ),
-        )
+
+
+def _with_streams(
+    start_entities: Callable[..., tuple[list[asyncio.Task[None]], DeviceTaskMap]],
+    streams: Sequence[_StreamRegistration],
+    start_streams: Callable[[list[_StreamRegistration]], list[asyncio.Task[None]]],
+) -> Callable[..., tuple[list[asyncio.Task[None]], DeviceTaskMap]]:
+    """Extend an entity starter so it also starts the named streams.
+
+    Streams are in the adapter-to-device map (ADR-029), so both restart
+    paths, adapter and supervisor, re-create them by name and keep them in
+    the name->tasks map.
+    """
+
+    def _start(
+        names: list[str], *, defer_first_cycle: bool = False
+    ) -> tuple[list[asyncio.Task[None]], DeviceTaskMap]:
+        tasks, task_map = start_entities(names, defer_first_cycle=defer_first_cycle)
+        regs = [reg for reg in streams if reg.name in names]
+        tasks.extend(_start_mapped_streams(start_streams, regs, task_map))
+        return tasks, task_map
+
+    return _start
+
+
+def _start_mapped_streams(
+    start_streams: Callable[[list[_StreamRegistration]], list[asyncio.Task[None]]],
+    streams: Sequence[_StreamRegistration],
+    task_map: DeviceTaskMap,
+) -> list[asyncio.Task[None]]:
+    """Start *streams* and record each task in *task_map* under its name."""
+    tasks = start_streams(list(streams))
+    for reg, task in zip(streams, tasks, strict=True):
+        task_map[reg.name] = [task]
+    return tasks
 
 
 def _stale_exit_callback(
@@ -335,31 +345,38 @@ async def run_lifespan_and_devices(
         )
         periodic_tasks = start_periodic_tasks(periodic, periodic_providers)
 
-        stream_tasks = start_stream_tasks(
-            stream_list,
-            resolved_adapters,
-            periodic_providers,
-            shutdown_event,
-            reactors,
+        start_streams = functools.partial(
+            start_stream_tasks,
+            resolved_adapters=resolved_adapters,
+            providers=periodic_providers,
+            shutdown_event=shutdown_event,
+            reactors=reactors,
             stream_contexts=stream_contexts,
             store=store,
             health_reporter=health_reporter,
         )
+        stream_tasks = _start_mapped_streams(
+            start_streams, stream_list, device_task_map
+        )
 
         # One bound starter for both restart paths (ADR-029 adapter restart,
         # ADR-081 supervisor restart), so they cannot drift apart.
-        start_tasks_for_names = functools.partial(
-            start_device_tasks_for_names,
-            devices=devices,
-            telemetry=telemetry,
-            store=store,
-            contexts=contexts,
-            error_publisher=error_publisher,
-            health_reporter=health_reporter,
-            trigger_slots=trigger_slots,
-            reconnect_wake=reconnect_wake,
-            reactors=reactors,
-            supervisor=supervisor,
+        start_tasks_for_names = _with_streams(
+            functools.partial(
+                start_device_tasks_for_names,
+                devices=devices,
+                telemetry=telemetry,
+                store=store,
+                contexts=contexts,
+                error_publisher=error_publisher,
+                health_reporter=health_reporter,
+                trigger_slots=trigger_slots,
+                reconnect_wake=reconnect_wake,
+                reactors=reactors,
+                supervisor=supervisor,
+            ),
+            stream_list,
+            start_streams,
         )
 
         on_tasks_started = None
@@ -383,28 +400,18 @@ async def run_lifespan_and_devices(
 
             def _supervise_entity_tasks(tasks: list[asyncio.Task[None]]) -> None:
                 supervise_entity_tasks(
-                    supervisor, tasks, devices, telemetry, _restart_entities
+                    supervisor,
+                    tasks,
+                    devices,
+                    telemetry,
+                    _restart_entities,
+                    streams=stream_list,
                 )
 
             on_tasks_started = _supervise_entity_tasks
-            _supervise_entity_tasks(device_tasks)
-            _supervise_periodic_and_streams(
-                supervisor,
-                periodic,
-                periodic_tasks,
-                periodic_providers,
-                stream_list,
-                stream_tasks,
-                lambda reg: start_stream_tasks(
-                    [reg],
-                    resolved_adapters,
-                    periodic_providers,
-                    shutdown_event,
-                    reactors,
-                    stream_contexts=stream_contexts,
-                    store=store,
-                    health_reporter=health_reporter,
-                ),
+            _supervise_entity_tasks([*device_tasks, *stream_tasks])
+            _supervise_periodic(
+                supervisor, periodic, periodic_tasks, periodic_providers
             )
 
         # Wire restart callback now that mutable task state exists
