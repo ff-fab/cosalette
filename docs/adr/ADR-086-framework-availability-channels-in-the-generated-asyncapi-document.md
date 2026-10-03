@@ -9,7 +9,7 @@ tags: [mqtt, health, serialization]
 
 ## Status
 
-Accepted **Date:** 2026-10-03
+Accepted **Date:** 2026-10-03 | Amended **Date:** 2026-10-03
 
 ## Context
 
@@ -115,4 +115,19 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Tools that iterate channels must skip framework channels explicitly; the consumer generators, ACL, device-name extraction and MCP manifest do so today
 - Sub-entity availability ({prefix}/{device}/{sub}/availability) and the status and error topics remain undocumented in the schema
 
-_2026-10-03_
+## Amendment (2026-10-03) — Minor
+
+!!! note "Editorial note (2026-10-03)"
+    ACL correction (cos-zbjm, cos-u115): the Exclusions bullet says the fixed `{prefix}/availability` and `{prefix}/+/availability` grants cover the availability channels and that ACL output is unchanged. That held only for flat names. A Router-prefixed name (`floor1/sensors/temp`) and an ADR-031 sub-entity (`{prefix}/{device}/{sub}/availability`) publish more than one level below the prefix, and so does a nested entity's `{prefix}/{name}/error`. A single `+` matches none of them, so a broker enforcing the generated ACL rejected those publishes.
+
+!!! note "Editorial note (2026-10-03)"
+    The app and monitor principals now get one `+` filter per depth, 0 to N levels below the prefix, for both availability and error topics. MQTT allows `#` only as the last level, so `{prefix}/#/availability` is not a valid filter. N follows from naming: an entity name spans at most three validated segments (include_router prefix / Router prefix / name, each checked by `validate_mqtt_name`), so error topics get 0 to 3 levels. Sub-entities add one level for availability but publish no error topic, so availability topics get 0 to 4 levels. Level 0 is the app-wide `{prefix}/availability` and `{prefix}/error` that a root entity (ADR-058) uses. The ACL loop still skips availability channels, and the depth filters now actually cover them.
+
+!!! note "Editorial note (2026-10-03)"
+    Generated ACL output therefore changes: each app principal and the monitor gain the deeper availability and error filters. The statements that broker ACL output is byte-identical or unchanged (the Exclusions bullet, the decision driver, Option 1's advantages and the first positive consequence's ACL part) no longer hold. HA discovery and openHAB output are still byte-identical.
+
+### Additional Negative Consequences
+
+- Generated broker ACLs change: app and monitor principals gain per-depth availability (0 to 4 levels) and error (0 to 3 levels) filters, so adopters who commit generated ACL files must regenerate them
+- The depth filters grant slightly more than needed: any availability or error topic up to the limit under the app's own prefix, not only the names the app registers. The grant stays inside the app's prefix, and deriving exact grants from entity names would not work for the app-agnostic monitor or for documents without availability channels
+- The depth limit is tied to the naming rule (at most three name segments); a deeper naming scheme must raise it in cosalette._schema._acl

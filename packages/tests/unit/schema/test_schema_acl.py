@@ -9,9 +9,15 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from cosalette._app import App
+from cosalette._context import DeviceContext
+from cosalette._errors import ErrorPublisher
+from cosalette._health._reporter import HealthReporter
+from cosalette._router import Router
 from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
@@ -20,6 +26,7 @@ from cosalette._schema import (
 )
 from cosalette._schema._acl import FORMATTERS, AclPrincipal, derive_acl_principals
 from cosalette._schema._loader import load_schema
+from cosalette.testing import FakeClock, MockMqttClient, make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -593,8 +600,10 @@ class TestAclPrefixAwareness:
 
         The set is pinned exactly so an accidental prefix leak shows up as a
         diff.  ``{app}/availability`` was added deliberately as a separate,
-        prefix-independent fix (root entities, ADR-058); it is the only
-        intentional change to this set.
+        prefix-independent fix (root entities, ADR-058), and the deeper
+        ``{app}/+/…/availability`` and ``{app}/+/…/error`` filters by cos-zbjm
+        and cos-u115 (nested names and sub-entities); those are the only
+        intentional changes to this set.
         """
         # Arrange
         registry = await _dumped_registry()
@@ -606,6 +615,11 @@ class TestAclPrefixAwareness:
         assert principal == AclPrincipal(
             name="wiz2mqtt",
             publish_topics=(
+                "wiz2mqtt/+/+/+/+/availability",
+                "wiz2mqtt/+/+/+/availability",
+                "wiz2mqtt/+/+/+/error",
+                "wiz2mqtt/+/+/availability",
+                "wiz2mqtt/+/+/error",
                 "wiz2mqtt/+/availability",
                 "wiz2mqtt/+/error",
                 "wiz2mqtt/_meta/registry",
@@ -707,8 +721,13 @@ class TestMonitorPrefixDepth:
             "+/+/status",
             "+/+/error",
             "+/+/+/error",
+            "+/+/+/+/error",
+            "+/+/+/+/+/error",
             "+/+/availability",
             "+/+/+/availability",
+            "+/+/+/+/availability",
+            "+/+/+/+/+/availability",
+            "+/+/+/+/+/+/availability",
             "+/+/_meta/state_model_drift",
         } == set(monitor.subscribe_topics)
 
@@ -726,3 +745,210 @@ class TestMonitorPrefixDepth:
         assert "+/status" in monitor.subscribe_topics
         assert "+/+/availability" in monitor.subscribe_topics
         assert not any(t.startswith("+/+/status") for t in monitor.subscribe_topics)
+
+
+async def _nested_registry(topic_prefix: str | None) -> SchemaRegistry:
+    """Build a registry whose only entity is the fully nested floor1/sensors/temp."""
+    router = Router(prefix="sensors")
+
+    @router.telemetry("temp", interval=30)
+    async def _temp() -> dict[str, object]:  # pragma: no cover - never invoked
+        return {}
+
+    app = App(name="wiz2mqtt", version="1.0.0")
+    app.include_router(router, prefix="floor1")
+    return await load_schema(app.asyncapi(topic_prefix=topic_prefix))
+
+
+class TestNestedAvailabilityGrant:
+    """cos-zbjm: availability below nested names and sub-entities is granted.
+
+    A Router-prefixed name (``floor1/sensors/temp``) and an ADR-031 sub-entity
+    (``{device}/{sub}/availability``) put availability more than one level
+    below the prefix, which a single ``+`` filter does not match.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: the deepest framework-producible level
+          (include prefix / Router prefix / name / sub-entity) and one beyond.
+        - Specification-based Testing: against the availability channels the
+          generator documents (ADR-086) and the ADR-031 sub-entity topic rule.
+    """
+
+    @pytest.mark.parametrize("prefix", [None, "house/wiz"])
+    async def test_entity_and_sub_entity_availability_is_granted(
+        self, prefix: str | None
+    ) -> None:
+        """App and monitor cover the nested entity and its sub-entity."""
+        # Arrange
+        registry = await _nested_registry(prefix)
+        entity_topic = f"{prefix or 'wiz2mqtt'}/floor1/sensors/temp/availability"
+        sub_entity_topic = entity_topic.replace("/availability", "/cal/availability")
+
+        # Act
+        principals = {p.name: p for p in derive_acl_principals(registry)}
+
+        # Assert
+        documented = {
+            ch.address
+            for ch in registry.channels.values()
+            if ch.framework_role == "availability"
+        }
+        assert entity_topic in documented
+        for topic in (entity_topic, sub_entity_topic):
+            assert any(
+                _mqtt_filter_matches(f, topic)
+                for f in principals["wiz2mqtt"].publish_topics
+            )
+            assert any(
+                _mqtt_filter_matches(f, topic)
+                for f in principals["monitor"].subscribe_topics
+            )
+
+    @pytest.mark.parametrize("prefix", [None, "house/wiz"])
+    async def test_grant_stops_at_the_deepest_framework_level(
+        self, prefix: str | None
+    ) -> None:
+        """One level beyond a sub-entity of a fully nested name is not granted."""
+        # Arrange
+        registry = await _nested_registry(prefix)
+        too_deep = f"{prefix or 'wiz2mqtt'}/a/b/c/d/e/availability"
+
+        # Act
+        principals = {p.name: p for p in derive_acl_principals(registry)}
+
+        # Assert
+        assert not any(
+            _mqtt_filter_matches(f, too_deep)
+            for f in principals["wiz2mqtt"].publish_topics
+        )
+        assert not any(
+            _mqtt_filter_matches(f, too_deep)
+            for f in principals["monitor"].subscribe_topics
+        )
+
+
+class TestNestedErrorGrant:
+    """cos-u115: per-entity error topics below nested names are granted.
+
+    ``ErrorPublisher`` publishes ``{prefix}/{name}/error`` for every non-root
+    entity, and a Router-prefixed name (``floor1/sensors/temp``) puts that topic
+    three levels below the prefix.  Sub-entities publish no error topic.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: the deepest framework-producible name
+          (include prefix / Router prefix / name) and one level beyond.
+        - Equivalence Partitioning: unprefixed vs multi-segment prefix.
+        - Specification-based Testing: the error topic is derived from the
+          generated channel address, i.e. from the runtime naming rule.
+    """
+
+    @pytest.mark.parametrize("prefix", [None, "house/wiz"])
+    async def test_nested_entity_error_is_granted(self, prefix: str | None) -> None:
+        """App and monitor cover ``{prefix}/floor1/sensors/temp/error``."""
+        # Arrange
+        registry = await _nested_registry(prefix)
+        state_topic = f"{prefix or 'wiz2mqtt'}/floor1/sensors/temp/state"
+        error_topic = state_topic.removesuffix("/state") + "/error"
+
+        # Act
+        principals = {p.name: p for p in derive_acl_principals(registry)}
+
+        # Assert
+        assert state_topic in {ch.address for ch in registry.channels.values()}
+        assert any(
+            _mqtt_filter_matches(f, error_topic)
+            for f in principals["wiz2mqtt"].publish_topics
+        )
+        assert any(
+            _mqtt_filter_matches(f, error_topic)
+            for f in principals["monitor"].subscribe_topics
+        )
+
+    @pytest.mark.parametrize("prefix", [None, "house/wiz"])
+    async def test_error_grant_stops_at_the_deepest_name_level(
+        self, prefix: str | None
+    ) -> None:
+        """An error topic one level below a fully nested name is not granted."""
+        # Arrange
+        registry = await _nested_registry(prefix)
+        too_deep = f"{prefix or 'wiz2mqtt'}/floor1/sensors/temp/cal/error"
+
+        # Act
+        principals = {p.name: p for p in derive_acl_principals(registry)}
+
+        # Assert
+        assert not any(
+            _mqtt_filter_matches(f, too_deep)
+            for f in principals["wiz2mqtt"].publish_topics
+        )
+        assert not any(
+            _mqtt_filter_matches(f, too_deep)
+            for f in principals["monitor"].subscribe_topics
+        )
+
+
+class TestNestedRuntimePublisherParity:
+    """Generated ACLs grant the topics real framework publishers emit.
+
+    Test Techniques Used:
+        - Boundary Value Analysis: deepest device and sub-entity names.
+        - Equivalence Partitioning: unprefixed vs multi-segment prefix.
+        - State-based Testing: recorded runtime MQTT publications.
+    """
+
+    @pytest.mark.parametrize("prefix", [None, "house/wiz"])
+    async def test_nested_runtime_framework_topics_are_granted(
+        self, prefix: str | None, mock_mqtt: MockMqttClient, fake_clock: FakeClock
+    ) -> None:
+        """App and monitor cover real device/sub-entity availability and errors."""
+        # Arrange
+        registry = await _nested_registry(prefix)
+        topic_prefix = prefix or "wiz2mqtt"
+        name = "floor1/sensors/temp"
+        assert name in registry.device_names
+        reporter = HealthReporter(
+            mqtt=mock_mqtt,
+            topic_prefix=topic_prefix,
+            version="1.0.0",
+            clock=fake_clock,
+        )
+        context = DeviceContext(
+            name=name,
+            settings=make_settings(),
+            mqtt=mock_mqtt,
+            topic_prefix=topic_prefix,
+            shutdown_event=asyncio.Event(),
+            adapters={},
+            clock=fake_clock,
+            health_reporter=reporter,
+        )
+        errors = ErrorPublisher(mqtt=mock_mqtt, topic_prefix=topic_prefix)
+        principals = {p.name: p for p in derive_acl_principals(registry)}
+
+        # Act — sub-entity entry and exit publish online/offline availability.
+        await reporter.publish_device_available(name)
+        async with context.sub_entity("cal"):
+            await errors.publish(ValueError("sensor failed"), device=name)
+        await reporter.publish_device_unavailable(name)
+
+        # Assert — inspect actual publications rather than reconstructed topics.
+        framework_topics = {
+            topic
+            for topic, _, _, _ in mock_mqtt.published
+            if topic.endswith(("/availability", "/error"))
+        }
+        assert framework_topics == {
+            f"{topic_prefix}/{name}/availability",
+            f"{topic_prefix}/{name}/cal/availability",
+            f"{topic_prefix}/{name}/error",
+            f"{topic_prefix}/error",
+        }
+        for topic in framework_topics:
+            assert any(
+                _mqtt_filter_matches(f, topic)
+                for f in principals["wiz2mqtt"].publish_topics
+            ), topic
+            assert any(
+                _mqtt_filter_matches(f, topic)
+                for f in principals["monitor"].subscribe_topics
+            ), topic
