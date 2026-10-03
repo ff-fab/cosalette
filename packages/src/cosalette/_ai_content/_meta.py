@@ -672,6 +672,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "still publish only the class name. configure_logging() gains the same "
         "redact= keyword, and JsonFormatter now uses a pre-formatted "
         "record.exc_text when present (see: cosalette ai help resilience).",
+        "Availability channels in the generated AsyncAPI document (ADR-086): "
+        "every device, telemetry, command and named stream gets a retained "
+        "{name}Availability channel (online/offline), and a root entity gets "
+        "one {prefix}/availability channel. They carry x-cosalette-framework: "
+        "'availability' and x-cosalette-discoverable: false, so Home "
+        "Assistant, openHAB and ACL output is unchanged. x-cosalette-contract-"
+        "version is now '2'; regenerate committed schema artefacts (behaviour "
+        "change, see: cosalette ai help availability).",
     ],
     "0.10.2": [
         "openHAB availability wiring (ADR-079): `cosalette schema openhab` now "

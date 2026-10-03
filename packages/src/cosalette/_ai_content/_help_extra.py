@@ -599,6 +599,9 @@ emit the *registry snapshot* instead (fields below): the flat registration view
 that also covers periodic tasks (no AsyncAPI channel by construction, ADR-041)
 and each entity's trigger_source / min_interval. Without `--registry`,
 `manifest` and `manifest --table` emit AsyncAPI exactly as before.
+Since contract version "2" (ADR-086) the document also carries one framework
+availability channel per entity that owns availability (x-cosalette-framework:
+"availability"); `--table` omits them. See `cosalette ai help availability`.
 
 ## Registry snapshot fields (--registry, cosalette_inspect_app)
 
@@ -1140,6 +1143,21 @@ Defaults by Archetype (ADR-077):
     require ctx.mark_available(); yielded items do not clear manual marks.
     Root streams are heartbeat-only: they never publish any availability
     topic and never touch {app}/availability.
+
+In the Generated AsyncAPI Document (ADR-086):
+  `cosalette manifest` / `schema dump` emit one retained availability channel
+  per entity that owns one: every named device, telemetry, command and named
+  stream gets {name}Availability on {prefix}/{name}/availability (payload enum
+  online/offline, qos 1, retain), plus a publish{Name}Availability operation.
+  A root entity adds a single flat "availability" channel on
+  {prefix}/availability, even under a Router prefix. Root streams get none
+  (heartbeat-only), and ctx.sub_entity() topics are not in the schema.
+  The channels carry x-cosalette-framework: "availability" and
+  x-cosalette-discoverable: false, with no x-cosalette-archetype, so
+  `schema ha-discovery` / `openhab` / `acl` output and the `manifest --table`
+  rows are unchanged. x-cosalette-contract-version is now "2": regenerate any
+  committed schema artefacts. Tools that walk every channel should skip those
+  with x-cosalette-framework.
 
 Freshness — stale_after (ADR-080):
   Failure-driven availability cannot see a dead task, a hung poll or an error
@@ -1822,7 +1840,8 @@ Opting a channel out (`discoverable=False`, ADR-073):
 
   It is then excluded from `ha-discovery`/`openhab` output and from the gate
   above, and emits `x-cosalette-discoverable: false` on the generated channel
-  (only when False, so default documents stay byte-identical). This is the
+  (only when False, so default documents stay byte-identical; framework
+  availability channels always carry it, ADR-086). This is the
   durable, author-controlled replacement for hand-editing the archetype, which
   `schema dump` erased.
 
