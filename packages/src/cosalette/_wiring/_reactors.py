@@ -62,7 +62,7 @@ async def run_reactor_boundaries(
     providers: Mapping[Any, Any],
     reactors: list[_ReactorRegistration] | None,
     *,
-    on_first_item: Callable[[], Awaitable[None]] | None = None,
+    on_item: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run an async iterable, dispatching reactors at yield boundaries.
 
@@ -73,18 +73,16 @@ async def run_reactor_boundaries(
         async_iterable: The async iterable or generator to iterate.
         providers: DI provider map for reactor dispatch.
         reactors: List of reactor registrations to dispatch at boundaries.
-        on_first_item: Awaited once, after the first yielded boundary has
-            been dispatched (the stream recovery point of ADR-081).
+        on_item: Awaited after every yielded boundary has been dispatched
+            (stream freshness and the ADR-081 recovery point).
     """
-    first_item = on_first_item
     try:
         async for _ in async_iterable:
             # Dispatch reactors after each yielded boundary
             if reactors:
                 await dispatch_reactors(reactors, providers)
-            if first_item is not None:
-                callback, first_item = first_item, None
-                await callback()
+            if on_item is not None:
+                await on_item()
         # Dispatch reactors once at normal completion
         # This handles handlers that mutate before returning
         # but don't yield a final item

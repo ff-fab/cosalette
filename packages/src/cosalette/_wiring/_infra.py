@@ -7,6 +7,7 @@ import contextlib
 import logging
 import signal
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
@@ -18,6 +19,7 @@ from cosalette._persistence._state import StateRegistration, _FactoryVariant
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
@@ -208,8 +210,11 @@ async def enter_state_factories(
 
 
 async def publish_device_availability(
-    all_registrations: list[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    all_registrations: Sequence[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
     health_reporter: HealthReporter,
 ) -> None:
@@ -217,7 +222,9 @@ async def publish_device_availability(
 
     A device already marked unavailable is announced ``"offline"`` and keeps
     its mark; every other device is announced ``"online"`` (ADR-012
-    amendment).  When telemetry and command share a name (scoped
+    amendment).  Callers pass named streams too, which own an availability
+    topic (ADR-081 amendment); a root stream is heartbeat-only and the
+    reporter publishes nothing for it.  When telemetry and command share a name (scoped
     uniqueness), availability is published once for the shared name.
     """
     seen: set[str] = set()
@@ -342,8 +349,11 @@ def register_connect_reannounce(
     mqtt: MqttPort,
     app: Any,  # App — Any to avoid circular import
     health_reporter: HealthReporter,
-    all_registrations: list[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    all_registrations: Sequence[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
     prefix: str,
     store: Store | None,
@@ -477,8 +487,11 @@ async def publish_startup_snapshot(
     app: Any,  # App — Any to avoid circular import
     mqtt: MqttPort,
     health_reporter: HealthReporter,
-    all_registrations: list[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    all_registrations: Sequence[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
     prefix: str,
     store: Store | None,

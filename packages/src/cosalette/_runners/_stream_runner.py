@@ -189,8 +189,9 @@ async def run_stream(
     CancelledError propagates immediately for clean shutdown.  Any other
     exception that ends the handler propagates too, so the task supervisor
     can report it and apply ``on_task_failure`` (ADR-081); a normal return
-    is logged at INFO.  With *health_reporter*, the first item the handler
-    produces clears the supervisor's task-failure mark.
+    is logged at INFO.  With *health_reporter*, every item the handler
+    produces records freshness and clears the supervisor's task-failure
+    mark.
     """
     _item_type, _port = find_stream_adapter(reg, resolved_adapters)
     stream: Stream[Any] = Stream(maxsize=reg.maxsize, backpressure=reg.backpressure)
@@ -240,7 +241,7 @@ async def run_stream(
                 stream,
                 stream_providers,
                 reactors,
-                on_first_item=_recovery_callback(reg.name, health_reporter),
+                on_item=_item_callback(reg, health_reporter),
             )
     finally:
         watcher.cancel()
@@ -251,17 +252,23 @@ async def run_stream(
     logger.info("stream '%s' handler completed", reg.name)
 
 
-def _recovery_callback(
-    name: str, health_reporter: HealthReporter | None
+def _item_callback(
+    reg: _StreamRegistration, health_reporter: HealthReporter | None
 ) -> Callable[[], Awaitable[None]] | None:
-    """Return the first-item callback that ends a task-failure mark."""
+    """Return the per-item health callback.
+
+    Every item counts as a fresh cycle for ``stale_after`` (a no-op for an
+    untracked stream) and ends a task-failure mark (a no-op unless the
+    supervisor set one), ADR-081 2026-10-03 amendment.
+    """
     if health_reporter is None:
         return None
 
-    async def _clear() -> None:
-        health_reporter.clear_stream_failure(name)
+    async def _on_item() -> None:
+        await health_reporter.record_success(reg.name)
+        await health_reporter.clear_task_failure(reg.name, is_root=reg.is_root)
 
-    return _clear
+    return _on_item
 
 
 async def _run_stream_handler(
@@ -270,7 +277,7 @@ async def _run_stream_handler(
     providers: dict[type, Any],
     reactors: list[_ReactorRegistration] | None,
     *,
-    on_first_item: Callable[[], Awaitable[None]] | None = None,
+    on_item: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """Run stream handler and dispatch reactors after each yield.
 
@@ -306,6 +313,4 @@ async def _run_stream_handler(
     # Iterate the async iterable and dispatch reactors after each yield
     from cosalette._wiring._reactors import run_reactor_boundaries
 
-    await run_reactor_boundaries(
-        result, providers, reactors, on_first_item=on_first_item
-    )
+    await run_reactor_boundaries(result, providers, reactors, on_item=on_item)

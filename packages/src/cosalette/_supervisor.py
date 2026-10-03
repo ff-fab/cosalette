@@ -172,7 +172,6 @@ class _Supervised:
     policy: TaskFailurePolicy
     internal: bool
     restart: RestartFactory | None
-    availability: bool = True
     # Set for a coalescing-group member's ``init=`` record: the group task
     # key it belongs to.  Such a record has no task of its own; the group
     # runner retries the init in place (ADR-081 member isolation).
@@ -241,7 +240,6 @@ class TaskSupervisor:
         entities: Iterable[tuple[str, bool]] = (),
         registrations: Sequence[object] = (),
         restart: RestartFactory | None = None,
-        availability: bool = True,
     ) -> None:
         """Supervise an entity, periodic or stream task.
 
@@ -256,9 +254,6 @@ class TaskSupervisor:
                 resolution.
             restart: Factory that creates and returns a replacement task;
                 ``None`` makes ``"restart"`` behave like ``"exit"``.
-            availability: ``False`` for entities without an availability
-                topic (streams): a failure marks them ``error`` in the
-                heartbeat only, never offline.
         """
         record = self._record(
             task.get_name(),
@@ -267,7 +262,6 @@ class TaskSupervisor:
             internal=False,
             restart=restart,
         )
-        record.availability = availability
         self._track(record, task)
 
     def supervise_internal(self, task: asyncio.Task[None] | None) -> None:
@@ -608,10 +602,6 @@ class TaskSupervisor:
 
     async def _mark_entities_failed(self, record: _Supervised) -> None:
         if self._health is None:
-            return
-        if not record.availability:
-            for name, _ in record.entities:
-                self._health.mark_stream_failed(name)
             return
         for name, is_root in record.entities:
             await self._health.publish_device_unavailable(

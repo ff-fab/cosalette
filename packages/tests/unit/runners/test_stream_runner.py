@@ -18,10 +18,11 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -339,7 +340,6 @@ class TestRunStreamDeviceContextAndStore:
 
     async def test_device_context_injectable_via_providers(self) -> None:
         """Handler declaring DeviceContext receives it from stream_providers."""
-        from unittest.mock import MagicMock
 
         port = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
@@ -916,30 +916,34 @@ class TestFalseyAdapterRegression:
 
 
 class TestRunStreamTaskFailureRecovery:
-    """A re-created stream clears its heartbeat error at its first item.
+    """Every stream item counts as a success; it clears the supervisor mark.
 
     Technique: State Transition Testing — no item -> first item -> later
-    items; the clear happens exactly once.
+    items; each item reports success and clears the task failure (a no-op
+    in the reporter once nothing is marked).
     """
 
-    async def test_first_item_clears_task_failure_once(self) -> None:
-        """clear_stream_failure runs after the first item, not for later ones."""
+    @pytest.mark.parametrize("is_root", [False, True], ids=["named", "root"])
+    async def test_each_item_records_success_and_clears_failure(
+        self, is_root: bool
+    ) -> None:
+        """Nothing before the first item; one success + clear per item."""
         # Arrange
         port = _FakePort()
         resolved: dict[type, object] = {StreamablePort[_Item]: port}
         shutdown = asyncio.Event()
-        health = MagicMock()
-        cleared_before_item: list[bool] = []
+        health = AsyncMock()
+        calls_before_item: list[int] = []
 
         async def handler(stream: Stream[_Item]) -> AsyncIterator[None]:
             async for _ in stream:
                 yield
 
-        reg = _make_reg(handler)
+        reg = dataclasses.replace(_make_reg(handler), is_root=is_root)
 
         async def _drive() -> None:
             await _yield_loop(5)
-            cleared_before_item.append(health.clear_stream_failure.call_count > 0)
+            calls_before_item.append(health.record_success.await_count)
             port._callback(_Item())
             port._callback(_Item())
             await _yield_loop(10)
@@ -951,9 +955,11 @@ class TestRunStreamTaskFailureRecovery:
         await driver
 
         # Assert
-        assert cleared_before_item == [False]
-        health.clear_stream_failure.assert_called_once_with("test_stream")
-        health.clear_task_failure.assert_not_called()
+        assert calls_before_item == [0]
+        assert health.record_success.await_count == 2
+        health.record_success.assert_awaited_with("test_stream")
+        assert health.clear_task_failure.await_count == 2
+        health.clear_task_failure.assert_awaited_with("test_stream", is_root=is_root)
 
     async def test_completion_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """A stream handler that returns logs an INFO completion line."""

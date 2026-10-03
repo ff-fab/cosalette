@@ -42,11 +42,13 @@ import hmac
 import json
 import logging
 from asyncio import to_thread
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from cosalette._registration import (
     _CommandRegistration,
     _DeviceRegistration,
+    _StreamRegistration,
     _TelemetryRegistration,
 )
 from cosalette._registration._validation import validate_mqtt_name
@@ -75,6 +77,13 @@ _SNAPSHOT_KEY_PREFIX = "__cosalette_entity_snapshot__"
 _STATE_AND_AVAILABILITY: tuple[str, ...] = ("state", "availability")
 _AVAILABILITY_ONLY: tuple[str, ...] = ("availability",)
 
+type _AnnouncedRegistration = (
+    _DeviceRegistration
+    | _TelemetryRegistration
+    | _CommandRegistration
+    | _StreamRegistration
+)
+
 
 def _snapshot_key(prefix: str) -> str:
     """Return the reserved store key for *prefix*'s entity snapshot."""
@@ -82,21 +91,27 @@ def _snapshot_key(prefix: str) -> str:
 
 
 def _retained_kinds(
-    reg: _DeviceRegistration | _TelemetryRegistration | _CommandRegistration,
+    reg: _AnnouncedRegistration,
 ) -> tuple[str, ...]:
     """Return the retained topic kinds a registration owns.
 
     Devices and telemetry own both ``state`` and ``availability``; commands
     own ``availability`` only (they listen on ``/set`` and never retain state).
+    Named streams own ``availability`` (ADR-081 amendment); their optional
+    ``state`` topic is published only when the handler calls
+    ``ctx.publish_state()``, so it is not claimed here.
     """
-    if isinstance(reg, _CommandRegistration):
+    if isinstance(reg, (_CommandRegistration, _StreamRegistration)):
         return _AVAILABILITY_ONLY
     return _STATE_AND_AVAILABILITY
 
 
 def build_entity_snapshot(
-    all_registrations: list[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    all_registrations: Sequence[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
 ) -> dict[str, object]:
     """Build a JSON-serializable snapshot of the resolved entity set.
@@ -263,8 +278,11 @@ def _orphan_topics(prefix: str, name: str, info: dict[str, object]) -> list[str]
 
 async def reconcile_retained_topics(
     mqtt: MqttPort,
-    all_registrations: list[
-        _DeviceRegistration | _TelemetryRegistration | _CommandRegistration
+    all_registrations: Sequence[
+        _DeviceRegistration
+        | _TelemetryRegistration
+        | _CommandRegistration
+        | _StreamRegistration
     ],
     prefix: str,
     store: Store | None,

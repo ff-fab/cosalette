@@ -193,6 +193,44 @@ async def handle_frames(stream: Stream[Frame], port: SerialPort):
     `AppHarness.create(run_streams=True)` (see the
     [Streaming guide](../guides/streaming.md#running-the-real-lifecycle-with-run_streamstrue)).
 
+### Availability and health
+
+A **named** stream owns a retained `{prefix}/{stream}/availability` topic,
+managed by the health reporter like a device's
+([ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md),
+2026-10-03 amendment). It shows `"ok"` in the `{prefix}/status` heartbeat from
+startup and goes `"offline"` while any source holds it unavailable:
+
+| Source | Goes offline when | Comes back when |
+|---|---|---|
+| `supervisor` | the handler raises (heartbeat `"error"`) | the re-created stream yields its first item |
+| `manual` | the handler calls `ctx.mark_unavailable()` | the handler calls `ctx.mark_available()` |
+| `freshness` | no item for `stale_after` seconds (heartbeat `"stale"`) | the next item arrives |
+
+```python
+@app.stream("ble-feed", stale_after=120, feeds=["radon", "co2"])
+async def ble_feed(stream: Stream[Advertisement], ctx: cosalette.DeviceContext):
+    async for adv in stream:
+        await ctx.publish_state(decode(adv))
+        yield
+```
+
+- **`stale_after=`** (seconds, or a `(Settings) -> float` callable) is opt-in;
+  nothing is derived. Every yielded item counts as a success. A stale stream
+  also counts for `exit_after_stale=` and the health file, which raise and
+  report `StaleTelemetryError` as for telemetry.
+- **`feeds=[...]`** names devices or telemetry entities that depend on the
+  stream. While the stream is offline for any reason, each one is held
+  `"offline"` under the `stream:{name}` source; its own sources stay
+  independent. Unknown names and root entities fail at startup.
+
+A **root** stream (`@app.stream()` without a name) is heartbeat-only. Its
+crash, manual marks and `stale_after=` change only its heartbeat status; it
+never publishes `{prefix}/availability`, which stays app-wide. `feeds=` is
+rejected on a root stream.
+
+Streams are not part of Home Assistant discovery.
+
 ### Manual wiring vs `@app.stream`
 
 | | `@app.device` (manual) | `@app.stream` (managed) |

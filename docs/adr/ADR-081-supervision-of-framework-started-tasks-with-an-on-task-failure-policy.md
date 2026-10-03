@@ -9,7 +9,7 @@ tags: [lifecycle, health, error-handling, telemetry, devices]
 
 ## Status
 
-Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03
 
 ## Context
 
@@ -243,3 +243,42 @@ Member records live in the supervisor, not in the group task, so they survive a 
 
 !!! note "Editorial note (2026-10-02)"
     Ungrouped telemetry `init=` failures are unchanged: the task fails and section 3 applies to it.
+
+## Amendment (2026-10-03) — Corrective
+
+**Rationale:** The first 2026-10-02 amendment ("Streams report failure without availability", Decision B) removed the per-stream availability topic because it had no consumer, was never cleaned up, and a root stream published it under its handler name. Each argument has since been answered: (1) consumers now exist: the new feeds= link drives fed entities from the stream's availability, ctx.mark_unavailable() / ctx.mark_available() give stream handlers manual marks, and anything watching a stream's /state needs to know whether that state is current; (2) cleanup is fixed: named streams join the ADR-048 retained-cleanup snapshot with the availability kind; (3) root streams are excluded: a root stream is heartbeat-only and never publishes any availability topic, so the {prefix}/{funcname}/availability leak cannot recur and {prefix}/availability stays app-wide; (4) the premise that streams are excluded from AsyncAPI was wrong: stream /state channels are already generated, and availability is auto-wired for every archetype just as for devices and telemetry. Without availability a stream cannot express a crash, a manual outage or staleness to anything but a human reading the heartbeat (cos-pbd8, cos-4iim).
+
+> **Justification for amendment (not supersession):** ADR-081 is merged but unreleased: the latest release (0.10.6) predates it, so no adopter depends on streams lacking an availability topic. The change is confined to stream health reporting: devices, telemetry, groups, periodic tasks and the on_task_failure policy, restart budget, backoff and exit code are unchanged, and the two new stream parameters are opt-in with inert defaults. Supersession would be disproportionate.
+
+### Additional Sub-Decision: Named streams own their availability (supersedes "Streams report failure without availability")
+
+A named stream owns a retained `{prefix}/{stream}/availability`, managed by the health reporter's multi-source mechanism (ADR-077). It is announced `online` on first connect, re-asserted on reconnect, published `offline` at shutdown and recorded in the ADR-048 retained-cleanup snapshot with the `availability` kind. A crash marks it `offline` under the `supervisor` source with heartbeat status `error`; the first item of the re-created stream clears that source. `ctx.mark_unavailable()` and `ctx.mark_available()` work in stream handlers under the `manual` source. Every stream shows `ok` in the `{prefix}/status` heartbeat from startup. Home Assistant discovery still excludes streams. This replaces the sub-decision "Streams report failure without availability" of the first 2026-10-02 amendment; the on_task_failure policy, restart budget, backoff and exit code 4 apply to streams unchanged.
+
+### Additional Sub-Decision: Root streams are heartbeat-only
+
+A root stream (`@app.stream()` without a name) never publishes an availability topic and never touches `{prefix}/availability`, which stays app-wide. Its availability sources (supervisor, manual, freshness) still change its heartbeat status to `error`, `unavailable` or `stale`, and its task-failure payload goes to `{prefix}/error` only. This differs deliberately from root telemetry, whose explicit opt-ins publish `{prefix}/availability`: a stream is a bridge, not the app's primary entity.
+
+### Additional Sub-Decision: Opt-in stale_after= for streams
+
+`@app.stream(..., stale_after=...)` and the Router equivalent take the telemetry type (`TimeoutSpec | None`, default `None`). A callable is resolved against settings at bootstrap; nothing is derived. Every yielded item counts as a success. When no item arrives within the bound, the stream goes `offline` under the `freshness` source and shows `stale` in the heartbeat; the next item restores it. Stream bounds join the freshness watchdog, so they also feed `exit_after_stale=` (ADR-083) and the health file; `restart_on_stale` does not apply because streams are not in the adapter map. On a root stream the bound is heartbeat-only.
+
+### Additional Sub-Decision: Opt-in feeds= link from a stream to the entities it supplies
+
+`@app.stream(..., feeds=[...])` names devices or telemetry entities whose availability follows the stream. Names are validated at bootstrap, after name expansion and enabled= resolution: an unknown name or a root entity fails fast with ValueError; a bare str is rejected at decoration with TypeError. A root stream may not declare feeds= (ValueError at decoration). While the stream is offline from any source, each fed entity is held `offline` under the source `stream:{name}`, which clears when the stream is online again. The fed entity's own sources stay independent: neither side clears the other. The link carries availability only, no reactor or effects metadata.
+
+!!! note "Editorial note (2026-10-03)"
+    The approved design also asked for an AsyncAPI availability channel next to each named stream's /state. It was not added: the generator emits no availability channel for any archetype, so a stream-only channel would be inconsistent and would change the schema consumers see. Follow-up cos-0iyk tracks a uniform decision.
+
+!!! note "Editorial note (2026-10-03)"
+    Out-of-scope follow-ups found during implementation: streams are missing from the ADR-029 adapter-to-device map (cos-kg37), and ctx.sub_entity() in a stream publishes availability outside the health reporter (cos-cpbq).
+
+!!! note "Editorial note (2026-10-03)"
+    A stale stream that trips exit_after_stale= raises StaleTelemetryError, whose message still says "Telemetry"; the exception type and message are unchanged for compatibility.
+
+### Additional Positive Consequences
+
+- A stream crash, manual outage or stale feed is visible to machines on a retained topic, and can take the entities it supplies offline through feeds=
+
+### Additional Negative Consequences
+
+- Named streams add one retained topic each, and root streams behave differently from root telemetry for manual marks and stale_after

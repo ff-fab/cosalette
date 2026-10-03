@@ -44,6 +44,7 @@ from cosalette._wiring._task_lifecycle import (
     start_heartbeat_task,
     start_periodic_tasks,
     start_stream_tasks,
+    track_streams,
     track_telemetry_freshness,
     wire_restart_callback,
 )
@@ -155,15 +156,15 @@ def _supervise_periodic_and_streams(
     for reg, task in zip(streams, stream_tasks, strict=True):
         supervisor.supervise(
             task,
-            # A stream has no availability topic: a failure shows as "error"
-            # in the heartbeat only, cleared at the first item after a
-            # restart.  A root stream's error payload goes to {prefix}/error.
+            # A named stream goes offline under the supervisor source; a root
+            # stream is heartbeat-only (its availability never publishes) and
+            # its error payload goes to {prefix}/error.  Both clear at the
+            # first item after a restart.
             entities=[(reg.name, reg.is_root)],
             registrations=[reg],
             restart=functools.partial(
                 _restart, functools.partial(start_stream, reg), stream_tasks
             ),
-            availability=False,
         )
 
 
@@ -298,6 +299,7 @@ async def run_lifespan_and_devices(
         # this call for direct users of this wiring helper too, before its
         # first heartbeat.
         track_telemetry_freshness(telemetry, health_reporter)
+        track_streams(stream_list, health_reporter)
         if publish_initial_heartbeat:
             await health_reporter.publish_heartbeat()
         heartbeat_task = start_heartbeat_task(heartbeat_interval, health_reporter)

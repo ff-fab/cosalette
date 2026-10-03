@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from cosalette._app._helpers import _check_no_port_in_signature
+from cosalette._app._stream import validate_stream_health
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
+    TimeoutSpec,
     _StreamRegistration,
     validate_stream_signature,
 )
@@ -43,6 +45,8 @@ class _RouterStreamMixin:
         behavior: list[str] | None,
         effects: list[str] | None,
         tags: list[str] | None,
+        stale_after: TimeoutSpec | None = None,
+        feeds: Sequence[str] = (),
     ) -> Callable[P, R]:
         """Build stream registration and return func unchanged.
 
@@ -72,6 +76,9 @@ class _RouterStreamMixin:
 
         plan = build_injection_plan(func)
         is_root = effective_name == _callable_qualname(func)
+        fed = validate_stream_health(
+            effective_name, stale_after=stale_after, feeds=feeds, is_root=is_root
+        )
         merged_tags = self._merge_tags(tags)
 
         reg = _StreamRegistration(
@@ -87,6 +94,8 @@ class _RouterStreamMixin:
             state_model=state_model,
             behavior=behavior,
             effects=effects,
+            stale_after=stale_after,
+            feeds=fed,
         )
         self._streams.append(reg)
         return func
@@ -103,6 +112,8 @@ class _RouterStreamMixin:
         behavior: list[str] | None = None,
         effects: list[str] | None = None,
         tags: list[str] | None = None,
+        stale_after: TimeoutSpec | None = None,
+        feeds: Sequence[str] = (),
     ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """Register a streaming handler for push-to-pull data bridging.
 
@@ -121,12 +132,16 @@ class _RouterStreamMixin:
             behavior: Phrases describing what the handler does.
             effects: Side effects produced by the handler.
             tags: Additional tags for this stream.
+            stale_after: Opt-in freshness bound (see ``App.stream``).
+            feeds: Entity names whose availability follows this stream
+                (see ``App.stream``).  Not allowed on a root stream.
 
         Returns:
             The decorated function, unchanged.
 
         Raises:
             TypeError: If the function lacks a Stream[T] parameter.
+            ValueError: If *stale_after* or *feeds* is invalid.
         """
         if callable(enabled):
 
@@ -142,6 +157,8 @@ class _RouterStreamMixin:
                     behavior,
                     effects,
                     tags,
+                    stale_after,
+                    feeds,
                 )
 
             return decorator
@@ -160,6 +177,8 @@ class _RouterStreamMixin:
                 behavior,
                 effects,
                 tags,
+                stale_after,
+                feeds,
             )
 
         return decorator

@@ -611,65 +611,293 @@ class TestRootDeviceAvailability:
 
 
 # ---------------------------------------------------------------------------
-# Stream failure status (ADR-081, cos-pbd8)
+# Stream availability (ADR-081 amendment, cos-pbd8 / cos-4iim)
 # ---------------------------------------------------------------------------
 
 
-class TestStreamFailureStatus:
-    """A stream's task failure lives in the heartbeat only.
+async def _heartbeat_devices(
+    reporter: HealthReporter, mock_mqtt: MockMqttClient
+) -> dict[str, Any]:
+    await reporter.publish_heartbeat()
+    payload, _, _ = mock_mqtt.get_messages_for("myapp/status")[-1]
+    return json.loads(payload)["devices"]
 
-    Technique: State Transition Testing — unmarked -> error -> ok; the
-    stream never joins the availability roster.
+
+def _availability_topics(mock_mqtt: MockMqttClient) -> list[str]:
+    return [t for t, _, _, _ in mock_mqtt.published if t.endswith("availability")]
+
+
+class TestRootStreamHeartbeatOnly:
+    """A root stream is heartbeat-only and never touches ``{prefix}/availability``.
+
+    Technique: State Transition Testing — ok -> error/unavailable -> ok,
+    driven by every availability source, with no availability publish.
     """
 
-    async def _heartbeat_devices(
-        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
-    ) -> dict[str, Any]:
-        mock_mqtt.reset()
-        await reporter.publish_heartbeat()
-        ((payload, _, _),) = mock_mqtt.get_messages_for("myapp/status")
-        return json.loads(payload)["devices"]
-
-    async def test_heartbeat_shows_error_then_ok(
+    async def test_heartbeat_ok_from_startup(
         self, reporter: HealthReporter, mock_mqtt: MockMqttClient
     ) -> None:
-        """mark -> ``error`` in the heartbeat; clear -> ``ok``."""
+        """A tracked root stream reports ``ok`` before any item arrives."""
+        # Arrange
+        reporter.track_heartbeat_only("feed")
+
         # Act
-        reporter.mark_stream_failed("feed")
-        after_failure = await self._heartbeat_devices(reporter, mock_mqtt)
-        reporter.clear_stream_failure("feed")
-        after_recovery = await self._heartbeat_devices(reporter, mock_mqtt)
+        devices = await _heartbeat_devices(reporter, mock_mqtt)
 
         # Assert
-        assert after_failure == {"feed": {"status": "error"}}
-        assert after_recovery == {"feed": {"status": "ok"}}
+        assert devices == {"feed": {"status": "ok"}}
 
-    async def test_clear_is_noop_when_never_marked(
-        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    @pytest.mark.parametrize("source", ["supervisor", "manual", "freshness"])
+    async def test_sources_change_heartbeat_but_never_publish(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient, source: str
     ) -> None:
-        """A stream that never failed does not appear in the heartbeat."""
+        """Every source flips the heartbeat status; nothing is published."""
+        # Arrange
+        reporter.track_heartbeat_only("feed")
+
         # Act
-        reporter.clear_stream_failure("feed")
-        devices = await self._heartbeat_devices(reporter, mock_mqtt)
+        await reporter.publish_device_unavailable("feed", is_root=True, source=source)
+        offline = await _heartbeat_devices(reporter, mock_mqtt)
+        await reporter.publish_device_available("feed", is_root=True, source=source)
+        online = await _heartbeat_devices(reporter, mock_mqtt)
 
         # Assert
-        assert devices == {}
+        assert offline == {"feed": {"status": "unavailable"}}
+        assert online == {"feed": {"status": "ok"}}
+        assert _availability_topics(mock_mqtt) == []
+        assert "feed" not in reporter._root_devices  # noqa: SLF001
 
-    async def test_never_publishes_availability(
+    async def test_reannounce_and_shutdown_skip_root_stream(
         self, reporter: HealthReporter, mock_mqtt: MockMqttClient
     ) -> None:
-        """Failure, reannounce and shutdown publish no stream availability."""
+        """Lifecycle publishes leave the app-wide availability topic alone."""
+        # Arrange
+        reporter.track_heartbeat_only("feed")
+        await reporter.publish_device_unavailable(
+            "feed", is_root=True, source="supervisor"
+        )
+
         # Act
-        reporter.mark_stream_failed("feed")
-        await reporter.reannounce()
-        reporter.clear_stream_failure("feed")
+        await reporter.announce_device("feed", is_root=True)
         await reporter.reannounce()
         await reporter.shutdown()
 
         # Assert
-        topics = [topic for topic, _, _, _ in mock_mqtt.published]
-        assert not [t for t in topics if t.endswith("availability")]
-        assert "feed" not in reporter._devices  # noqa: SLF001
+        assert _availability_topics(mock_mqtt) == []
+
+
+class TestNamedStreamAvailability:
+    """A named stream owns ``{prefix}/{stream}/availability``.
+
+    Technique: State Transition Testing — online -> offline (supervisor)
+    -> online (first item clears the mark).
+    """
+
+    async def test_supervisor_mark_then_first_item_recovers(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Crash -> offline + ``error``; first item -> online + ``ok``."""
+        # Arrange
+        reporter.set_device_status("feed", "ok")
+
+        # Act
+        await reporter.publish_device_unavailable("feed", source="supervisor")
+        reporter.set_device_status("feed", "error")
+        failed = await _heartbeat_devices(reporter, mock_mqtt)
+        await reporter.record_success("feed")
+        await reporter.clear_task_failure("feed")
+        recovered = await _heartbeat_devices(reporter, mock_mqtt)
+
+        # Assert
+        assert failed == {"feed": {"status": "error"}}
+        assert recovered == {"feed": {"status": "ok"}}
+        assert mock_mqtt.get_messages_for("myapp/feed/availability") == [
+            ("offline", True, 1),
+            ("online", True, 1),
+        ]
+
+    async def test_reannounce_keeps_offline_and_shutdown_publishes_offline(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Reconnect re-asserts the live state; shutdown marks it offline."""
+        # Arrange
+        await reporter.announce_device("feed")
+        await reporter.publish_device_unavailable("feed", source="manual")
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.reannounce()
+        await reporter.shutdown()
+
+        # Assert
+        assert mock_mqtt.get_messages_for("myapp/feed/availability") == [
+            ("offline", True, 1),
+            ("offline", True, 1),
+        ]
+
+
+class TestStreamFreshness:
+    """``stale_after`` on a stream drives the ``freshness`` source.
+
+    Technique: Boundary Value Analysis — just below and at ``stale_after``;
+    State Transition Testing — fresh -> stale -> fresh.
+    """
+
+    async def test_stale_then_item_restores(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """Stale at the bound -> offline + ``stale``; next item -> online."""
+        # Arrange
+        reporter.set_device_status("feed", "ok")
+        reporter.track_freshness("feed", 30.0, label="Stream")
+
+        # Act
+        fake_clock._time = 129.9
+        before = await reporter.check_freshness()
+        fake_clock._time = 130.0
+        at_bound = await reporter.check_freshness()
+        stale = await _heartbeat_devices(reporter, mock_mqtt)
+        longest = reporter.longest_stale()
+        await reporter.record_success("feed")
+        fresh = await _heartbeat_devices(reporter, mock_mqtt)
+
+        # Assert
+        assert before == []
+        assert at_bound == ["feed"]
+        assert stale["feed"]["status"] == "stale"
+        assert longest == ("feed", 0.0)
+        assert fresh["feed"]["status"] == "ok"
+        assert reporter.is_unavailable("feed") is False
+
+    async def test_root_stream_stale_is_heartbeat_only(
+        self,
+        reporter: HealthReporter,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A stale root stream shows ``stale`` but publishes nothing."""
+        # Arrange
+        reporter.track_heartbeat_only("feed")
+        reporter.track_freshness("feed", 30.0, is_root=True, label="Stream")
+        fake_clock._time = 130.0
+
+        # Act
+        newly = await reporter.check_freshness()
+        devices = await _heartbeat_devices(reporter, mock_mqtt)
+
+        # Assert
+        assert newly == ["feed"]
+        assert devices["feed"]["status"] == "stale"
+        assert _availability_topics(mock_mqtt) == []
+
+    async def test_stale_log_names_stream(
+        self,
+        reporter: HealthReporter,
+        fake_clock: FakeClock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The stale warning names the archetype passed as *label*."""
+        # Arrange
+        reporter.track_freshness("feed", 30.0, label="Stream")
+        fake_clock._time = 130.0
+
+        # Act
+        with caplog.at_level(logging.WARNING):
+            await reporter.check_freshness()
+
+        # Assert
+        assert "Stream 'feed' is stale" in caplog.text
+
+
+class TestStreamFeeds:
+    """A stream's availability propagates to the entities it feeds.
+
+    Technique: Decision Table Testing — stream source x fed entity's own
+    source; the ``stream:{name}`` source is independent of the others.
+    """
+
+    @pytest.mark.parametrize("source", ["supervisor", "manual", "freshness"])
+    async def test_offline_from_any_source_propagates(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient, source: str
+    ) -> None:
+        """Any stream source takes every fed entity offline and back."""
+        # Arrange
+        reporter.set_feeds("feed", ["radon", "co2"])
+
+        # Act
+        await reporter.publish_device_unavailable("feed", source=source)
+        fed_offline = (
+            reporter.is_unavailable("radon", source="stream:feed"),
+            reporter.is_unavailable("co2", source="stream:feed"),
+        )
+        await reporter.publish_device_available("feed", source=source)
+
+        # Assert
+        assert fed_offline == (True, True)
+        assert reporter.is_unavailable("radon") is False
+        assert reporter.is_unavailable("co2") is False
+        assert mock_mqtt.get_messages_for("myapp/radon/availability") == [
+            ("offline", True, 1),
+            ("online", True, 1),
+        ]
+
+    async def test_fed_entity_own_source_stays_independent(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Stream recovery does not clear the fed entity's own failure."""
+        # Arrange
+        reporter.set_feeds("feed", ["radon"])
+        await reporter.publish_device_unavailable("radon", source="device")
+        mock_mqtt.reset()
+
+        # Act
+        await reporter.publish_device_unavailable("feed", source="supervisor")
+        await reporter.publish_device_available("feed", source="supervisor")
+
+        # Assert
+        assert reporter.is_unavailable("radon", source="device") is True
+        assert reporter.is_unavailable("radon", source="stream:feed") is False
+        assert mock_mqtt.get_messages_for("myapp/radon/availability") == []
+
+    async def test_stream_holds_fed_entity_after_its_own_recovery(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """A fed entity's own recovery keeps it offline while the stream is."""
+        # Arrange
+        reporter.set_feeds("feed", ["radon"])
+        await reporter.publish_device_unavailable("radon", source="device")
+        await reporter.publish_device_unavailable("feed", source="supervisor")
+
+        # Act
+        await reporter.publish_device_available("radon", source="device")
+
+        # Assert
+        assert reporter.is_unavailable("radon", source="stream:feed") is True
+
+    async def test_second_source_does_not_republish(
+        self, reporter: HealthReporter, mock_mqtt: MockMqttClient
+    ) -> None:
+        """Propagation fires on the stream's transition only."""
+        # Arrange
+        reporter.set_feeds("feed", ["radon"])
+
+        # Act
+        await reporter.publish_device_unavailable("feed", source="supervisor")
+        await reporter.publish_device_unavailable("feed", source="manual")
+        await reporter.publish_device_available("feed", source="supervisor")
+        still_offline = reporter.is_unavailable("radon")
+        await reporter.publish_device_available("feed", source="manual")
+
+        # Assert
+        assert still_offline is True
+        assert reporter.is_unavailable("radon") is False
+        assert mock_mqtt.get_messages_for("myapp/radon/availability") == [
+            ("offline", True, 1),
+            ("online", True, 1),
+        ]
 
 
 # ---------------------------------------------------------------------------

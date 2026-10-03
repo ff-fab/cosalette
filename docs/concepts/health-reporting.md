@@ -186,9 +186,14 @@ Each device gets its own availability topic, published automatically by the
 | Task failure     | `"offline"`, heartbeat status `"error"`        | Task supervisor (ADR-081) |
 | Task recovered   | `"online"`, heartbeat status `"ok"` (when no other source is offline) | First success after restart |
 
-A stream has no availability topic. When a stream task fails, only its
-heartbeat status changes (`"error"`, then `"ok"` after its first item following
-a restart); see [Stream failures](error-handling.md#stream-failures).
+A named stream owns `{prefix}/{stream}/availability` like a device: a task
+failure publishes `"offline"` with heartbeat status `"error"`, and the first
+item after the restart publishes `"online"` again. Streams also support
+`ctx.mark_unavailable()` / `ctx.mark_available()`, an opt-in `stale_after=`,
+and `feeds=[...]` to hold the entities they supply offline with them. A root
+stream is heartbeat-only and never publishes `{prefix}/availability`. See
+[Stream failures](error-handling.md#stream-failures) and
+[Streaming](streaming.md#availability-and-health).
 
 ```python
 # Published automatically by the framework
