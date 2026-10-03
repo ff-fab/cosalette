@@ -284,6 +284,27 @@ velux2mqtt/cover/calibrate/availability → "offline"
 Sub-entity availability is managed automatically by `ctx.sub_entity()` — `"online"` on
 enter, `"offline"` on exit, with retained state cleared on teardown. See
 [ADR-031](../adr/ADR-031-sub-entity-context-manager.md).
+
+### Availability in the Generated AsyncAPI Document
+
+Since contract version `"2"`, the generated AsyncAPI document describes these
+topics as framework-owned channels
+([ADR-086](../adr/ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md)):
+
+| Owner | Channel id | Address |
+|-------|------------|---------|
+| Named device, telemetry or command | `{name}Availability` | `{prefix}/{name}/availability` |
+| Named stream | `{name}Availability` | `{prefix}/{stream}/availability` |
+| Root entity | `availability` | `{prefix}/availability` |
+| Root stream, sub-entity | — | not generated |
+
+A telemetry and a command that share a name share one channel. Each channel has
+a string payload enum (`online`, `offline`), an MQTT binding with `qos: 1` and
+`retain: true`, and a `publish{Name}Availability` send operation. It carries
+`x-cosalette-framework: "availability"` and `x-cosalette-discoverable: false`
+instead of an `x-cosalette-archetype`, so Home Assistant discovery, openHAB and
+broker ACL output do not change.
+
 ## Error Topics
 
 Published by the `ErrorPublisher` service. Every error is published to

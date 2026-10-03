@@ -193,6 +193,16 @@ AsyncAPI state channel (`x-cosalette-archetype: stream`) as of
 the registry snapshot additionally carries stream-only fields that AsyncAPI does not
 (maxsize, backpressure, dependencies).
 
+The AsyncAPI document also describes framework-owned topics that have no registry
+entry of their own. Since contract version `"2"`
+([ADR-086](../adr/ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md)),
+every device, telemetry, command and *named* stream gets an availability channel
+(`{name}Availability` at `{prefix}/{name}/availability`, or `availability` at
+`{prefix}/availability` for the root entity). These channels carry
+`x-cosalette-framework: "availability"` instead of an archetype. A root stream is
+heartbeat-only and gets none. The registry snapshot does not list them, and the
+`cosalette manifest` table leaves them out so each entity appears once.
+
 ### Adapter Entries
 
 ```python
