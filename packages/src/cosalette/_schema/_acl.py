@@ -25,10 +25,12 @@ from cosalette._schema import ChannelSchema, SchemaRegistry, _prefix_depth
 # Rejects control chars, newlines, quotes, broker metacharacters.
 _SAFE_ACL_RE = re.compile(r"^[A-Za-z0-9_./:{}+#-]+$")
 
-# Topic levels an availability topic may sit below the prefix.  An entity name
-# is at most include_router prefix / Router prefix / name, each one validated
-# segment (``validate_mqtt_name``), and an ADR-031 sub-entity adds one more.
-_MAX_AVAILABILITY_LEVELS = 4
+# Topic levels an entity name may span below the prefix: include_router prefix
+# / Router prefix / name, each one validated segment (``validate_mqtt_name``).
+# Errors are published per entity (``_errors.py``); availability may also come
+# from an ADR-031 sub-entity, one level deeper.
+_MAX_NAME_LEVELS = 3
+_MAX_AVAILABILITY_LEVELS = _MAX_NAME_LEVELS + 1
 
 
 def _validate_acl_value(value: str, label: str) -> None:
@@ -47,17 +49,24 @@ class AclPrincipal:
     subscribe_topics: tuple[str, ...]
 
 
-def _availability_filters(base: str) -> list[str]:
-    """Return filters matching every availability topic below *base*.
+def _depth_filters(base: str, suffix: str, max_levels: int) -> list[str]:
+    """Return filters matching ``{base}/…/{suffix}`` at 0 to *max_levels* levels.
 
-    MQTT allows ``#`` only as the last level, so ``{base}/#/availability`` is
-    not a filter; each depth gets its own ``+`` filter instead.  Zero levels is
-    a root entity (ADR-058), one a flat device, deeper ones Router-prefixed
-    names and their sub-entities (ADR-031).
+    MQTT allows ``#`` only as the last level, so ``{base}/#/{suffix}`` is not a
+    filter; each depth gets its own ``+`` filter instead.  Zero levels is the
+    app-wide topic a root entity (ADR-058) uses, one a flat device, deeper ones
+    Router-prefixed names and, for availability, sub-entities (ADR-031).
     """
     return [
-        "/".join([base, *["+"] * levels, "availability"])
-        for levels in range(_MAX_AVAILABILITY_LEVELS + 1)
+        "/".join([base, *["+"] * levels, suffix]) for levels in range(max_levels + 1)
+    ]
+
+
+def _framework_entity_filters(base: str) -> list[str]:
+    """Return the error and availability filters for every entity below *base*."""
+    return [
+        *_depth_filters(base, "error", _MAX_NAME_LEVELS),
+        *_depth_filters(base, "availability", _MAX_AVAILABILITY_LEVELS),
     ]
 
 
@@ -105,12 +114,10 @@ def _build_app_principal(
 
     publish_topics = [
         f"{prefix}/status",
-        f"{prefix}/error",
         f"{prefix}/schema/status",
         f"{prefix}/{REGISTRY_TOPIC_SUFFIX}",
         f"{prefix}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
-        *_availability_filters(prefix),
-        f"{prefix}/+/error",
+        *_framework_entity_filters(prefix),
     ]
     subscribe_topics: list[str] = ["cosalette/schema/update"]
 
@@ -198,9 +205,7 @@ def _build_monitor_principal(topic_prefix: str | None) -> AclPrincipal:
     monitor_topics = [
         f"{p}/schema/status",
         f"{p}/status",
-        f"{p}/error",
-        f"{p}/+/error",
-        *_availability_filters(p),
+        *_framework_entity_filters(p),
         f"{p}/{STATE_MODEL_DRIFT_TOPIC_SUFFIX}",
     ]
     return AclPrincipal(
