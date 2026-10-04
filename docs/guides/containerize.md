@@ -206,7 +206,9 @@ Two settings make a measurable difference:
   resident memory, a 7 MiB higher peak and about 70 % more start-up CPU without it.
 - **Keep the default allocator.** Do not set `PYTHONMALLOC=malloc`. On a musl
   (Alpine) image it increased resident memory by about 3 MiB. `MALLOC_ARENA_MAX`
-  has no effect, because a cosalette app runs only two or three threads.
+  is a glibc allocator control and is ignored by musl. On glibc, even a process
+  with two or three threads may use multiple arenas, so its memory and contention
+  effects depend on the workload.
 
 ---
 

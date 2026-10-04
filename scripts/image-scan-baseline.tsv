@@ -1,6 +1,4 @@
 # target	severity	id	package	installed	fixed-or-dash	acceptance-group
-Python	HIGH	CVE-2025-47273	setuptools	70.3.0	78.1.1	pip_vendor
-Python	HIGH	GHSA-6v7p-g79w-8964	msgpack	1.1.2	1.2.1	pip_vendor
 debian	CRITICAL	CVE-2026-43185	linux-libc-dev	6.12.107-1	-	kernel_headers
 debian	CRITICAL	CVE-2026-60002	openssh-client	1:10.0p1-7+deb13u4	-	openssh_pending
 debian	CRITICAL	CVE-2026-6653	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-	libxml2_pending

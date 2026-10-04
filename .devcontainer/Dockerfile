@@ -16,7 +16,12 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d
 
 # The pinned Python base image includes an older GitPython release. Keep the
 # global installation patched for devcontainer utilities that import it.
-RUN uv pip install --system --no-cache 'GitPython==3.1.62'
+RUN uv pip install --system --no-cache \
+      'GitPython==3.1.62' \
+      'setuptools>=78.1.1' \
+      'virtualenv>=21.7.13' \
+      'urllib3>=2.8.0' \
+      'msgpack>=1.2.1'
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft
@@ -48,7 +53,7 @@ ARG DOCKER_VERSION=29.8.1
 # renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
-ARG BUILDX_VERSION=0.37.1
+ARG BUILDX_VERSION=0.37.2
 # DL3008 suppressed for general utility packages (jq, httpie, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
@@ -186,10 +191,10 @@ RUN set -eux; \
 # The tarball ships a single static-ish binary; an ICU compatibility symlink
 # is created when the binary links against a different ICU than the OS provides.
 # renovate: datasource=github-releases depName=gastownhall/beads
-ARG BD_VERSION=v1.3.0
+ARG BD_VERSION=v1.3.1
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG BD_SHA256_AMD64=2f92b904ecf35b607e44dc5c39229173af69c54f1183e8d709f1773540cdcf3b
-ARG BD_SHA256_ARM64=4ce9446a68edc13202b76c84a47d66fb3dad2787b6464c9522a108faf9c1c608
+ARG BD_SHA256_AMD64=3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
+ARG BD_SHA256_ARM64=c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
