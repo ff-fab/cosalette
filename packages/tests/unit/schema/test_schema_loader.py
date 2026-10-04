@@ -9,16 +9,19 @@ Test Techniques Used:
   (flat, oneOf, anyOf, allOf, nested, empty, collision)
 - Boundary Value Analysis: _extract_properties nested/array descent stops
   at one level
+- Decision Table: _ensure_schema_deps over {jsonschema, yaml} x
+  {installed, missing}
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from cosalette._schema import HaEntitySpec
+from cosalette._schema import HaEntitySpec, _loader
 from cosalette._schema._loader import (
     FileSchemaSource,
     InlineSchemaSource,
@@ -125,6 +128,55 @@ channels:
             await load_schema(source)
 
         assert "must have 'tag' field" in str(exc_info.value)
+
+
+class TestEnsureSchemaDeps:
+    """_ensure_schema_deps checks presence of the [schema] extra.
+
+    Technique: Decision Table — {jsonschema, yaml} x {installed, missing}.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_checked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(_loader, "_schema_deps_checked", False)
+
+    def test_presence_check_does_not_import_dependencies(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Installed deps pass without being imported (memory footprint).
+
+        Technique: Specification-based — the check must leave sys.modules
+        unchanged so discovery does not keep jsonschema/yaml resident.
+        """
+        # Arrange
+        for name in ("jsonschema", "yaml"):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+
+        # Act
+        _loader._ensure_schema_deps()
+
+        # Assert
+        assert "jsonschema" not in sys.modules
+        assert "yaml" not in sys.modules
+        assert _loader._schema_deps_checked is True
+
+    @pytest.mark.parametrize("missing", ["jsonschema", "yaml"])
+    def test_missing_dependency_raises_install_hint(
+        self, monkeypatch: pytest.MonkeyPatch, missing: str
+    ) -> None:
+        """A missing dependency raises ImportError naming it and the extra."""
+        # Arrange
+        real_find_spec = _loader.find_spec
+        monkeypatch.setattr(
+            _loader,
+            "find_spec",
+            lambda name: None if name == missing else real_find_spec(name),
+        )
+
+        # Act / Assert
+        with pytest.raises(ImportError, match=rf"missing: {missing}\).*\[schema\]"):
+            _loader._ensure_schema_deps()
+        assert _loader._schema_deps_checked is False
 
 
 class TestLoadSchema:

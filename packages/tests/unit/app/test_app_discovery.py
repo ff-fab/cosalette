@@ -24,6 +24,7 @@ Test Techniques:
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable
 from typing import Annotated, cast
 
@@ -180,6 +181,29 @@ class TestBuildDiscoveryPayloads:
         temp = next(p for p in payloads if p.config.get("name") == "Temperature")
         assert temp.config["device_class"] == "temperature"
         assert temp.topic.startswith("homeassistant/")
+
+    async def test_does_not_import_jsonschema_or_yaml(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Runtime discovery leaves jsonschema and PyYAML unloaded.
+
+        Technique: Error Guessing — the [schema] presence check used to
+        import both, keeping about 70 modules resident in every app that
+        calls ``app.discovery()`` (cos-8jxg.2).
+        """
+        # Arrange
+        monkeypatch.setattr("cosalette._schema._loader._schema_deps_checked", False)
+        for name in ("jsonschema", "yaml"):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+        app = _annotated_app()
+
+        # Act
+        payloads = await build_discovery_payloads(app, DiscoveryConfig())
+
+        # Assert
+        assert payloads
+        assert "jsonschema" not in sys.modules
+        assert "yaml" not in sys.modules
 
     async def test_result_is_cached_on_app(self) -> None:
         app = _annotated_app()
