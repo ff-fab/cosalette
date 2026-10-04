@@ -75,7 +75,8 @@ availability, heartbeat `stale`) and recover with `restart: unless-stopped` plus
 (Kubernetes, Swarm, autoheal); plain Docker never restarts unhealthy containers.
 Do not add a Docker `HEALTHCHECK` by default. Where a probe is used, run
 `cosalette-health` (ADR-087: native binary in platform wheels, stdlib-only script
-elsewhere) rather than `<app> health`, which imports the whole app.
+elsewhere) rather than `<app> health`, which imports the whole app. A source
+build still needs Rust for the existing PyO3 extension.
 
 ### Settings
 

@@ -630,7 +630,8 @@ Container Liveness (ADR-083) — MQTT first, probe opt-in:
   • Health file probe only where an orchestrator acts on it (Kubernetes
     liveness, Swarm, autoheal). Probe with cosalette-health (ADR-087):
     native binary in platform wheels (~1 ms, 2 MiB), stdlib Python script
-    from the sdist (~60 ms); `myapp health` / `cosalette health` start
+    on platforms without a native probe wheel (~60 ms); source builds still
+    need Rust for the existing PyO3 extension. `myapp health` / `cosalette health` start
     Python + import the framework (~400 ms, seconds on a Pi). For the
     fallback: compile bytecode at image build (UV_COMPILE_BYTECODE=1),
     long interval + start_period/start_interval

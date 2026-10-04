@@ -39,7 +39,10 @@ The file is one JSON object, written atomically:
 
 The probes ignore every other key, including the rest of the
 [heartbeat payload](payloads.md). The file must be strict JSON: `NaN`,
-`Infinity` and numbers that overflow to infinity make it unreadable.
+`Infinity` and numbers that overflow to infinity make it unreadable. Integers
+outside the signed/unsigned 64-bit range are represented as finite floating
+point values when possible, matching serde_json; values too large for a finite
+float make the file unreadable.
 
 ## Checks
 
@@ -80,10 +83,12 @@ at all.
 
     Platform wheels contain `cosalette-health` as a native binary for Linux
     x86_64, aarch64 and armv7 (glibc 2.17 or newer), Alpine/musl x86_64 and
-    aarch64, macOS x86_64 and arm64, and Windows x86_64. Everywhere else, for
-    example Alpine on armv7, pip builds `cosalette` from the source
-    distribution and `cosalette-health` is a Python script with the same
-    options and exit codes that imports only the standard library.
+    aarch64, macOS x86_64 and arm64, and Windows x86_64. Elsewhere, for
+    example Alpine on armv7, `cosalette-health` is a Python script with the
+    same options and exit codes and imports only the standard library. A source
+    install still builds the required `cosalette-filters-rs` extension through
+    maturin/PyO3, so it needs Rust when no matching wheel is available; the
+    health fallback adds no further Rust build requirement.
 
     `head -c 4 "$(command -v cosalette-health)" | od -c` shows `177 E L F` for
     the native binary on Linux and `#!` for the Python script.

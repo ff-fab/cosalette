@@ -610,7 +610,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "longer loads pydantic, typer, aiomqtt or orjson until a name is used.",
         "cosalette-health probe command (ADR-087): a native binary in platform "
         "wheels (~1 ms per probe) and a stdlib-only Python script elsewhere, "
-        "with the options and exit codes of `cosalette health`. Use "
+        "with the options and exit codes of `cosalette health`. Source builds "
+        "still need Rust for the existing PyO3 extension. Use "
         'HEALTHCHECK CMD ["cosalette-health"]. The health file now carries '
         "health_file_version: 1; probes report unknown versions unhealthy "
         "(see: cosalette ai help health).",

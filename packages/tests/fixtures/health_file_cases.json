@@ -51,6 +51,41 @@
       "reason_prefix": "health file {path} is unreadable: "
     },
     {
+      "name": "integer above u64 range is parsed as finite number",
+      "text": "{\"written_at\": 999990, \"interval\": 18446744073709551616}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "maximum u64 integer is valid JSON",
+      "text": "{\"written_at\": 999990, \"unknown\": 18446744073709551615}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "minimum i64 integer is valid JSON",
+      "text": "{\"written_at\": 999990, \"unknown\": -9223372036854775808}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "integer below i64 range is parsed as finite number",
+      "text": "{\"written_at\": 999990, \"interval\": -9223372036854775809}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "integer too large for finite number is not JSON",
+      "text": "{\"written_at\": 999990, \"unknown\": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
       "name": "UTF-8 BOM",
       "text": "﻿{\"written_at\": 999990}",
       "now": 1000000,

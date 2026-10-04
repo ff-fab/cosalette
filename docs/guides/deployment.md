@@ -439,8 +439,10 @@ On a Raspberry Pi 4 limited to `cpus: 0.5`, one adopter measured 11–13 s per
 
     The platform wheels for Linux (glibc x86_64, aarch64, armv7; musl x86_64,
     aarch64), macOS and Windows x86_64 contain the native binary. On other
-    platforms pip builds from the source distribution and `cosalette-health` is
-    a Python script with the same options and exit codes. To keep the fallback
+    platforms `cosalette-health` is a Python script with the same options and
+    exit codes. If pip must build the package from its source distribution, the
+    existing maturin/PyO3 build for `cosalette-filters-rs` requires Rust; the
+    health fallback adds no additional Rust requirement. To keep the fallback
     cheap:
 
     - Compile bytecode when you build the image, for example with

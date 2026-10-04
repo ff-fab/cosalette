@@ -9,7 +9,7 @@ tags: [health, packaging, cli, release]
 
 ## Status
 
-Accepted **Date:** 2026-10-04
+Accepted **Date:** 2026-10-04 | Amended **Date:** 2026-10-04
 
 ## Context
 
@@ -118,4 +118,12 @@ _Scale: 1 (poor) to 5 (excellent)_
 - The binary's dependencies do not appear in syft SBOMs until it is built with cargo-auditable
 - Changes to the health-file check must be made in Python and Rust together
 
-_2026-10-04_
+## Amendment (2026-10-04) — Minor
+
+!!! note "Editorial note (2026-10-04)"
+    Correction to the original sdist installation claim and its driver/matrix score: the stdlib health fallback adds no Rust requirement, but the package source build still requires Rust because maturin builds the mandatory cosalette-filters-rs PyO3 extension. Therefore source installs without a matching platform wheel require Rust; the original Decision Drivers entry 'sdist installs must keep working without a Rust toolchain' and Decision Matrix criterion 'sdist works without Rust' incorrectly described package installation rather than the health fallback. The intended guarantee is that the fallback itself imports only the standard library and adds no further Rust build requirement. The sdist smoke test validates the fallback command on a Rust-equipped runner, not a Rust-free source build.
+
+## Amendment (2026-10-04) — Minor
+
+!!! note "Editorial note (2026-10-04)"
+    Health-file numeric parsing follows serde_json: integer literals in the i64/u64 range remain integers; integers outside that range are converted to finite floating-point values when possible; values that overflow to infinity make the document unreadable. The Python fallback uses the same rule, covered by shared fixtures at both integer boundaries and for overflow.

@@ -9,8 +9,8 @@ use cosalette_health::{HEALTH_FILE_ENV, Outcome, run};
 fn main() -> ExitCode {
     // Docker HEALTHCHECK reserves exit 2 and the release profile aborts on
     // panic, so a bug must still report "unhealthy" with exit 1.
-    std::panic::set_hook(Box::new(|info| {
-        let _ = writeln!(std::io::stderr(), "unhealthy: internal error: {info}");
+    std::panic::set_hook(Box::new(|_| {
+        let _ = write_panic_message(&mut std::io::stderr());
         std::process::exit(1);
     }));
     let now = SystemTime::now()
@@ -35,5 +35,21 @@ fn main() -> ExitCode {
             let _ = writeln!(std::io::stderr(), "unhealthy: {reason}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn write_panic_message(writer: &mut impl Write) -> std::io::Result<()> {
+    writeln!(writer, "unhealthy: internal error")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_panic_message;
+
+    #[test]
+    fn panic_message_is_generic_and_does_not_expose_details() {
+        let mut output = Vec::new();
+        write_panic_message(&mut output).unwrap();
+        assert_eq!(output, b"unhealthy: internal error\n");
     }
 }

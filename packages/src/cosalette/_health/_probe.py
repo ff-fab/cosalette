@@ -106,8 +106,27 @@ def _load(path: Path) -> dict[str, object] | ProbeResult:
 
 def _parse(text: str) -> object:
     # Strict JSON, like the writer and the Rust probe: no NaN/Infinity
-    # tokens and no numbers that overflow to infinity.
-    return json.loads(text, parse_constant=_reject_constant, parse_float=_finite)
+    # tokens and numbers that cannot be represented as a finite serde_json
+    # number. Integers outside its i64/u64 range are parsed as finite floats.
+    return json.loads(
+        text,
+        parse_constant=_reject_constant,
+        parse_float=_finite,
+        parse_int=_integer,
+    )
+
+
+def _integer(token: str) -> int | float:
+    value = int(token)
+    if -(2**63) <= value <= 2**64 - 1:
+        return value
+    try:
+        floating = float(value)
+    except OverflowError:
+        _reject_constant(token)
+    if not math.isfinite(floating):
+        _reject_constant(token)
+    return floating
 
 
 def _reject_constant(token: str) -> NoReturn:
