@@ -53,7 +53,7 @@ ARG DOCKER_VERSION=29.8.1
 # renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
-ARG BUILDX_VERSION=0.37.2
+ARG BUILDX_VERSION=0.37.1
 # DL3008 suppressed for general utility packages (jq, httpie, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
