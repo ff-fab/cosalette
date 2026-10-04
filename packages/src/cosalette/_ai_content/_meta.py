@@ -599,6 +599,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.11.1": [
+        "Health guidance is MQTT-first (ADR-083 amendment): alert on the "
+        "{prefix}/status heartbeat + LWT and device availability/stale, and "
+        "recover with restart: unless-stopped plus exit_after_stale and "
+        "on_task_failure. The health file probe is opt-in for orchestrators "
+        "that act on it; default examples no longer add a Docker HEALTHCHECK, "
+        "which plain Docker never acts on (see: cosalette ai help health).",
+        "`import cosalette` resolves public names lazily (PEP 562) and no "
+        "longer loads pydantic, typer, aiomqtt or orjson until a name is used.",
+    ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "
         "and App.add_stream now support opt-in stale_after= and feeds=. Named "
@@ -646,8 +656,9 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "Container liveness (ADR-083): set COSALETTE_HEALTH_FILE and the app "
         "writes its heartbeat plus written_at/interval to that file atomically; "
         "`<app> health` and `cosalette health` exit 0/1 from it (--max-age, "
-        "repeatable --fail-on, default stale) for Docker HEALTHCHECK or "
-        "Kubernetes exec probes. Off by default. App(exit_after_stale=...) "
+        "repeatable --fail-on, default stale) for orchestrators that act on "
+        "health (Kubernetes, Swarm, autoheal). Off by default. "
+        "App(exit_after_stale=...) "
         "shuts the app down with exit code 5 (StaleTelemetryError) once a "
         "telemetry entity or explicitly tracked stream has been stale that "
         "long (see: cosalette ai help "

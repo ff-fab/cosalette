@@ -68,6 +68,13 @@ Everything is importable from `cosalette` directly — no private module imports
 | `HealthCheckable`   | Protocol   | `async def health_check() -> bool` — adapter health check contract |
 | `AdapterHealthStatus`| dataclass | Per-adapter health state: healthy, failures, restarts |
 
+Liveness (ADR-083): alert on MQTT (`{prefix}/status` heartbeat + LWT, per-device
+availability, heartbeat `stale`) and recover with `restart: unless-stopped` plus
+`exit_after_stale` (exit 5) and `on_task_failure` (exit 4). The opt-in
+`COSALETTE_HEALTH_FILE` + `<app> health` probe is only for orchestrators that act
+on it (Kubernetes, Swarm, autoheal); plain Docker never restarts unhealthy
+containers. Do not add a Docker `HEALTHCHECK` by default.
+
 ### Settings
 
 | Export            | Type          | Description                                        |
@@ -213,7 +220,7 @@ App(
     on_task_failure: "restart" | "exit" | "ignore" = "restart",  # Policy when a framework-started task dies (ADR-081)
     task_max_restarts: int = 3,                  # Task restarts per registration within the window (0 = exit on first failure)
     task_restart_window: float = 300.0,          # Seconds without a failure that reset the task restart count
-    exit_after_stale: float | None = None,       # Exit with code 5 once telemetry is stale this long (ADR-083); with restart_on_stale keep it > min(heartbeat, 60 s, stale_after) + restart_cooldown + reset/health check + first fresh cycle (rule of thumb: >= 2 * (60 + restart_cooldown + longest interval))
+    exit_after_stale: float | None = None,       # Exit with code 5 once telemetry is stale this long, for restart: unless-stopped to recover (ADR-083); with restart_on_stale keep it > min(heartbeat, 60 s, stale_after) + restart_cooldown + reset/health check + first fresh cycle (rule of thumb: >= 2 * (60 + restart_cooldown + longest interval))
     restart_on_stale: bool = False,              # Stale telemetry restarts the adapters it depends on (ADR-084)
     redact: RedactSpec = None,                   # Callable or regexes scrubbing disclosed errors + logs (ADR-085)
 )

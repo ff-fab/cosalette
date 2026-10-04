@@ -259,69 +259,90 @@ A deployed Compose stack stays current through a small maintenance loop:
 
 cosalette uses **MQTT-native health reporting**
 ([ADR-012](../adr/ADR-012-health-and-availability-reporting.md)) rather than an HTTP
-health endpoint. The framework publishes a structured JSON heartbeat to
-`{prefix}/status` and configures an MQTT Last Will and Testament (LWT) so the broker
-automatically publishes an `"offline"` message if the client disconnects unexpectedly.
+health endpoint. The recommended setup has two parts: watch the MQTT signals the
+app already publishes, and let the app exit when it cannot recover so a restart
+policy starts it again
+([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)).
+A container health probe is optional and only worth running where an orchestrator
+acts on it.
 
-### Why no HTTP health endpoint?
+!!! tip "Unhealthy does not mean restarted"
+
+    Plain Docker and Docker Compose only *mark* a container unhealthy; they never
+    restart it. A `HEALTHCHECK` there changes the status shown by `docker ps` and
+    nothing else. Recovery comes from the app exiting and the restart policy
+    starting it again, as described under [Supervised restart](#supervised-restart).
+
+### MQTT signals
+
+| Topic | Says | Published by |
+| ----- | ---- | ------------ |
+| `{prefix}/status` | The app is alive: a retained JSON heartbeat every `heartbeat_interval` (60 s by default), with a per-device `status` | The app |
+| `{prefix}/status` = `"offline"` | The app stopped or lost its connection | The app on a clean shutdown; the broker (LWT) on a crash, hang or network loss |
+| `{prefix}/{device}/availability` | Each entity's data is fresh: `"online"` / `"offline"` (root entities use `{prefix}/availability`) | The app |
+
+A telemetry entity with no fresh data for `stale_after` goes `"offline"` on its
+availability topic and reports `stale` in the heartbeat
+([Transport availability](transport-availability.md)). Alert on:
+
+- `{prefix}/status` staying `"offline"`, or no heartbeat arriving for about three
+  `heartbeat_interval`s;
+- an availability topic staying `"offline"`, or a heartbeat device entry staying
+  `stale`, for longer than you can tolerate missing data.
+
+Wait a few minutes before alerting: each restart publishes `"offline"` briefly.
+
+!!! info "LWT handles crash detection automatically"
+
+    The broker publishes the LWT `"offline"` message to `{prefix}/status` when the
+    client connection drops, including when a blocked event loop stops sending
+    keepalives. Downstream consumers (like Home Assistant) detect the outage
+    without any polling or probe.
+
+#### Why no HTTP health endpoint?
 
 cosalette applications are **pure MQTT daemons** — adding an HTTP server solely for
 health checks would increase the attack surface, add dependencies, and consume
 resources on constrained devices. ADR-012 explicitly rejected this approach.
 
-### Health file probe
+### Supervised restart
 
-The app can write its heartbeat to a local file, which the built-in `health`
-subcommand checks
-([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)).
-This needs no extra packages in the image and does not depend on the broker. The
-file is **off by default**. Set `COSALETTE_HEALTH_FILE` to turn it on:
+Let the app exit when it is stuck and the restart policy start it again:
 
-```yaml title="docker-compose.yml (health file probe)"
+```yaml title="docker-compose.yml (supervised restart)"
 services:
   myapp:
     # ...
     restart: unless-stopped
-    tmpfs:
-      - /tmp   # the health file needs a writable path on a read-only root
-    environment:
-      COSALETTE_HEALTH_FILE: /tmp/myapp-health.json
-    healthcheck:
-      test: ["CMD", "myapp", "health"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
 ```
 
-The app writes the file when it starts, before it connects to the broker, and
-then every `heartbeat_interval` (every 60 s when heartbeats are disabled). Each
-write replaces the file atomically. The file holds the
-[heartbeat payload](../reference/payloads.md) plus `written_at` and `interval`.
-The app deletes the file on a clean shutdown.
+```python title="app.py"
+app = cosalette.App(
+    "myapp",
+    exit_after_stale=1800,  # exit 5 after 30 min of stale telemetry
+    on_task_failure="restart",  # default: exit 4 once the restart budget is spent
+)
+```
 
-`myapp health` (or `cosalette health`) reads the path from the same variable and
-exits `1` when:
+- `exit_after_stale` shuts the app down cleanly with exit code `5` once a
+  telemetry entity or tracked stream has been stale for that many seconds.
+- `on_task_failure="restart"` (the default) restarts a framework-started task
+  that dies (device, telemetry, periodic or stream handler) with backoff and
+  exits with code `4` once `task_max_restarts` is spent; `"exit"` exits with
+  `4` on the first failure. See
+  [exit codes](../reference/cli.md#exit-codes).
 
-- the file is missing or unreadable;
-- the file is older than `--max-age`, which defaults to three write intervals.
-  This catches a hung or dead app;
-- a device has a status listed in `--fail-on`, which defaults to `stale`. Add
-  `--fail-on error` to fail on any device in `error` too. Leave that off if
-  transient read errors should not mark the container unhealthy.
+Docker waits before each restart: 100 ms, doubling up to a cap of one minute, and
+back to 100 ms once the container has run for 10 seconds. A crash loop, such as a
+bad configuration that exits `1` at once, therefore restarts about once a minute
+and `{prefix}/status` flaps between `"offline"` and the heartbeat each time. Every
+restart also republishes availability, so Home Assistant entities show
+*unavailable* for a few seconds.
 
-If the app cannot write the file, for example because the directory is
-read-only, it logs one WARNING and keeps running, and the probe reports the
-container as unhealthy.
-
-!!! tip "Unhealthy does not mean restarted"
-
-    Plain Docker and Docker Compose only *mark* a container unhealthy; they do
-    not restart it. To let a restart policy recover from stuck telemetry, have
-    the app exit instead: `App(exit_after_stale=1800)` shuts the app down
-    cleanly with exit code `5` once a telemetry entity has been stale for
-    30 minutes, and `restart: unless-stopped` starts it again. Kubernetes
-    liveness probes restart on their own, so there the probe alone is enough.
+A blocked event loop, such as a synchronous call that never returns, never
+reaches the stale check, so `exit_after_stale` cannot fire. The LWT still
+reports the app `"offline"`, but on plain Docker nothing restarts it; use the
+[probe](#probe-for-orchestrators-that-act-on-it) where an orchestrator can.
 
 !!! warning "Give `restart_on_stale` time before `exit_after_stale` fires"
 
@@ -352,10 +373,71 @@ container as unhealthy.
     telemetry)`. For a 300 s interval and the default 5 s cooldown, that is
     730 s, so `1800` leaves room.
 
-### Checks to avoid
+### Probe for orchestrators that act on it
 
-Use the health file probe above. Two checks that look like alternatives report
-healthy even when the app is not:
+Run a health probe only where something acts on the result: a Kubernetes
+liveness probe, a Docker Swarm service, which replaces unhealthy tasks, or an
+autoheal container next to plain Docker. The app can write its heartbeat to a
+local file, which the built-in `health` subcommand checks. This needs no extra
+packages in the image and does not depend on the broker. The file is **off by
+default**. Set `COSALETTE_HEALTH_FILE` to turn it on:
+
+```yaml title="docker-compose.yml (health file probe)"
+services:
+  myapp:
+    # ...
+    restart: unless-stopped
+    tmpfs:
+      - /tmp   # the health file needs a writable path on a read-only root
+    environment:
+      COSALETTE_HEALTH_FILE: /tmp/myapp-health.json
+    healthcheck:
+      test: ["CMD", "myapp", "health"]
+      interval: 5m
+      timeout: 30s          # leave room for a slow host
+      retries: 3
+      start_period: 2m
+      start_interval: 10s   # Docker Engine 25+: probe often only while starting
+```
+
+The app writes the file when it starts, before it connects to the broker, and
+then every `heartbeat_interval` (every 60 s when heartbeats are disabled). Each
+write replaces the file atomically. The file holds the
+[heartbeat payload](../reference/payloads.md) plus `written_at` and `interval`.
+The app deletes the file on a clean shutdown.
+
+`myapp health` (or `cosalette health`) reads the path from the same variable and
+exits `1` when:
+
+- the file is missing or unreadable;
+- the file is older than `--max-age`, which defaults to three write intervals.
+  This catches a hung or dead app;
+- a device has a status listed in `--fail-on`, which defaults to `stale`. Add
+  `--fail-on error` to fail on any device in `error` too. Leave that off if
+  transient read errors should not mark the container unhealthy.
+
+If the app cannot write the file, for example because the directory is
+read-only, it logs one WARNING and keeps running, and the probe reports the
+container as unhealthy.
+
+!!! warning "Probe cost on constrained hosts"
+
+    Each probe starts a new Python interpreter and imports your app and the
+    framework. On a Raspberry Pi 4 limited to `cpus: 0.5`, one adopter measured
+    11–13 s per probe and about 100 times the app's idle CPU. To keep it down:
+
+    - Compile bytecode when you build the image, for example with
+      `ENV UV_COMPILE_BYTECODE=1` before `uv sync` in the builder stage. On a
+      read-only root filesystem Python cannot cache `.pyc` files, so without
+      this every probe compiles the whole import graph again.
+    - Probe rarely. A long `interval` with `start_period` and `start_interval`
+      checks quickly while the app starts and rarely afterwards.
+    - Size `timeout` for the slowest host, or a slow probe counts as a failure.
+
+#### Checks to avoid
+
+If you need a probe, use the health file probe above. Two checks that look like
+alternatives report healthy even when the app is not:
 
 - **Subscribing to `{prefix}/status`**, for example with `mosquitto_sub -C 1`.
   The heartbeat and the LWT are both retained. Once a retained status message
@@ -365,12 +447,6 @@ healthy even when the app is not:
   the broker is up. Receiving a message alone does not establish app health.
 - **Checking that the process exists**, for example with `pgrep`. A hung app is
   still a running process.
-
-!!! info "LWT handles crash detection automatically"
-
-    Even without a Docker `HEALTHCHECK`, the MQTT broker publishes the LWT `"offline"`
-    message to `{prefix}/status` when the client TCP connection drops. Downstream
-    consumers (like Home Assistant) detect the outage without any polling.
 
 ## Persistence
 

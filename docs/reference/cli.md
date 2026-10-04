@@ -112,8 +112,13 @@ When both flags are given, `--show-devices-json` takes precedence.
 
 `myapp health` and `cosalette health` check the health file that the app writes
 when the `COSALETTE_HEALTH_FILE` environment variable names a path
-([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)). Use either one as a Docker `HEALTHCHECK` or a Kubernetes exec
-probe. Neither one loads settings or connects to the broker.
+([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)).
+Neither one loads settings or connects to the broker. Use them only where an
+orchestrator acts on the result: a Kubernetes liveness probe, a Docker Swarm
+service or an autoheal container. Plain Docker only marks a container unhealthy,
+so most deployments watch the MQTT signals and rely on a restart policy instead.
+Each run starts a Python interpreter and imports the framework, which is costly on
+small hosts.
 
 | Flag | Default | Description |
 |------|---------|-------------|
