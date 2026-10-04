@@ -33,6 +33,9 @@ class HealthCommand(TyperCommand):
         # Any: the base returns typer's vendored, non-public click Context.
         try:
             return super().make_context(*args, **kwargs)
+        except typer.Exit:
+            # Help exits successfully while the command context is being built.
+            raise
         except typer.TyperException as exc:
             typer.echo(f"unhealthy: usage error: {exc.format_message()}", err=True)
             raise typer.Exit(EXIT_UNHEALTHY) from exc

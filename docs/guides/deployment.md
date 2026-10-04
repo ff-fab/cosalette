@@ -358,9 +358,11 @@ Use the health file probe above. Two checks that look like alternatives report
 healthy even when the app is not:
 
 - **Subscribing to `{prefix}/status`**, for example with `mosquitto_sub -C 1`.
-  The heartbeat and the LWT are both retained, so the broker hands the
-  subscriber the last message at once, even when that message is `"offline"`.
-  The command exits `0` for as long as the broker is up.
+  The heartbeat and the LWT are both retained. Once a retained status message
+  exists, the broker hands the subscriber the last message at once, even when
+  that message is `"offline"`, and the command exits `0`. Before the first
+  retained status publish, it waits for a message and can time out even while
+  the broker is up. Receiving a message alone does not establish app health.
 - **Checking that the process exists**, for example with `pgrep`. A hung app is
   still a running process.
 
