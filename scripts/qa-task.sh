@@ -151,6 +151,24 @@ _run_impl() {
             bash scripts/pre-pr.sh
             ;;
 
+        rust:fmt)
+            cargo fmt -p cosalette-health --check
+            ;;
+
+        rust:clippy)
+            cargo clippy --locked -p cosalette-health --all-targets -- -D warnings
+            ;;
+
+        rust:test)
+            cargo test --locked -p cosalette-health
+            ;;
+
+        rust:check)
+            run_raw_task rust:fmt || return
+            run_raw_task rust:clippy || return
+            run_raw_task rust:test
+            ;;
+
         complexity)
             run_raw_task complexity:cyclomatic || return
             run_raw_task complexity:cognitive || return
@@ -234,7 +252,9 @@ _run_impl() {
                 return 1
             }
             cargo audit --file Cargo.lock || return
-            (cd crates/cosalette-filters-rs && "${cargo_deny_bin}" check)
+            (cd crates/cosalette-filters-rs && "${cargo_deny_bin}" check) || return
+            (cd crates/cosalette-health \
+                && "${cargo_deny_bin}" --config ../cosalette-filters-rs/deny.toml check)
             ;;
 
         security:secrets)

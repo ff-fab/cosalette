@@ -263,3 +263,6 @@ issues.jsonl
 
 # Local agent-tool settings (machine-specific, never commit)
 .claude/settings.local.json
+
+# Native cosalette-health probe staged for platform wheels (scripts/bundle-health-probe.sh)
+packages/data/

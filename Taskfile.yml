@@ -275,6 +275,38 @@ tasks:
       - uv run pytest-watch {{.PKG}}/tests/unit/ -- -v --tb=short
 
   # ===========================================================================
+  # Rust — cosalette-health probe crate (ADR-087)
+  # ===========================================================================
+
+  rust:fmt:
+    desc: Check formatting of the cosalette-health probe crate (cargo fmt)
+    cmds:
+      - bash scripts/qa-task.sh rust:fmt
+
+  rust:clippy:
+    desc: Lint the cosalette-health probe crate (cargo clippy, warnings are errors)
+    cmds:
+      - bash scripts/qa-task.sh rust:clippy
+
+  rust:test:
+    desc: Test the cosalette-health probe crate, incl. the golden health file cases
+    cmds:
+      - bash scripts/qa-task.sh rust:test
+
+  rust:check:
+    desc: Run rust:fmt, rust:clippy and rust:test
+    cmds:
+      - bash scripts/qa-task.sh rust:check
+
+  build:wheel:probe:
+    desc: 'Build a platform wheel with the native cosalette-health probe into dist/ (optional target, e.g.: task build:wheel:probe -- x86_64-unknown-linux-gnu)'
+    cmds:
+      - cp pyproject.toml .pyproject.toml.orig
+      - defer: mv .pyproject.toml.orig pyproject.toml && rm -rf packages/data
+      - bash scripts/bundle-health-probe.sh {{.CLI_ARGS}}
+      - uvx --from maturin==1.15.0 maturin build --release --out dist {{if .CLI_ARGS}}--target {{.CLI_ARGS}}{{end}}
+
+  # ===========================================================================
   # Lint & Typecheck
   # ===========================================================================
 
@@ -563,6 +595,7 @@ tasks:
     cmds:
       - uv run pytest {{.PKG}}/tests/unit/ --cov={{.MODULE_NAME}} --cov-branch --cov-report=xml --cov-report=json --cov-report=term --junitxml=results-unit.xml --html=test-report.html --self-contained-html
       - uv run python {{.PKG}}/tests/scripts/summarize_tests.py --coverage-file=coverage.json --fail-under=80
+      - bash scripts/qa-task.sh rust:test
 
   ci:test:integration:
     desc: CI integration tests (excluding MQTT/Docker)
@@ -575,3 +608,5 @@ tasks:
       - uv run ruff check {{.PKG}}/src/ {{.PKG}}/tests/
       - uv run ruff format --check {{.PKG}}/src/ {{.PKG}}/tests/
       - uv run ty check
+      - bash scripts/qa-task.sh rust:fmt
+      - bash scripts/qa-task.sh rust:clippy

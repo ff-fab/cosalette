@@ -2,12 +2,31 @@
 #
 # Called by release-please.yml during a release, or triggered manually for testing.
 # Produces platform wheels + sdist, uploaded as artifacts for downstream publish jobs.
+# Each platform wheel bundles the native cosalette-health probe (ADR-087); the
+# sdist keeps the Python fallback. PRs touching the probe or packaging run the
+# whole matrix so cross-target builds are verified before a release.
 
 name: Build Rust Wheels
 
 on:
   workflow_call: # Called by release-please.yml
   workflow_dispatch: # Manual trigger for testing
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pyproject.toml'
+      - 'packages/src/cosalette/_health/_probe.py'
+      - 'scripts/bundle-health-probe.sh'
+      - 'scripts/check-probe-wheel.py'
+      - 'scripts/smoke-health-probe.py'
+      - '.github/workflows/rust-wheels.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -21,22 +40,34 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            smoke-image: python:3.14-slim
+            smoke-platform: linux/amd64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+            smoke-image: python:3.14-slim
+            smoke-platform: linux/arm64
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             manylinux: musllinux_1_2
+            smoke-image: python:3.14-alpine
+            smoke-platform: linux/amd64
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             manylinux: musllinux_1_2
+            smoke-image: python:3.14-alpine
+            smoke-platform: linux/arm64
           - target: x86_64-apple-darwin
             os: macos-14 # Cross-compile x86_64 on Apple Silicon (macos-13 removed)
           - target: aarch64-apple-darwin
             os: macos-14 # M1 native runner
+            smoke-native: true
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            smoke-native: true
           - target: armv7-unknown-linux-gnueabihf
             os: ubuntu-latest
+            smoke-image: python:3.14-slim
+            smoke-platform: linux/arm/v7
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,12 +82,47 @@ jobs:
         if: runner.os == 'Linux' && !startsWith(matrix.target, 'x86_64')
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
+      # maturin-action runs before-script-linux inside its build container
+      # (glibc 2.17 for gnu targets) and ignores it elsewhere, hence this step.
+      - name: Bundle native cosalette-health probe (macOS, Windows)
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          rustup target add "$TARGET"
+          bash scripts/bundle-health-probe.sh "$TARGET"
+
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: ${{ matrix.manylinux || 'auto' }}
+          before-script-linux: bash scripts/bundle-health-probe.sh ${{ matrix.target }}
+
+      - name: Check bundled probe
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python scripts/check-probe-wheel.py dist/*.whl "$TARGET"
+
+      - name: Smoke-test installed probe (container)
+        if: matrix.smoke-image
+        env:
+          IMAGE: ${{ matrix.smoke-image }}
+          PLATFORM: ${{ matrix.smoke-platform }}
+        run: |
+          docker run --rm --platform "$PLATFORM" -v "$PWD:/src:ro" "$IMAGE" sh -c \
+            'pip install --quiet --no-deps --root-user-action=ignore /src/dist/*.whl &&
+             python /src/scripts/smoke-health-probe.py native'
+
+      - name: Smoke-test installed probe (native)
+        if: matrix.smoke-native
+        shell: bash
+        run: |
+          pip install --quiet --no-deps dist/*.whl
+          python scripts/smoke-health-probe.py native
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -78,6 +144,18 @@ jobs:
         with:
           command: sdist
           args: --out dist
+
+      # The sdist ships the Python fallback as cosalette-health (ADR-087).
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Smoke-test probe from sdist
+        shell: bash
+        run: |
+          python -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install --quiet --no-deps dist/*.tar.gz
+          PATH="/tmp/sdist-venv/bin:$PATH" python scripts/smoke-health-probe.py fallback
 
       - name: Upload sdist
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
