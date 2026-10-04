@@ -19,8 +19,25 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d
 RUN uv pip install --system --no-cache 'GitPython==3.1.62'
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
-# renovate: datasource=docker depName=docker.io/anchore/syft
-COPY --from=docker.io/anchore/syft:v1.52.0@sha256:500e2d872ac019436926e8322b4fc1f39441d94d21f6f4046c6ff29b30e8cb02 /syft /usr/local/bin/syft
+# renovate: datasource=github-releases depName=anchore/syft
+ARG SYFT_VERSION=1.54.0
+# SHA-256 digests for supply-chain integrity verification (update on version bump)
+ARG SYFT_SHA256_AMD64=54a87372498168b2d033e876fd41fa4e8035b872699e525a57046e1f2f09c860
+ARG SYFT_SHA256_ARM64=ee6d4566373a05b344bc6b5f1706f14419bf9338ba39ff686e247deefe9b8818
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "${ARCH}" in \
+      amd64) SYFT_ARCH='amd64'; EXPECTED_SHA="${SYFT_SHA256_AMD64}" ;; \
+      arm64) SYFT_ARCH='arm64'; EXPECTED_SHA="${SYFT_SHA256_ARM64}" ;; \
+      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+    esac; \
+    TARBALL="/tmp/syft_${SYFT_VERSION}_linux_${SYFT_ARCH}.tar.gz"; \
+    curl -fsSL "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${SYFT_ARCH}.tar.gz" -o "${TARBALL}"; \
+    echo "${EXPECTED_SHA}  ${TARBALL}" | sha256sum -c -; \
+    tar -xzf "${TARBALL}" -C /tmp syft; \
+    install /tmp/syft /usr/local/bin/syft; \
+    rm -f /tmp/syft "${TARBALL}"; \
+    syft version
 
 # Install system dependencies and Docker CE in a single apt layer.
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
@@ -99,10 +116,10 @@ COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task
-ARG TASK_VERSION=v3.53.1
+ARG TASK_VERSION=v3.54.0
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG TASK_SHA256_AMD64=a54a408f6861ff921f6e87774180db31bacd8c1e7c944ca696db9fea49a82fc7
-ARG TASK_SHA256_ARM64=e3ad19101493a0112e1f22ae8ccc54bf03e533b1076a0ca1e6c782a09ad2e588
+ARG TASK_SHA256_AMD64=680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb
+ARG TASK_SHA256_ARM64=d7189d439d4a6058e39e1b2acd7c8b27acd4856691b408f23b242e4294e1df5b
 # DL3003 suppressed: cd in a single RUN is scoped to that layer; WORKDIR would
 # persist across layers. Using cd here is intentional and safe.
 # hadolint ignore=DL3003
@@ -142,10 +159,10 @@ RUN set -eux; \
 # bd on Linux requires an external dolt binary; the embedded dolt in the bd binary
 # is macOS-only as of beads v1.0.0.
 # renovate: datasource=github-releases depName=dolthub/dolt
-ARG DOLT_VERSION=v2.3.5
+ARG DOLT_VERSION=v2.4.1
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG DOLT_SHA256_AMD64=c49d4c3e004cf1581ba0d4a00c5023a26f84eb2ec15d5fe876eed36d5343f463
-ARG DOLT_SHA256_ARM64=9ce70fc81e50139e97758ef7f4dc57e9583e4e5ef05ad75d7535c30caa161387
+ARG DOLT_SHA256_AMD64=85edfe4d307cc75d336be5c30c7601d6eaddb209b08dddf104db32979a00bdc6
+ARG DOLT_SHA256_ARM64=4ec68affe22be060f008ff7135b33362a46befefc26a76df3258c82fbc9bd107
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
