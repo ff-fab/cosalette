@@ -622,7 +622,7 @@ app = App("airthings2mqtt", health_check_interval=60.0, restart_on_stale=True)
   WARNING at startup and the option has no effect.
 
 To restart the whole process instead, see `exit_after_stale` under
-[Health Checks](../guides/deployment.md#health-checks).
+[Supervised restart](../guides/deployment.md#supervised-restart).
 
 !!! warning "Combining with `exit_after_stale`"
 
@@ -637,7 +637,7 @@ To restart the whole process instead, see `exit_after_stale` under
     recreated telemetry, which runs right away. A rule of thumb is
     `exit_after_stale ≥ 2 × (60 s + restart_cooldown + the longest telemetry
     interval)`. See the
-    [deployment guide](../guides/deployment.md#health-file-probe) for details.
+    [deployment guide](../guides/deployment.md#supervised-restart) for details.
 
 #### Opting Out
 
