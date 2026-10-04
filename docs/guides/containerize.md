@@ -35,6 +35,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /bin/uv
 
 WORKDIR /app
 
+# Compile bytecode at build time. The non-root runtime
+# user cannot write .pyc files, so without this every
+# start compiles all imports again (see Memory Footprint).
+ENV UV_COMPILE_BYTECODE=1
+
 # Copy dependency metadata first — this layer is
 # cached until pyproject.toml or uv.lock change.
 COPY pyproject.toml uv.lock ./
@@ -184,6 +189,24 @@ docker build -t myapp:latest .
 
 Avoid building on the Pi Zero 2 W — its limited RAM makes builds unreliable.
 Cross-build on a dev machine or CI instead.
+
+## Memory Footprint
+
+An adopter's app with Home Assistant discovery, one BLE sensor and an MQTT client
+uses about 52 MiB of resident memory on CPython 3.14. Most of it is loaded
+code: Python keeps every imported module in memory, so the footprint drops only when
+the app loads fewer modules. The file-backed part (about 18 MiB) is shared between
+containers that run the same image.
+
+Two settings make a measurable difference:
+
+- **Compile bytecode in the image.** The Dockerfile above sets
+  `UV_COMPILE_BYTECODE=1`. Without it, a non-root user cannot write `.pyc` files and
+  Python compiles every import at each start. One adopter measured 4 MiB more
+  resident memory, a 7 MiB higher peak and about 70 % more start-up CPU without it.
+- **Keep the default allocator.** Do not set `PYTHONMALLOC=malloc`. On a musl
+  (Alpine) image it increased resident memory by about 3 MiB. `MALLOC_ARENA_MAX`
+  has no effect, because a cosalette app runs only two or three threads.
 
 ---
 
