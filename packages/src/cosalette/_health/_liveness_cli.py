@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, override
 
 import typer
+from typer.core import TyperCommand
 
 from cosalette._health._liveness import (
     DEFAULT_FAIL_ON,
@@ -18,6 +19,23 @@ from cosalette._health._liveness import (
 EXIT_HEALTHY = 0
 EXIT_UNHEALTHY = 1
 """Docker ``HEALTHCHECK`` only knows 0 and 1, and reserves 2."""
+
+
+class HealthCommand(TyperCommand):
+    """Report usage errors as unhealthy (1) instead of Click's usage exit (2).
+
+    Only covers the subcommand's own arguments: errors the parent group
+    parses before it reaches ``health`` still exit 2.
+    """
+
+    @override
+    def make_context(self, *args: Any, **kwargs: Any) -> Any:
+        # Any: the base returns typer's vendored, non-public click Context.
+        try:
+            return super().make_context(*args, **kwargs)
+        except typer.TyperException as exc:
+            typer.echo(f"unhealthy: usage error: {exc.format_message()}", err=True)
+            raise typer.Exit(EXIT_UNHEALTHY) from exc
 
 
 def health_command(

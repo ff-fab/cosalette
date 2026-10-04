@@ -12,7 +12,8 @@ Test Techniques Used:
       time at and just under exit_after_stale; invalid exit_after_stale
     - Decision Table Testing: device status x --fail-on set
     - State Transition Testing: write failure warns once, then DEBUG
-    - Error Guessing: leftover temporary files, unset environment variable
+    - Error Guessing: leftover temporary files, unset environment variable,
+      probe usage errors (Click would exit 2)
     - Specification-based Testing: exit-code mapping in both CLIs
     - Mock-based Isolation: MockMqttClient, FakeClock and ManualClock
 """
@@ -356,6 +357,32 @@ class TestHealthCommand:
 
         assert result.exit_code == 1
         assert "old" in result.output
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            pytest.param(["--max-age", "-1"], id="negative-max-age"),
+            pytest.param(["--max-age", "abc"], id="non-numeric-max-age"),
+            pytest.param(["--bogus"], id="unknown-option"),
+        ],
+    )
+    def test_usage_error_exits_one(
+        self, cli: Any, tmp_path: Path, args: list[str]
+    ) -> None:
+        """Usage errors exit 1, not Click's 2, which Docker reserves.
+
+        Technique: Equivalence Partitioning — out-of-range value, wrong
+        type and unknown option all take Click's usage-error path.
+        """
+        # Arrange
+        argv = ["health", "--file", str(tmp_path / "h.json"), *args]
+
+        # Act
+        result = CliRunner().invoke(cli, argv)
+
+        # Assert
+        assert result.exit_code == 1
+        assert result.stderr.startswith("unhealthy: usage error: ")
 
 
 class TestAppCallbackSkipsSubcommands:

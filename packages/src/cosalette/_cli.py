@@ -28,7 +28,7 @@ from cosalette._constants import (
     EXIT_TASK_FAILURE,
 )
 from cosalette._health._liveness import StaleTelemetryError
-from cosalette._health._liveness_cli import health_command
+from cosalette._health._liveness_cli import HealthCommand, health_command
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
@@ -187,7 +187,7 @@ def build_cli(app: App) -> typer.Typer:
     cli.add_typer(schema_app, name="schema")
 
     # -- health probe (ADR-083) ---------------------------------------------
-    cli.command("health")(health_command)
+    cli.command("health", cls=HealthCommand)(health_command)
 
     # -- main command -------------------------------------------------------
 

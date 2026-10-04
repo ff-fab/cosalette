@@ -124,7 +124,16 @@ probe. Neither one loads settings or connects to the broker.
 The probe exits `0` and prints the file's age when the file is fresh and no
 device has a failing status. It exits `1` and prints the reason on stderr when
 the file is missing, unreadable or too old, or when a device has a failing
-status. See [Health Checks](../guides/deployment.md#health-checks).
+status. A usage error in the `health` arguments, such as `--max-age -1` or an
+unknown option, also exits `1`, with `unhealthy: usage error: <message>` on
+stderr, because Docker reserves exit code `2`. See
+[Health Checks](../guides/deployment.md#health-checks).
+
+!!! note "Errors before `health` still exit 2"
+
+    Options placed before the subcommand, as in `myapp --bogus health`, are
+    parsed by the app's own CLI rather than by `health`, so a usage error there
+    exits `2`. Put no options before `health` in a probe command.
 
 ## Registry Snapshot
 
