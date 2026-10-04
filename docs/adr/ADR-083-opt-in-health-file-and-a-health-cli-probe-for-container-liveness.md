@@ -9,7 +9,7 @@ tags: [cli, health, lifecycle, telemetry]
 
 ## Status
 
-Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-04
 
 ## Context
 
@@ -109,3 +109,33 @@ _Scale: 1 (poor) to 5 (excellent)_
 ### Additional Negative Consequences
 
 - With restart_on_stale (ADR-084) also set, exit_after_stale counts from the same stale transition and can end the process before the in-place restart recovers anything. Recovery needs exit_after_stale > check_interval + restart_time + first_cycle_time, where check_interval = min(heartbeat_interval, 60 s, smallest stale_after), restart_time = restart_cooldown plus reset() or re-entry plus the following health check, and first_cycle_time is the first successful cycle of the recreated telemetry. The docs give the rule of thumb exit_after_stale >= 2 x (60 s + restart_cooldown + longest telemetry interval); there is no runtime check.
+
+## Amendment (2026-10-04) — Additive
+
+**Rationale:** The decision's example made a Docker HEALTHCHECK running `<app> health` look like the default way to watch an app. An early adopter (cosalette-apps, on 0.11.0) measured the cost: on a Raspberry Pi 4 with `cpus: 0.5`, each probe took 11-13 s and the probes used about 100 times the app's idle CPU, because every probe starts a full interpreter and imports the framework (`import cosalette` alone loaded about 430 modules). Plain Docker and Docker Compose never restart an unhealthy container, so on those hosts the probe buys a status flag and nothing else. The app already reports the same health on MQTT (ADR-012, ADR-080), and `exit_after_stale` plus `on_task_failure` (ADR-081) let a restart policy recover it. This amendment records which signals deployments should use by default. The mechanism, the CLI and the API are unchanged.
+
+### Additional Sub-Decision: Recommended default: MQTT signals plus supervised restart
+
+Deployment guidance recommends MQTT as the health signal and a restart policy as the recovery path:
+
+- **App alive:** the retained heartbeat on `{prefix}/status` and the LWT `"offline"` on the same topic (ADR-012). A clean shutdown also publishes `"offline"`.
+- **Data fresh:** per-device availability topics and the heartbeat's per-device `stale` status (ADR-080).
+- **Recovery:** `restart: unless-stopped` (or `on-failure`) together with `App(exit_after_stale=...)` (exit code 5) and `on_task_failure` (exit code 4 once the restart budget is spent, or on the first failure with `"exit"`). The app exits; the supervisor restarts it.
+
+Monitoring alerts on these MQTT signals, debounced so that the `"offline"` a restart publishes does not page anyone. The Docker restart backoff (100 ms, doubling, capped at 1 minute, reset after 10 s of uptime) bounds a crash loop to about one restart a minute.
+
+### Additional Sub-Decision: Health file probe is opt-in for orchestrators that act on it
+
+The health file and the `health` probe stay as decided above, for orchestrators that act on container health: Kubernetes liveness probes, Docker Swarm services, or an autoheal container next to plain Docker. Default examples no longer contain a `HEALTHCHECK`.
+
+The guidance states the cost on constrained hosts: each probe is a full interpreter start plus the app's or the package CLI's imports. Mitigations: compile bytecode at image build time (`UV_COMPILE_BYTECODE=1` or `python -m compileall`), which matters most on a read-only root filesystem where Python cannot cache `.pyc` files; a long `interval` with `start_period` and `start_interval`; a `timeout` sized for the slowest host. Since cos-ht8o.4, `import cosalette` resolves its public names lazily (PEP 562) and loads none of pydantic, typer, aiomqtt or orjson. That is the prerequisite for a stdlib-only probe (cos-ht8o.5); the existing `health` commands still import the app or the package CLI.
+
+### Additional Positive Consequences
+
+- Deployments on plain Docker get recovery from stale telemetry and dead tasks without paying for a probe they cannot act on
+- Monitoring and recovery use signals the app already publishes; no new API or dependency
+
+### Additional Negative Consequences
+
+- A wedged event loop never reaches the freshness check, so exit_after_stale cannot fire; the LWT reports it offline once the broker drops the connection, but nothing restarts it on plain Docker until a loop-stall watchdog exists
+- Supervised restarts make `{prefix}/status` flap to "offline" and back; alerting has to tolerate short outages
