@@ -170,8 +170,10 @@ class JsonFileStore:
         """Load a key from the JSON file.
 
         Returns ``None`` when the file does not exist, the key is
-        missing, or the file contains invalid JSON (a warning is
-        logged in the latter case).
+        missing, or the content is not usable.  Several stores can
+        share one file, so a missing key is normal and stays silent;
+        invalid JSON, a non-object top level or a non-object entry
+        logs a warning.
         """
         if not self._path.exists():
             return None
@@ -183,13 +185,21 @@ class JsonFileStore:
             logger.warning("Corrupt or unreadable store file %s: %s", self._path, exc)
             return None
 
-        state = _state_object(data.get(key)) if isinstance(data, dict) else None
-        if state is None:
+        if not isinstance(data, dict):
             logger.warning(
                 "Store file %s contains non-object JSON, treating as empty",
                 self._path,
             )
             return None
+        if key not in data:
+            return None
+        state = _state_object(data[key])
+        if state is None:
+            logger.warning(
+                "Store file %s has a non-object entry for key %r, treating as empty",
+                self._path,
+                key,
+            )
         return state
 
     def save(self, key: str, data: dict[str, object]) -> None:
