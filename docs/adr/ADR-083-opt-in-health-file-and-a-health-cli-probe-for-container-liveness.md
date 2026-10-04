@@ -139,3 +139,23 @@ The guidance states the cost on constrained hosts: each probe is a full interpre
 
 - A wedged event loop never reaches the freshness check, so exit_after_stale cannot fire; the LWT reports it offline once the broker drops the connection, but nothing restarts it on plain Docker until a loop-stall watchdog exists
 - Supervised restarts make `{prefix}/status` flap to "offline" and back; alerting has to tolerate short outages
+
+## Amendment (2026-10-04) — Additive
+
+**Rationale:** ADR-087 adds a native `cosalette-health` binary that reads the same health file as the Python probe. Two implementations need a written contract and a way to evolve it, so this amendment records the file format and its version field.
+
+### Additional Sub-Decision: Versioned health-file contract
+
+The health file is a JSON object. `written_at` (Unix seconds) is required and must be a finite number. `interval` is optional and defaults to 60 seconds; the default maximum age is three intervals. `devices` is optional and maps device names to objects whose `status` is a string. Unknown keys are ignored. `render()` writes `health_file_version: 1`; a file without the field is read as version 1, and a file with an unknown major version is reported unhealthy so a newer writer never fools an older probe. The contract is documented in `docs/reference/health-file.md` and enforced by golden fixtures shared by pytest and `cargo test`.
+
+### Additional Sub-Decision: Probe entry points
+
+`cosalette-health` (ADR-087) is the recommended probe. `cosalette health` and `<app> health` stay and call the same stdlib-only implementation in `cosalette._health._probe`. All of them exit 0 or 1 only.
+
+### Additional Positive Consequences
+
+- Python and native probes are held to one contract by shared fixtures
+
+### Additional Negative Consequences
+
+- Incompatible format changes need a new major `health_file_version` and probe releases that understand it
