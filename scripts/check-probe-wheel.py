@@ -29,8 +29,12 @@ def main() -> int:
         scripts = [n for n in zf.namelist() if ".data/scripts/" in n]
         if [n.rsplit("/", 1)[1] for n in scripts] != [f"cosalette-health{exe}"]:
             errors.append(f"expected only cosalette-health{exe} in scripts: {scripts}")
-        entry_points = next(n for n in zf.namelist() if n.endswith("entry_points.txt"))
-        if "cosalette-health" in zf.read(entry_points).decode():
+        entry_points = next(
+            (n for n in zf.namelist() if n.endswith("entry_points.txt")), None
+        )
+        if entry_points is None:
+            errors.append("wheel is missing entry_points.txt")
+        elif "cosalette-health" in zf.read(entry_points).decode():
             errors.append("cosalette-health is also a console script")
         if (
             scripts
