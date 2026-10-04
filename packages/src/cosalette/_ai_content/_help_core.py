@@ -628,18 +628,23 @@ Container Liveness (ADR-083) — MQTT first, probe opt-in:
     restart: unless-stopped + exit_after_stale (exit 5) + on_task_failure
     (exit 4). No Docker HEALTHCHECK: plain Docker never restarts unhealthy
   • Health file probe only where an orchestrator acts on it (Kubernetes
-    liveness, Swarm, autoheal). Each probe starts Python + imports the
-    framework: costly on a Pi. Compile bytecode at image build
-    (UV_COMPILE_BYTECODE=1), long interval + start_period/start_interval
+    liveness, Swarm, autoheal). Probe with cosalette-health (ADR-087):
+    native binary in platform wheels (~1 ms, 2 MiB), stdlib Python script
+    from the sdist (~60 ms); `myapp health` / `cosalette health` start
+    Python + import the framework (~400 ms, seconds on a Pi). For the
+    fallback: compile bytecode at image build (UV_COMPILE_BYTECODE=1),
+    long interval + start_period/start_interval
   • COSALETTE_HEALTH_FILE=/tmp/myapp-health.json → the app writes the
     heartbeat + written_at + interval there atomically, at startup (before
     the MQTT connect) and every heartbeat_interval (60 s if heartbeats are
     off); deleted on clean shutdown. A failed write logs one WARNING
-  • `myapp health` / `cosalette health` read it: exit 0 healthy, 1 unhealthy
-    (missing, older than --max-age = 3 x interval, or a device status in
-    --fail-on, default stale; repeat --fail-on to add error)
-  • Kubernetes: exec liveness probe ["myapp", "health"]; Swarm/autoheal:
-    healthcheck test ["CMD", "myapp", "health"]
+  • cosalette-health (or `myapp health` / `cosalette health`) reads it:
+    exit 0 healthy, 1 unhealthy (missing, older than --max-age =
+    3 x interval, unknown health_file_version, or a device status in
+    --fail-on, default stale; repeat --fail-on to add error). Usage
+    errors exit 1 too. Contract: docs/reference/health-file.md
+  • Kubernetes: exec liveness probe ["cosalette-health"]; Swarm/autoheal:
+    healthcheck test ["CMD", "cosalette-health"]
   • App(exit_after_stale=1800) → after a telemetry entity or stream with
     stale_after= has been stale that long: CRITICAL log, clean shutdown,
     StaleTelemetryError, CLI exit code 5,
