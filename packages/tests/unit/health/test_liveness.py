@@ -12,7 +12,8 @@ Test Techniques Used:
       time at and just under exit_after_stale; invalid exit_after_stale
     - Decision Table Testing: device status x --fail-on set
     - State Transition Testing: write failure warns once, then DEBUG
-    - Error Guessing: leftover temporary files, unset environment variable
+    - Error Guessing: leftover temporary files, unset environment variable,
+      probe usage errors (Click would exit 2)
     - Specification-based Testing: exit-code mapping in both CLIs
     - Mock-based Isolation: MockMqttClient, FakeClock and ManualClock
 """
@@ -356,6 +357,75 @@ class TestHealthCommand:
 
         assert result.exit_code == 1
         assert "old" in result.output
+
+    @pytest.mark.parametrize(
+        ("args", "diagnostic"),
+        [
+            pytest.param(
+                ["--max-age", "-1"], "not in the range", id="negative-max-age"
+            ),
+            pytest.param(
+                ["--max-age", "abc"], "not a valid float", id="non-numeric-max-age"
+            ),
+            pytest.param(["--bogus"], "No such option: --bogus", id="unknown-option"),
+            pytest.param(
+                ["--file"], "Option '--file' requires an argument", id="missing-file"
+            ),
+            pytest.param(
+                ["--max-age"],
+                "Option '--max-age' requires an argument",
+                id="missing-max-age",
+            ),
+            pytest.param(
+                ["--fail-on"],
+                "Option '--fail-on' requires an argument",
+                id="missing-fail-on",
+            ),
+            pytest.param(
+                ["unexpected"],
+                "Got unexpected extra argument(s) (unexpected)",
+                id="unexpected-positional",
+            ),
+        ],
+    )
+    def test_usage_error_exits_one(
+        self, cli: Any, tmp_path: Path, args: list[str], diagnostic: str
+    ) -> None:
+        """Usage errors exit 1, not Click's 2, which Docker reserves.
+
+        Technique: Equivalence Partitioning — out-of-range value, wrong
+        type, unknown option, missing value and unexpected positional argument
+        all take Click's usage-error path.
+        """
+        # Arrange
+        argv = ["health", "--file", str(tmp_path / "h.json"), *args]
+
+        # Act
+        result = CliRunner().invoke(cli, argv)
+
+        # Assert
+        assert result.exit_code == 1
+        assert result.stderr.startswith("unhealthy: usage error: ")
+        assert diagnostic in result.stderr
+
+    def test_health_help_exits_zero(self, cli: Any) -> None:
+        """Help remains a successful exit in both CLIs.
+
+        Technique: Specification-based Testing — the eager help option must
+        exit successfully without running the probe.
+        """
+        # Arrange
+        argv = ["health", "--help"]
+
+        # Act
+        result = CliRunner().invoke(cli, argv)
+
+        # Assert
+        assert result.exit_code == 0
+        assert "--file" in result.stdout
+        assert "--max-age" in result.stdout
+        assert "--fail-on" in result.stdout
+        assert result.stderr == ""
 
 
 class TestAppCallbackSkipsSubcommands:
