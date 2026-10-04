@@ -352,54 +352,17 @@ container as unhealthy.
     telemetry)`. For a 300 s interval and the default 5 s cooldown, that is
     730 s, so `1800` leaves room.
 
-### MQTT-based health check
+### Checks to avoid
 
-If you want the check to go through the broker, and `mosquitto_sub` is available in
-the container, you can use it to verify the app's MQTT heartbeat:
+Use the health file probe above. Two checks that look like alternatives report
+healthy even when the app is not:
 
-```yaml title="docker-compose.yml (health check snippet)"
-services:
-  myapp:
-    # ...
-    healthcheck:
-      test: >-
-        mosquitto_sub
-        -h mosquitto
-        -t "myapp/status"
-        -C 1
-        -W 30
-      interval: 60s
-      timeout: 35s
-      retries: 3
-      start_period: 15s
-```
-
-This subscribes to the status topic, waits up to 30 seconds (`-W`) for a single
-message (`-C 1`), and exits 0 if one is received. You'll need `mosquitto-clients`
-installed in the runtime image:
-
-```dockerfile
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends mosquitto-clients \
-    && rm -rf /var/lib/apt/lists/*
-```
-
-### Process-based fallback
-
-If you'd rather not add `mosquitto-clients` to the image, a simple process check
-works as a basic health signal:
-
-```yaml title="docker-compose.yml (process health check)"
-services:
-  myapp:
-    # ...
-    healthcheck:
-      test: ["CMD", "pgrep", "-f", "myapp"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-```
+- **Subscribing to `{prefix}/status`**, for example with `mosquitto_sub -C 1`.
+  The heartbeat and the LWT are both retained, so the broker hands the
+  subscriber the last message at once, even when that message is `"offline"`.
+  The command exits `0` for as long as the broker is up.
+- **Checking that the process exists**, for example with `pgrep`. A hung app is
+  still a running process.
 
 !!! info "LWT handles crash detection automatically"
 
