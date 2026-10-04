@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from pathlib import Path
 from typing import Annotated, Any, override
@@ -9,16 +10,17 @@ from typing import Annotated, Any, override
 import typer
 from typer.core import TyperCommand
 
-from cosalette._health._liveness import (
+from cosalette._health._probe import (
     DEFAULT_FAIL_ON,
+    EXIT_HEALTHY,
+    EXIT_UNHEALTHY,
     HEALTH_FILE_ENV,
     MAX_AGE_FACTOR,
+    NO_FILE_REASON,
     check_health_file,
 )
 
-EXIT_HEALTHY = 0
-EXIT_UNHEALTHY = 1
-"""Docker ``HEALTHCHECK`` only knows 0 and 1, and reserves 2."""
+__all__ = ["EXIT_HEALTHY", "EXIT_UNHEALTHY", "HealthCommand", "health_command"]
 
 
 class HealthCommand(TyperCommand):
@@ -41,6 +43,13 @@ class HealthCommand(TyperCommand):
             raise typer.Exit(EXIT_UNHEALTHY) from exc
 
 
+def _finite_max_age(value: float | None) -> float | None:
+    if value is not None and not math.isfinite(value):
+        msg = "expected a finite number"
+        raise typer.BadParameter(msg)
+    return value
+
+
 def health_command(
     file: Annotated[
         Path | None,
@@ -56,6 +65,7 @@ def health_command(
         typer.Option(
             "--max-age",
             min=0.0,
+            callback=_finite_max_age,
             help=(
                 "Seconds after which the file counts as too old. Default: "
                 f"{MAX_AGE_FACTOR} x the write interval recorded in the file."
@@ -79,10 +89,7 @@ def health_command(
     and 1 otherwise, with the reason on stderr.
     """
     if file is None:
-        typer.echo(
-            f"unhealthy: no health file (pass --file or set {HEALTH_FILE_ENV})",
-            err=True,
-        )
+        typer.echo(f"unhealthy: {NO_FILE_REASON}", err=True)
         raise typer.Exit(EXIT_UNHEALTHY)
     result = check_health_file(
         file,

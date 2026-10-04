@@ -100,6 +100,7 @@ class TestHealthFileWriter:
         assert data["interval"] == 30.0
         assert data["devices"]["sensor"]["status"] == "error"
         assert data["version"] == "1.0.0"
+        assert data["health_file_version"] == 1
 
     def test_leaves_no_temporary_files(
         self, tmp_path: Path, reporter: HealthReporter
@@ -366,6 +367,12 @@ class TestHealthCommand:
             ),
             pytest.param(
                 ["--max-age", "abc"], "not a valid float", id="non-numeric-max-age"
+            ),
+            pytest.param(
+                ["--max-age", "inf"], "expected a finite number", id="infinite-max-age"
+            ),
+            pytest.param(
+                ["--max-age", "nan"], "expected a finite number", id="nan-max-age"
             ),
             pytest.param(["--bogus"], "No such option: --bogus", id="unknown-option"),
             pytest.param(

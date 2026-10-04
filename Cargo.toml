@@ -1,3 +1,13 @@
 [workspace]
 members = ["crates/*"]
 resolver = "3"
+
+# Size-optimised build for the cosalette-health probe binary (ADR-087);
+# the filters extension keeps the default release profile.
+[profile.probe]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

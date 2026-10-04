@@ -54,6 +54,9 @@ config-yaml = ["pyyaml>=6.0.3"]
 
 [project.scripts]
 cosalette = "cosalette._package_cli:main_cli"
+# Python fallback for sdist installs. Platform wheels replace it with the
+# native binary: scripts/bundle-health-probe.sh (ADR-087).
+cosalette-health = "cosalette._health._probe:main"
 
 [build-system]
 requires = ["maturin>=1.12,<2"]

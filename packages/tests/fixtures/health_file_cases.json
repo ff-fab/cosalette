@@ -1,0 +1,639 @@
+{
+  "_comment": "Golden health file cases shared by the Python check (pytest) and the Rust probe (cargo test). Each case writes `json` (serialised) or `text` (verbatim) to a file, or leaves it `missing`, then checks it at Unix time `now`. `{path}` in `reason`/`reason_prefix` stands for the file path. See docs/reference/health-file.md.",
+  "cases": [
+    {
+      "name": "missing file",
+      "missing": true,
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} does not exist"
+    },
+    {
+      "name": "empty file",
+      "text": "",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "truncated JSON",
+      "text": "{\"written_at\": 999990",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "trailing garbage",
+      "text": "{\"written_at\": 999990} x",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "NaN token is not JSON",
+      "text": "{\"written_at\": NaN}",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "Infinity token is not JSON",
+      "text": "{\"written_at\": Infinity}",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "overflowing float is not JSON",
+      "text": "{\"written_at\": 1e400}",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "UTF-8 BOM",
+      "text": "﻿{\"written_at\": 999990}",
+      "now": 1000000,
+      "healthy": false,
+      "reason_prefix": "health file {path} is unreadable: "
+    },
+    {
+      "name": "top-level array",
+      "json": [
+        1,
+        2
+      ],
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} is not a JSON object"
+    },
+    {
+      "name": "top-level null",
+      "text": "null",
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} is not a JSON object"
+    },
+    {
+      "name": "top-level number",
+      "text": "999990",
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} is not a JSON object"
+    },
+    {
+      "name": "version absent means 1",
+      "json": {
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "version 1",
+      "json": {
+        "health_file_version": 1,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "version 2 is unsupported",
+      "json": {
+        "health_file_version": 2,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has unsupported version 2"
+    },
+    {
+      "name": "version 0 is unsupported",
+      "json": {
+        "health_file_version": 0,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has unsupported version 0"
+    },
+    {
+      "name": "version -1 is unsupported",
+      "json": {
+        "health_file_version": -1,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has unsupported version -1"
+    },
+    {
+      "name": "version float 1.0 is invalid",
+      "text": "{\"health_file_version\": 1.0, \"written_at\": 999990}",
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has an invalid version"
+    },
+    {
+      "name": "version string is invalid",
+      "json": {
+        "health_file_version": "1",
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has an invalid version"
+    },
+    {
+      "name": "version bool is invalid",
+      "json": {
+        "health_file_version": true,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has an invalid version"
+    },
+    {
+      "name": "version null is invalid",
+      "json": {
+        "health_file_version": null,
+        "written_at": 999990
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has an invalid version"
+    },
+    {
+      "name": "version is checked before written_at",
+      "json": {
+        "health_file_version": 2
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has unsupported version 2"
+    },
+    {
+      "name": "written_at missing",
+      "json": {
+        "interval": 60
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has no written_at time"
+    },
+    {
+      "name": "written_at null",
+      "json": {
+        "written_at": null
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has no written_at time"
+    },
+    {
+      "name": "written_at bool",
+      "json": {
+        "written_at": true
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has no written_at time"
+    },
+    {
+      "name": "written_at string",
+      "json": {
+        "written_at": "999990"
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has no written_at time"
+    },
+    {
+      "name": "written_at object",
+      "json": {
+        "written_at": {}
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file {path} has no written_at time"
+    },
+    {
+      "name": "written_at integer",
+      "text": "{\"written_at\": 999990}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "written_at float",
+      "text": "{\"written_at\": 999989.75}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "written_at in the future (clock skew)",
+      "json": {
+        "written_at": 1000005
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file -5s old)"
+    },
+    {
+      "name": "duplicate key: last wins",
+      "text": "{\"written_at\": 0, \"written_at\": 999990}",
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 10s old)"
+    },
+    {
+      "name": "default interval: age at limit 180",
+      "json": {
+        "written_at": 999820
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 180s old)"
+    },
+    {
+      "name": "default interval: age just over limit",
+      "json": {
+        "written_at": 999819.75
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 180s old (max age 180s)"
+    },
+    {
+      "name": "default interval: age over limit",
+      "json": {
+        "written_at": 999819
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 181s old (max age 180s)"
+    },
+    {
+      "name": "interval 10: age at limit 30",
+      "json": {
+        "written_at": 999970,
+        "interval": 10
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 30s old)"
+    },
+    {
+      "name": "interval 10: age 31",
+      "json": {
+        "written_at": 999969,
+        "interval": 10
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 31s old (max age 30s)"
+    },
+    {
+      "name": "interval 0 falls back to 60",
+      "json": {
+        "written_at": 999819,
+        "interval": 0
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 181s old (max age 180s)"
+    },
+    {
+      "name": "negative interval falls back to 60",
+      "json": {
+        "written_at": 999820,
+        "interval": -5
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 180s old)"
+    },
+    {
+      "name": "string interval falls back to 60",
+      "json": {
+        "written_at": 999819,
+        "interval": "10"
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 181s old (max age 180s)"
+    },
+    {
+      "name": "bool interval falls back to 60",
+      "json": {
+        "written_at": 999900,
+        "interval": true
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 100s old)"
+    },
+    {
+      "name": "fractional interval",
+      "json": {
+        "written_at": 999998,
+        "interval": 0.5
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 2s old (max age 2s)"
+    },
+    {
+      "name": "max_age 5: age 5 at limit",
+      "json": {
+        "written_at": 999995,
+        "interval": 60
+      },
+      "now": 1000000,
+      "max_age": 5,
+      "healthy": true,
+      "reason": "healthy (health file 5s old)"
+    },
+    {
+      "name": "max_age 5: age 5.5 over limit",
+      "json": {
+        "written_at": 999994.5,
+        "interval": 60
+      },
+      "now": 1000000,
+      "max_age": 5,
+      "healthy": false,
+      "reason": "health file is 6s old (max age 5s)"
+    },
+    {
+      "name": "max_age 5: age 4.5 rounds half to even",
+      "json": {
+        "written_at": 999995.5
+      },
+      "now": 1000000,
+      "max_age": 5,
+      "healthy": true,
+      "reason": "healthy (health file 4s old)"
+    },
+    {
+      "name": "max_age overrides interval",
+      "json": {
+        "written_at": 999900,
+        "interval": 10
+      },
+      "now": 1000000,
+      "max_age": 120,
+      "healthy": true,
+      "reason": "healthy (health file 100s old)"
+    },
+    {
+      "name": "max_age 0: age 0",
+      "json": {
+        "written_at": 1000000
+      },
+      "now": 1000000,
+      "max_age": 0,
+      "healthy": true,
+      "reason": "healthy (health file 0s old)"
+    },
+    {
+      "name": "max_age 0: age 0.25",
+      "json": {
+        "written_at": 999999.75
+      },
+      "now": 1000000,
+      "max_age": 0,
+      "healthy": false,
+      "reason": "health file is 0s old (max age 0s)"
+    },
+    {
+      "name": "age is checked before devices",
+      "json": {
+        "written_at": 999500,
+        "devices": {
+          "a": {
+            "status": "stale"
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "health file is 500s old (max age 180s)"
+    },
+    {
+      "name": "no devices",
+      "json": {
+        "written_at": 999999
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "ok device",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": "ok"
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "stale device fails by default",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": "stale"
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "failing devices: a=stale"
+    },
+    {
+      "name": "failing devices are sorted by name",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "zeta": {
+            "status": "stale"
+          },
+          "alpha": {
+            "status": "stale"
+          },
+          "mid": {
+            "status": "ok"
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "failing devices: alpha=stale, zeta=stale"
+    },
+    {
+      "name": "custom fail_on replaces the default",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": "stale"
+          },
+          "b": {
+            "status": "error"
+          }
+        }
+      },
+      "now": 1000000,
+      "fail_on": [
+        "error"
+      ],
+      "healthy": false,
+      "reason": "failing devices: b=error"
+    },
+    {
+      "name": "several fail_on statuses",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": "stale"
+          },
+          "b": {
+            "status": "error"
+          }
+        }
+      },
+      "now": 1000000,
+      "fail_on": [
+        "stale",
+        "error"
+      ],
+      "healthy": false,
+      "reason": "failing devices: a=stale, b=error"
+    },
+    {
+      "name": "custom fail_on ignores stale",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": "stale"
+          }
+        }
+      },
+      "now": 1000000,
+      "fail_on": [
+        "error"
+      ],
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "devices not an object is ignored",
+      "json": {
+        "written_at": 999999,
+        "devices": [
+          "stale"
+        ]
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "device entry not an object is ignored",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": "stale"
+        }
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "non-string status is ignored",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {
+            "status": 1
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "device without status is ignored",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "a": {}
+        }
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 1s old)"
+    },
+    {
+      "name": "unicode device names",
+      "json": {
+        "written_at": 999999,
+        "devices": {
+          "été": {
+            "status": "stale"
+          },
+          "zz": {
+            "status": "stale"
+          }
+        }
+      },
+      "now": 1000000,
+      "healthy": false,
+      "reason": "failing devices: zz=stale, été=stale"
+    },
+    {
+      "name": "writer payload with unknown keys",
+      "json": {
+        "status": "online",
+        "uptime_s": 1234.5,
+        "version": "1.2.3",
+        "devices": {
+          "meter": {
+            "status": "ok"
+          },
+          "relay": {
+            "status": "error"
+          }
+        },
+        "written_at": 999987.7,
+        "interval": 60.0,
+        "health_file_version": 1,
+        "future_key": {
+          "x": [
+            1,
+            2
+          ]
+        }
+      },
+      "now": 1000000,
+      "healthy": true,
+      "reason": "healthy (health file 12s old)"
+    }
+  ]
+}
