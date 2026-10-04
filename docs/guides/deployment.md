@@ -378,7 +378,7 @@ reports the app `"offline"`, but on plain Docker nothing restarts it; use the
 Run a health probe only where something acts on the result: a Kubernetes
 liveness probe, a Docker Swarm service, which replaces unhealthy tasks, or an
 autoheal container next to plain Docker. The app can write its heartbeat to a
-local file, which the built-in `health` subcommand checks. This needs no extra
+local file, which the `cosalette-health` command checks. This needs no extra
 packages in the image and does not depend on the broker. The file is **off by
 default**. Set `COSALETTE_HEALTH_FILE` to turn it on:
 
@@ -392,9 +392,9 @@ services:
     environment:
       COSALETTE_HEALTH_FILE: /tmp/myapp-health.json
     healthcheck:
-      test: ["CMD", "myapp", "health"]
-      interval: 5m
-      timeout: 30s          # leave room for a slow host
+      test: ["CMD", "cosalette-health"]
+      interval: 1m
+      timeout: 10s
       retries: 3
       start_period: 2m
       start_interval: 10s   # Docker Engine 25+: probe often only while starting
@@ -404,10 +404,10 @@ The app writes the file when it starts, before it connects to the broker, and
 then every `heartbeat_interval` (every 60 s when heartbeats are disabled). Each
 write replaces the file atomically. The file holds the
 [heartbeat payload](../reference/payloads.md) plus `written_at` and `interval`.
-The app deletes the file on a clean shutdown.
+The app deletes the file on a clean shutdown. The
+[Health File](../reference/health-file.md) reference describes the format.
 
-`myapp health` (or `cosalette health`) reads the path from the same variable and
-exits `1` when:
+`cosalette-health` reads the path from the same variable and exits `1` when:
 
 - the file is missing or unreadable;
 - the file is older than `--max-age`, which defaults to three write intervals.
@@ -420,18 +420,39 @@ If the app cannot write the file, for example because the directory is
 read-only, it logs one WARNING and keeps running, and the probe reports the
 container as unhealthy.
 
-!!! warning "Probe cost on constrained hosts"
+`cosalette-health` is installed with `cosalette`. Use it rather than
+`myapp health` or `cosalette health`, which take the same options but start a
+Python interpreter and import the framework on every run
+([ADR-087](../adr/ADR-087-native-cosalette-health-probe-binary-shipped-in-platform-wheels.md)).
+Cost per probe on a 6-core x86_64 host (median of 50 runs):
 
-    Each probe starts a new Python interpreter and imports your app and the
-    framework. On a Raspberry Pi 4 limited to `cpus: 0.5`, one adopter measured
-    11–13 s per probe and about 100 times the app's idle CPU. To keep it down:
+| Probe | Wall time | CPU time | Peak memory |
+|-------|-----------|----------|-------------|
+| `cosalette-health`, native binary | 1.2 ms | under 1 ms | 2.2 MiB |
+| `cosalette-health`, Python fallback | 60 ms | 59 ms | 15 MiB |
+| `cosalette health` | 393 ms | 393 ms | 46 MiB |
+
+On a Raspberry Pi 4 limited to `cpus: 0.5`, one adopter measured 11–13 s per
+`myapp health` run, about 100 times the app's idle CPU.
+
+!!! note "Native binary or Python fallback"
+
+    The platform wheels for Linux (glibc x86_64, aarch64, armv7; musl x86_64,
+    aarch64), macOS and Windows x86_64 contain the native binary. On other
+    platforms `cosalette-health` is a Python script with the same options and
+    exit codes. If pip must build the package from its source distribution, the
+    existing maturin/PyO3 build for `cosalette-filters-rs` requires Rust; the
+    health fallback adds no additional Rust requirement. To keep the fallback
+    cheap:
 
     - Compile bytecode when you build the image, for example with
       `ENV UV_COMPILE_BYTECODE=1` before `uv sync` in the builder stage. On a
       read-only root filesystem Python cannot cache `.pyc` files, so without
-      this every probe compiles the whole import graph again.
-    - Probe rarely. A long `interval` with `start_period` and `start_interval`
-      checks quickly while the app starts and rarely afterwards.
+      this every probe compiles its imports again. This also shortens the
+      app's own start-up.
+    - Probe less often. A long `interval` with `start_period` and
+      `start_interval` checks quickly while the app starts and rarely
+      afterwards.
     - Size `timeout` for the slowest host, or a slow probe counts as a failure.
 
 #### Checks to avoid

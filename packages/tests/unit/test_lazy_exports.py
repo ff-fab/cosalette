@@ -102,6 +102,8 @@ class TestImportCost:
             ("import cosalette", HEAVY_MODULES | {"orjson"}),
             # The liveness module serialises the health file through orjson.
             ("import cosalette._health._liveness", HEAVY_MODULES),
+            # The cosalette-health fallback probe is stdlib-only (ADR-087).
+            ("import cosalette._health._probe", HEAVY_MODULES | {"orjson"}),
         ],
     )
     def test_import_does_not_load_heavy_modules(

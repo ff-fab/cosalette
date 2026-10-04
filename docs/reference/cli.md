@@ -110,15 +110,22 @@ When both flags are given, `--show-devices-json` takes precedence.
 
 ## Health Probe
 
-`myapp health` and `cosalette health` check the health file that the app writes
-when the `COSALETTE_HEALTH_FILE` environment variable names a path
-([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)).
-Neither one loads settings or connects to the broker. Use them only where an
-orchestrator acts on the result: a Kubernetes liveness probe, a Docker Swarm
-service or an autoheal container. Plain Docker only marks a container unhealthy,
-so most deployments watch the MQTT signals and rely on a restart policy instead.
-Each run starts a Python interpreter and imports the framework, which is costly on
-small hosts.
+`cosalette-health`, `cosalette health` and `myapp health` check the health file
+that the app writes when the `COSALETTE_HEALTH_FILE` environment variable names a
+path ([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md),
+[Health File](health-file.md)). None of them loads settings or connects to the
+broker. Use them only where an orchestrator acts on the result: a Kubernetes
+liveness probe, a Docker Swarm service or an autoheal container. Plain Docker only
+marks a container unhealthy, so most deployments watch the MQTT signals and rely
+on a restart policy instead.
+
+Prefer `cosalette-health` in probe commands. It is a native binary in the
+platform wheels and a stdlib-only Python script elsewhere
+([ADR-087](../adr/ADR-087-native-cosalette-health-probe-binary-shipped-in-platform-wheels.md)),
+so a run costs about 1 ms instead of the Python interpreter start and framework
+import that `cosalette health` and `myapp health` pay (about 390 ms on a desktop
+CPU, seconds on a Raspberry Pi). All three take the same options and give the
+same result.
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -131,14 +138,16 @@ device has a failing status. It exits `1` and prints the reason on stderr when
 the file is missing, unreadable or too old, or when a device has a failing
 status. A usage error in the `health` arguments, such as `--max-age -1` or an
 unknown option, also exits `1`, with `unhealthy: usage error: <message>` on
-stderr, because Docker reserves exit code `2`. See
+stderr, because Docker reserves exit code `2`. `cosalette-health --help` exits
+`0`. See
 [Health Checks](../guides/deployment.md#health-checks).
 
 !!! note "Errors before `health` still exit 2"
 
     Options placed before the subcommand, as in `myapp --bogus health`, are
     parsed by the app's own CLI rather than by `health`, so a usage error there
-    exits `2`. Put no options before `health` in a probe command.
+    exits `2`. Put no options before `health` in a probe command, or use
+    `cosalette-health`, which has no subcommand.
 
 ## Registry Snapshot
 

@@ -99,3 +99,4 @@ rationale, and consequences.
 | [ADR-084](ADR-084-adapter-reset-restart-protocol-and-opt-in-restart-on-stale-telemetry.md) | Adapter reset() restart protocol and opt-in restart on stale telemetry | Accepted | 2026-10-02 |
 | [ADR-085](ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md) | Optional redaction hook for logs and disclosed error messages | Accepted | 2026-10-02 |
 | [ADR-086](ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md) | Framework availability channels in the generated AsyncAPI document | Accepted | 2026-10-03 |
+| [ADR-087](ADR-087-native-cosalette-health-probe-binary-shipped-in-platform-wheels.md) | Native cosalette-health probe binary shipped in platform wheels | Accepted | 2026-10-04 |

@@ -71,9 +71,12 @@ Everything is importable from `cosalette` directly — no private module imports
 Liveness (ADR-083): alert on MQTT (`{prefix}/status` heartbeat + LWT, per-device
 availability, heartbeat `stale`) and recover with `restart: unless-stopped` plus
 `exit_after_stale` (exit 5) and `on_task_failure` (exit 4). The opt-in
-`COSALETTE_HEALTH_FILE` + `<app> health` probe is only for orchestrators that act
-on it (Kubernetes, Swarm, autoheal); plain Docker never restarts unhealthy
-containers. Do not add a Docker `HEALTHCHECK` by default.
+`COSALETTE_HEALTH_FILE` probe is only for orchestrators that act on it
+(Kubernetes, Swarm, autoheal); plain Docker never restarts unhealthy containers.
+Do not add a Docker `HEALTHCHECK` by default. Where a probe is used, run
+`cosalette-health` (ADR-087: native binary in platform wheels, stdlib-only script
+elsewhere) rather than `<app> health`, which imports the whole app. A source
+build still needs Rust for the existing PyO3 extension.
 
 ### Settings
 

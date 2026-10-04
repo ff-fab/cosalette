@@ -481,6 +481,15 @@ that exceeds either bound raises `RuntimeError`.
 
 See `cosalette ai help availability`.
 
+Container liveness (ADR-083): alert on the MQTT signals above and recover with
+`restart: unless-stopped` plus `exit_after_stale` (exit 5) and `on_task_failure`
+(exit 4). Add a probe only where an orchestrator acts on it (Kubernetes, Swarm,
+autoheal): set `COSALETTE_HEALTH_FILE` and probe with `["CMD", "cosalette-health"]`
+(ADR-087), not `myapp health`. It is a native binary in platform wheels and a
+stdlib-only script elsewhere; a source build still needs Rust for the existing
+PyO3 extension. Set `UV_COMPILE_BYTECODE=1` in the image for the Python
+fallback. See `cosalette ai help health`.
+
 ## Ports & Adapters
 
 ```python
