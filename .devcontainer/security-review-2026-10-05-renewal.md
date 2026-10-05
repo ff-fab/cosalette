@@ -4,18 +4,31 @@ Prepared 5 October 2026 for cos-yi5p. It re-reviews every baseline row in the gr
 that expired on 11 October 2026 (`go_binaries`, `libxml2_pending`, `openssh_pending`,
 `pip_vendor`). The 27 October groups (`debian_pending`, `kernel_headers`) keep their
 expiry. Only their rows that the same scan found stale are removed. The owner of all
-groups is still cos-nxu6.
+groups is still cos-nxu6. The fresh scan also reported CVE-2026-89972 on
+`linux-libc-dev`; it is added to the existing `kernel_headers` group without changing
+that group's expiry.
 
 ## Evidence and scope
 
-The image was rebuilt from commit `5dfaa038` with
-`docker build --pull --no-cache --build-arg INSTALL_CLAUDE_CODE=false .devcontainer`,
-using current trixie packages and the unchanged base image digest. It was then scanned
-with `task security:docker:scan`. The scan reported **260 HIGH/CRITICAL fingerprints, 0
-unreviewed and 0 secrets**. Rows that match no current fingerprint are removed. Every
-remaining row matches a current fingerprint exactly, so no row needed new versions. The
-new expiry is 2 November 2026, a four-week window. That is longer than the issue's
-14-day minimum and matches earlier renewals.
+The image was rebuilt from commit `5dfaa038` with `task build:devcontainer`, which tags
+the result `cosalette-devcontainer-pr-validation:latest`. The scan was run against that
+same local tag with
+`DOCKER_SCAN_IMAGE=cosalette-devcontainer-pr-validation:latest task security:docker:scan`;
+the scanner's default published `ghcr.io/ff-fab/cosalette-devcontainer:latest` was not
+used. The resulting image ID and verified scan summary are recorded below. Rows that
+match no current fingerprint are removed. Every remaining row matches a current
+fingerprint exactly, so no row needed new versions. The new expiry is 2 November 2026, a
+four-week window. That is longer than the issue's 14-day minimum and matches earlier
+renewals.
+
+**Build and scan record (amd64):** image ID
+`sha256:32484ae9a64e24620c1b7df98d53d17a4fb5e53610a2e0fe7538a29525ce4d27`, built from
+`5dfaa038` with `task build:devcontainer`. The first exact-tag scan started on 5 October
+2026 at 19:33 UTC and reported 261 HIGH/CRITICAL fingerprints, including the new
+`CVE-2026-89972` row, 1 unreviewed finding and 0 secrets. The row was reviewed and added
+to `kernel_headers`; the scan was repeated against the same image and updated baseline,
+starting at 19:41 UTC. It completed at 19:45 UTC with 261 HIGH/CRITICAL fingerprints, 0
+unreviewed and 0 secrets. This verifies the amd64 image only; arm64 was not scanned.
 
 | Group             | Rows before | Removed | Kept | Expiry                   |
 | ----------------- | ----------: | ------: | ---: | ------------------------ |
@@ -24,7 +37,7 @@ new expiry is 2 November 2026, a four-week window. That is longer than the issue
 | `openssh_pending` |           3 |       0 |    3 | 2026-10-11 -> 2026-11-02 |
 | `pip_vendor`      |           0 |       - |    - | group deleted            |
 | `debian_pending`  |         201 |      33 |  168 | 2026-10-27 (unchanged)   |
-| `kernel_headers`  |          90 |      39 |   51 | 2026-10-27 (unchanged)   |
+| `kernel_headers`  |          90 |      39 |   52 | 2026-10-27 (unchanged)   |
 
 ## go_binaries
 
@@ -92,3 +105,16 @@ a row that matches no finding cannot create an unreviewed finding.
 | `debian_pending` |   12 | python3.13, python3.13-minimal, libpython3.13-minimal, libpython3.13-stdlib 3.13.5-2+deb13u5 (3 advisories each) | Debian Python 3.13 stack removed in PR 499    |
 | `debian_pending` |    1 | python3-urllib3 2.3.0-3+deb13u2                                                                                  | Removed in PR 499                             |
 | `debian_pending` |    1 | librsvg2-dev 2.60.0+dfsg-1                                                                                       | No longer installed (librsvg2-2 remains)      |
+
+The same fresh scan reported one additional `kernel_headers` fingerprint:
+`CVE-2026-89972` on `linux-libc-dev` 6.12.111-1. Debian marks trixie vulnerable with no
+fixed trixie version; forky/sid is fixed in 7.2.6-1. This is an NVMe kernel
+use-after-free in `nvme_alloc_ns()`'s error path. `linux-libc-dev` supplies userspace
+headers, not a running kernel implementation, so the finding describes a header package
+in this image and does not establish whether any host kernel is affected. Host
+applicability remains tracked by cos-dam4. The 27 October expiry is unchanged.
+
+Sources:
+[Debian CVE tracker](https://security-tracker.debian.org/tracker/CVE-2026-89972),
+[Debian linux-libc-dev package description](https://packages.debian.org/stable/devel/linux-libc-dev),
+[upstream fix reference](https://git.kernel.org/linus/ef248d5de4469fb6bbaf8dbe0c4c47800080d648).
