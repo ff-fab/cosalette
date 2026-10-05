@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Callable
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._app._telemetry_validators import (
     has_interval,
@@ -22,7 +22,6 @@ from cosalette._app._telemetry_validators import (
     validate_triggerable,
     validate_unavailable_on,
 )
-from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
@@ -45,8 +44,11 @@ from cosalette._registration import (
 )
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._trigger import normalize_trigger_source
-from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name
+
+if TYPE_CHECKING:
+    from cosalette._cron import CronSchedule
+    from cosalette._strategies import PublishStrategy
 
 
 def _is_static_schedule(

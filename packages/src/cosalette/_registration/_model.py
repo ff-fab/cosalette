@@ -12,17 +12,19 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from cosalette._context import AppContext
-from cosalette._cron import CronSchedule
 from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._runners._trigger import TriggerSource
 from cosalette._settings import Settings
-from cosalette._strategies import PublishStrategy
+
+if TYPE_CHECKING:
+    from cosalette._cron import CronSchedule
+    from cosalette._strategies import PublishStrategy
 
 type IntervalSpec = float | Callable[..., float]
 """Interval for telemetry: a concrete float or a settings-derived callable.

@@ -53,10 +53,10 @@ from cosalette._runners._telemetry_types import (
     _TriggerSlot,
 )
 from cosalette._runners._trigger import TriggerPayload
-from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
+    from cosalette._strategies import PublishStrategy
     from cosalette._supervisor import TaskSupervisor
 
 logger = logging.getLogger(__name__)

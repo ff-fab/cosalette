@@ -198,6 +198,10 @@ code: Python keeps every imported module in memory, so the footprint drops only 
 the app loads fewer modules. The file-backed part (about 18 MiB) is shared between
 containers that run the same image.
 
+cosalette keeps its own share small: `app.cli()` starts a plain run without loading
+the Typer CLI, and cron schedules, publish strategies, the command and stream
+runners and the discovery generator load only when the app uses them.
+
 Two settings make a measurable difference:
 
 - **Compile bytecode in the image.** The Dockerfile above sets

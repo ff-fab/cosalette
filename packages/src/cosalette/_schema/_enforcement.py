@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Literal, override
 
 from cosalette._schema import SchemaRegistry
-from cosalette._schema._loader import FileSchemaSource, load_schema
 from cosalette._settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -133,6 +132,9 @@ async def load_and_validate_schema(
 
     if settings.schema_.path is None:
         return None
+
+    # Deferred: an app without enforcement never loads the schema loader.
+    from cosalette._schema._loader import FileSchemaSource, load_schema
 
     source = FileSchemaSource(Path(settings.schema_.path))
     try:

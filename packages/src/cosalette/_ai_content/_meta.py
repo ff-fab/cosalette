@@ -620,6 +620,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(EXIT_LOOP_STALL), dumping every thread's stack to stderr, once the "
         "event loop has not run that long, so restart: unless-stopped recovers "
         "a wedged app. Off by default (see: cosalette ai help health).",
+        "Smaller runtime footprint: app.cli() runs a plain start (only "
+        "--dry-run, --log-level, --log-format, --env-file, --config-file) "
+        "without importing Typer (ADR-005 amendment), and a running app loads "
+        "cron, publish strategies, the command and stream runners and the "
+        "discovery generator only when it uses them.",
+        "app.discovery() no longer needs the cosalette[schema] extra (ADR-059 "
+        "amendment). --help and CLI errors fall back to plain output when rich "
+        "or pygments is missing, so an image can drop them with a uv "
+        "override-dependencies entry (see: docs/guides/containerize.md).",
     ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "

@@ -22,7 +22,7 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
 )
-from cosalette._runners._command_runner import _FRAMEWORK_ERROR_TYPE_MAP
+from cosalette._runners._command_errors import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette._runners._notifier import EntityNotifier
 from cosalette._runners._telemetry_types import _ReconnectWake
 from cosalette._settings import Settings

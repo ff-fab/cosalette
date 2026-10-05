@@ -319,7 +319,7 @@ class TestPublishDiscovery:
         async def _boom(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("schema load failed")
 
-        monkeypatch.setattr("cosalette._wiring._discovery.load_schema", _boom)
+        monkeypatch.setattr("cosalette._schema._loader.load_schema", _boom)
 
         with caplog.at_level(logging.ERROR):
             await publish_discovery(cast(MqttPort, mqtt), app, DiscoveryConfig())
