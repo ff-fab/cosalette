@@ -378,6 +378,17 @@ _run_impl() {
                 return 1
             fi
             policy_rc=0
+            # Optional review artifact: retain package paths and all vulnerability
+            # details, but never copy secret matches or image environment values.
+            if [ -n "${DOCKER_SCAN_REPORT:-}" ]; then
+                (umask 077; jq '{SchemaVersion, ArtifactName, ArtifactType,
+                    Results: [.Results[]? |
+                        {Target, Class, Type, Packages, Vulnerabilities}]}' \
+                    "${scan_report}" > "${DOCKER_SCAN_REPORT}") || {
+                    rm -f "${scan_report}"
+                    return 1
+                }
+            fi
             bash scripts/check-image-scan-policy.sh "${scan_report}" || policy_rc=$?
             if [ "${policy_rc}" -le 1 ]; then
                 echo "Trivy vulnerabilities: target | severity | ID | package | installed | fixed"

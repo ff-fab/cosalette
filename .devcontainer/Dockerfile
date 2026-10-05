@@ -19,9 +19,20 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.19@sha256:04d046b13e60d6bcec73cbc5e1cad25d
 RUN uv pip install --system --no-cache \
       'GitPython==3.1.62' \
       'setuptools>=78.1.1' \
-      'virtualenv>=21.7.13' \
       'urllib3>=2.8.0' \
       'msgpack>=1.2.1'
+
+# This project uses uv, so remove unused base-image package managers instead of
+# retaining vulnerable copies inside pipenv, virtualenv and pip's vendor tree.
+# Other preinstalled tools have independent dependencies and remain available;
+# their pipx_shared.pth files only add the now-unused shared pip installation.
+RUN pipx uninstall pipenv \
+    && pipx uninstall virtualenv \
+    && pipx uninstall pipx \
+    && rm -rf /usr/local/py-utils/shared \
+    && find /usr/local/py-utils/venvs -name pipx_shared.pth -delete \
+    && uv pip uninstall --system pip \
+    && black --version && pytest --version
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft
@@ -54,7 +65,7 @@ ARG DOCKER_VERSION=29.8.1
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
 ARG BUILDX_VERSION=0.37.1
-# DL3008 suppressed for general utility packages (jq, httpie, fzf, ripgrep).
+# DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
 # and version pins would make maintenance across Debian releases impractical.
@@ -69,13 +80,11 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get -y install --no-install-recommends \
         # General utilities
         jq \
-        httpie \
         fzf \
         ripgrep \
         # Docker CE prerequisites
         ca-certificates \
         gnupg \
-        lsb-release \
     && install -m 0755 -d /usr/share/keyrings \
     && curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
        https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
@@ -108,6 +117,12 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         libmagickcore-7.q16-10 libmagickwand-7.q16-10 \
         libmagickcore-7-headers libmagickwand-7-headers \
         libmagickcore-7-arch-config imagemagick-7-common \
+    # The project and retained Python tools use /usr/local Python 3.14. Removing
+    # the separate distro interpreter also removes unused Mercurial and graphic
+    # development packages; do not autoremove ICU or native-build dependencies.
+    && apt-get -y purge \
+        python3 python3-minimal libpython3-stdlib \
+        python3.13 python3.13-minimal libpython3.13-minimal libpython3.13-stdlib \
     && groupadd -f docker \
     && usermod -aG docker vscode \
     && apt-get clean \
