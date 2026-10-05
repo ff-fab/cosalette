@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
+from cosalette._constants import EXIT_LOOP_STALL
 from cosalette._context import DeviceContext
 from cosalette._health import HealthCheckRunner, HealthReporter
 from cosalette._health._liveness import (
@@ -15,6 +16,7 @@ from cosalette._health._liveness import (
     HealthFileWriter,
     StaleTelemetryError,
 )
+from cosalette._health._loop_stall import LoopStallWatchdog
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
@@ -294,6 +296,26 @@ def start_health_file_task(
         name="cosalette-health-file-loop",
     )
     return writer, task
+
+
+def start_loop_stall_watchdog(timeout: float | None) -> LoopStallWatchdog | None:
+    """Arm the opt-in loop-stall watchdog, or return ``None`` when off (ADR-088)."""
+    if timeout is None:
+        return None
+    watchdog = LoopStallWatchdog(timeout)
+    watchdog.start()
+    logger.info(
+        "Loop-stall watchdog armed: exit code %d after %gs without the event loop",
+        EXIT_LOOP_STALL,
+        timeout,
+    )
+    return watchdog
+
+
+def stop_loop_stall_watchdog(watchdog: LoopStallWatchdog | None) -> None:
+    """Disarm *watchdog* if one was armed; safe to call more than once."""
+    if watchdog is not None:
+        watchdog.stop()
 
 
 def _build_periodic_providers(

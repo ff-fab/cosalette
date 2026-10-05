@@ -16,6 +16,8 @@ EXIT_TASK_FAILURE = 4
 """A supervised task failed and ended the app (ADR-081)."""
 EXIT_STALE = 5
 """A telemetry entity stayed stale for ``exit_after_stale`` (ADR-083)."""
+EXIT_LOOP_STALL = 6
+"""The event loop stalled past ``COSALETTE_LOOP_STALL_TIMEOUT`` (ADR-088)."""
 
 
 # ---------------------------------------------------------------------------

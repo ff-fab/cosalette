@@ -40,6 +40,15 @@ The executable name depends on your project's entry point configuration
 | `3` | `EXIT_RUNTIME_ERROR` | Unhandled exception during the async lifecycle |
 | `4` | `EXIT_TASK_FAILURE` | The task supervisor shut the app down: a framework-started task failed under `on_task_failure="exit"`, exhausted its restart budget, or a framework loop died (`TaskSupervisionError`, [ADR-081](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)) |
 | `5` | `EXIT_STALE` | A telemetry entity stayed stale for `App(exit_after_stale=...)` seconds (`StaleTelemetryError`, [ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)) |
+| `6` | `EXIT_LOOP_STALL` | The event loop did not run for `COSALETTE_LOOP_STALL_TIMEOUT` seconds; the watchdog dumped every thread's stack to stderr and ended the process without a graceful shutdown ([ADR-088](../adr/ADR-088-opt-in-event-loop-stall-watchdog-with-exit-code-6.md)) |
+
+`EXIT_CONFIG_ERROR` also covers an invalid `COSALETTE_LOOP_STALL_TIMEOUT`. A loop
+stalled inside C code that holds the GIL ends through the watchdog's faulthandler
+backstop instead, after twice the timeout and with code `1`, not `6`. On stderr
+it shows faulthandler's `Timeout (H:MM:SS)!` header (`Timeout (0:10:00)!` for a
+300 s timeout) followed by every thread's stack, with no
+`CRITICAL cosalette: event loop stalled` line. `restart: on-failure` and
+`unless-stopped` still restart the container on code `1`.
 
 The [`health`](#health-probe) subcommand has its own exit codes: `0` healthy,
 `1` unhealthy.
