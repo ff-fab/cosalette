@@ -77,4 +77,48 @@ SCAN_POLICY_DATE=2100-01-01 expect_fail 'expired acceptance'
 printf '{broken' > "${scratch}/report.json"
 expect_fail 'malformed scanner report'
 
+# Review artifacts retain vulnerable file locations while excluding secret
+# matches and image configuration. The original gate must still fail for secrets.
+cat > "${scratch}/artifact-input.json" <<'JSON'
+{
+  "ArtifactName": "test-image",
+  "Metadata": {"ImageConfig": {"config": {"Env": ["TOKEN=private-env"]}}},
+  "Results": [{
+    "Target": "Python",
+    "Type": "python-pkg",
+    "Vulnerabilities": [{
+      "Severity": "HIGH",
+      "VulnerabilityID": "CVE-TEST-2",
+      "PkgName": "example",
+      "InstalledVersion": "1.0",
+      "PkgPath": "/opt/tool/site-packages/example"
+    }],
+    "Secrets": [{"Severity": "HIGH", "RuleID": "test-secret", "Match": "private-match"}]
+  }]
+}
+JSON
+docker() {
+    case "$1" in
+        image) return 0 ;;
+        run) cat "${TEST_SCAN_REPORT}" ;;
+        *) return 1 ;;
+    esac
+}
+export -f docker
+if TEST_SCAN_REPORT="${scratch}/artifact-input.json" \
+    DOCKER_SCAN_REPORT="${scratch}/artifact-output.json" QA_NO_WRAP=1 \
+    bash scripts/qa-task.sh security:docker:scan > "${scratch}/artifact-log" 2>&1; then
+    printf 'Expected artifact generation to preserve the failing secret gate\n' >&2
+    exit 1
+fi
+jq -e '.Results[0].Vulnerabilities[0].PkgPath == "/opt/tool/site-packages/example" and
+    (has("Metadata") | not) and (.Results[0] | has("Secrets") | not)' \
+    "${scratch}/artifact-output.json" >/dev/null
+if grep -q 'private-match\|private-env' "${scratch}/artifact-output.json"; then
+    printf 'Private scanner content leaked into the review artifact\n' >&2
+    exit 1
+fi
+grep -q '1 secrets' "${scratch}/artifact-log"
+unset -f docker
+
 printf 'Image scan policy tests passed\n'

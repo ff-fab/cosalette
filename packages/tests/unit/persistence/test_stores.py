@@ -234,12 +234,45 @@ class TestJsonFileStore:
 
         assert store.load("any") is None
 
-    def test_load_missing_key_returns_none(self, tmp_path: Path) -> None:
-        """Loading a key not present in the file returns None."""
+    def test_load_missing_key_returns_none_without_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A key absent from a valid shared file returns None silently.
+
+        Several stores share one file, so a missing key is the normal
+        first-start case and must not log the non-object warning.
+
+        Technique: Equivalence Partitioning — valid file, absent key.
+        """
         store = JsonFileStore(tmp_path / "state.json")
         store.save("exists", {"v": 1})
 
-        assert store.load("other") is None
+        with caplog.at_level(logging.WARNING):
+            result = store.load("other")
+
+        assert result is None
+        assert caplog.records == []
+
+    def test_load_non_object_entry_returns_none_with_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An entry that is not a JSON object returns None and warns.
+
+        Technique: Error Guessing — top level is valid, the entry is a list.
+        """
+        path = tmp_path / "state.json"
+        path.write_text('{"key": [1, 2]}', encoding="utf-8")
+        store = JsonFileStore(path)
+
+        with caplog.at_level(logging.WARNING):
+            result = store.load("key")
+
+        assert result is None
+        assert "non-object entry for key 'key'" in caplog.text
 
     def test_load_corrupt_file_returns_none(
         self,

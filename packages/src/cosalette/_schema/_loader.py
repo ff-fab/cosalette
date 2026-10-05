@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Protocol, cast, override, runtime_checkable
 
@@ -88,19 +89,24 @@ _schema_deps_checked = False
 
 
 def _ensure_schema_deps() -> None:
-    """Verify that optional schema dependencies are available."""
+    """Verify that optional schema dependencies are available.
+
+    Checks presence only, without importing: runtime discovery passes a
+    dict to :func:`load_schema` and needs neither package, and importing
+    them would keep about 70 modules resident.  Each is imported where
+    it is used.
+    """
     global _schema_deps_checked  # noqa: PLW0603
     if _schema_deps_checked:
         return
-    try:
-        import jsonschema  # noqa: F401
-        import yaml  # noqa: F401
-    except ImportError as exc:
+    missing = [name for name in ("jsonschema", "yaml") if find_spec(name) is None]
+    if missing:
         msg = (
-            "Schema support requires optional dependencies. "
+            "Schema support requires optional dependencies "
+            f"(missing: {', '.join(missing)}). "
             "Install with: pip install cosalette[schema]"
         )
-        raise ImportError(msg) from exc
+        raise ImportError(msg)
     _schema_deps_checked = True
 
 

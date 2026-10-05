@@ -72,13 +72,23 @@ jobs:
         with:
           imageName: cosalette-devcontainer-pr-validation
           push: never
-          runCmd: true
+          runCmd: bash .devcontainer/tests/security-toolchain.sh
 
       - name: Scan locally built image with Trivy
         env:
           DOCKER_SCAN_IMAGE: cosalette-devcontainer-pr-validation:latest
+          DOCKER_SCAN_REPORT: image-vulnerability-review.json
           QA_TAIL_LINES: '2000'
         run: bash scripts/qa-task.sh security:docker:scan
+
+      - name: Retain vulnerability review evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-vulnerability-review
+          path: image-vulnerability-review.json
+          retention-days: 7
+          if-no-files-found: ignore
 
   build:
     name: Build and push
