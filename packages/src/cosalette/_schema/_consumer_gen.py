@@ -881,6 +881,23 @@ def _default_json_attributes_topic(config: dict[str, Any]) -> None:
         config["json_attributes_topic"] = state_topic
 
 
+def _check_instance_id_scope(registry: SchemaRegistry, instance_id: str | None) -> None:
+    """Reject an instance id for a document that describes several apps.
+
+    An instance id names one running process (ADR-089); applied to a
+    network-level document it would merge every app into one identity.
+    """
+    if instance_id is None:
+        return
+    apps = registry.all_app_names()
+    if len(apps) > 1:
+        msg = (
+            f"instance id {instance_id!r} names a single app instance, but the "
+            f"schema describes {len(apps)} apps ({', '.join(sorted(apps))})"
+        )
+        raise ValueError(msg)
+
+
 @dataclass(frozen=True, slots=True)
 class HaDiscoveryGenerator:
     """Generate Home Assistant MQTT discovery payloads from a schema registry.
@@ -893,10 +910,14 @@ class HaDiscoveryGenerator:
     registry: SchemaRegistry
     discovery_prefix: str = "homeassistant"
     enrich: HaEnrichHook | None = None
+    #: Opt-in instance identity (ADR-089) replacing the app name in every
+    #: identity field; ``None`` keeps the app name, so output is unchanged.
+    instance_id: str | None = None
 
     def generate(self) -> list[HaDiscoveryPayload]:
         """Return discovery payloads for annotated properties and composite entities."""
         validate_consumer_aggregates(self.registry)
+        _check_instance_id_scope(self.registry, self.instance_id)
         payloads: list[HaDiscoveryPayload] = []
         composite_channels: list[ChannelSchema] = []
         for channel in sorted(self.registry.channels.values(), key=lambda c: c.address):
@@ -933,7 +954,8 @@ class HaDiscoveryGenerator:
         return [self._build_bridge_payload(app) for app in sorted(apps)]
 
     def _build_bridge_payload(self, app: str) -> HaDiscoveryPayload:
-        node_id = _slugify(app)
+        identity = self.instance_id or app
+        node_id = _slugify(identity)
         bridge_id = f"cosalette_{node_id}"
         object_id = "bridge"
         unique_id = f"{bridge_id}_{object_id}"
@@ -954,7 +976,7 @@ class HaDiscoveryGenerator:
             # No availability block: the bridge IS the connectivity indicator.
             # Its state machine (ON/OFF via LWT) is the availability signal —
             # hiding it as "unavailable" at disconnect defeats its purpose.
-            "device": _device_block(app, node_id, app, is_root=True),
+            "device": _device_block(identity, node_id, identity, is_root=True),
             "origin": _origin_block(app, self.registry.app_version),
         }
         return HaDiscoveryPayload(topic=topic, config=config)
@@ -1006,7 +1028,7 @@ class HaDiscoveryGenerator:
                     command_topic = channel.address
                 merged[key] = (rep_channel, spec, state_topic, command_topic)
 
-        node_id = _slugify(app)
+        node_id = _slugify(self.instance_id or app)
         return [
             self._build_composite_payload(
                 app, device_name, node_id, channel, spec, state, command
@@ -1048,7 +1070,9 @@ class HaDiscoveryGenerator:
                 _framework_prefix(self.registry, app), device_name, is_root=is_root
             )
         )
-        config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
+        config["device"] = _device_block(
+            self.instance_id or app, node_id, device_name, is_root=is_root
+        )
         config["origin"] = _origin_block(app, self.registry.app_version)
         # extra is an open passthrough merged last, mirroring
         # HaDiscoveryOverrides.extra's override-last semantics (ADR-056) — it
@@ -1095,7 +1119,7 @@ class HaDiscoveryGenerator:
         )
         suffix = "_cmd" if is_command else ""
         object_id = _slugify(f"{device_name}_{prop.name}") + suffix
-        node_id = _slugify(app)
+        node_id = _slugify(self.instance_id or app)
         unique_id = f"cosalette_{node_id}_{object_id}"
 
         topic = f"{self.discovery_prefix}/{component}/{node_id}/{object_id}/config"
@@ -1116,7 +1140,9 @@ class HaDiscoveryGenerator:
                 _framework_prefix(self.registry, app), device_name, is_root=is_root
             )
         )
-        config["device"] = _device_block(app, node_id, device_name, is_root=is_root)
+        config["device"] = _device_block(
+            self.instance_id or app, node_id, device_name, is_root=is_root
+        )
         config["origin"] = _origin_block(app, self.registry.app_version)
         self._apply_enrichment(channel, prop, config)
 
@@ -1404,10 +1430,14 @@ class OpenHabGenerator:
 
     registry: SchemaRegistry
     broker_uid: str = "broker"
+    #: Opt-in instance identity (ADR-089) for Thing UIDs, Item ids and
+    #: labels; ``None`` keeps the app name, so output is unchanged.
+    instance_id: str | None = None
 
     def generate_things(self) -> str:
         """Return OpenHAB ``.things`` file content."""
         validate_consumer_aggregates(self.registry)
+        _check_instance_id_scope(self.registry, self.instance_id)
         lines = [
             "// Generated by cosalette schema openhab",
             "",
@@ -1419,6 +1449,7 @@ class OpenHabGenerator:
     def generate_items(self) -> str:
         """Return OpenHAB ``.items`` file content."""
         validate_consumer_aggregates(self.registry)
+        _check_instance_id_scope(self.registry, self.instance_id)
         lines = [
             "// Generated by cosalette schema openhab",
             "",
@@ -1467,11 +1498,12 @@ class OpenHabGenerator:
     ) -> list[str]:
         if not any(_is_emittable(p) for ch in channels for p in ch.properties.values()):
             return []
-        thing_uid = _openhab_thing_uid(self.broker_uid, app, device)
+        identity = self.instance_id or app
+        thing_uid = _openhab_thing_uid(self.broker_uid, identity, device)
         # Escape before embedding in the quoted .things label — app/device names
         # permit quotes/backslashes (validate_mqtt_name only bars /+#/control
         # chars), which would otherwise break out of the DSL string.
-        label = _escape_openhab_string(f"{app} {device}")
+        label = _escape_openhab_string(f"{identity} {device}")
 
         # The Thing-level bracket is never empty: availability is computed for
         # every Thing (ADR-079), so there is no bracket-less header form.
@@ -1527,7 +1559,8 @@ class OpenHabGenerator:
     def _items_for_device(
         self, app: str, device: str, channels: list[ChannelSchema]
     ) -> list[str]:
-        group_name = f"g{app.replace('-', '_').title().replace('_', '')}"
+        identity = self.instance_id or app
+        group_name = f"g{identity.replace('-', '_').title().replace('_', '')}"
         lines: list[str] = []
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
@@ -1537,7 +1570,7 @@ class OpenHabGenerator:
                     lines.append(
                         _format_item_line(
                             self.broker_uid,
-                            app,
+                            identity,
                             device,
                             prop,
                             group_name,

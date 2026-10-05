@@ -236,6 +236,9 @@ class _LifecycleMixin:
             version=self._version,
             redact=self._redactor,
         )
+        discovery_config = _wiring.resolve_discovery_config(
+            self._discovery, resolved_settings.mqtt, self._name
+        )
 
         # ADR-064: a stable Phase-1 handle, late-bound to the trigger slots
         # once TriggerConfig.build has run in Phase 2.  Adapter factories,
@@ -347,7 +350,7 @@ class _LifecycleMixin:
             self._announced_registrations,
             prefix,
             _cleanup_store,
-            self._discovery,
+            discovery_config,
             self._retained_cleanup_snapshot_key,
         )
         # After the reannounce callback, so the gate opens once it has run.
@@ -412,7 +415,7 @@ class _LifecycleMixin:
                         prefix,
                         _cleanup_store,
                         connect_aware=connect_aware,
-                        discovery_config=self._discovery,
+                        discovery_config=discovery_config,
                         snapshot_key=self._retained_cleanup_snapshot_key,
                     )
 

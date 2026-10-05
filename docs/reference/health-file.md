@@ -82,9 +82,10 @@ at all.
 !!! info "Native binary or Python fallback"
 
     Platform wheels contain `cosalette-health` as a native binary for Linux
-    x86_64, aarch64 and armv7 (glibc 2.17 or newer), Alpine/musl x86_64 and
-    aarch64, macOS x86_64 and arm64, and Windows x86_64. Elsewhere, for
-    example Alpine on armv7, `cosalette-health` is a Python script with the
+    x86_64, aarch64 and armv7, with glibc 2.17 or newer or with musl
+    (Alpine), macOS x86_64 and arm64, and Windows x86_64 (see
+    [Supported platforms](../getting-started/index.md#supported-platforms)).
+    Elsewhere, for example on armv6, `cosalette-health` is a Python script with the
     same options and exit codes and imports only the standard library. A source
     install still builds the required `cosalette-filters-rs` extension through
     maturin/PyO3, so it needs Rust when no matching wheel is available; the

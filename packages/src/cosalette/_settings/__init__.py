@@ -58,6 +58,7 @@ from cosalette._settings._config_file import (
 # local to avoid coupling settings to the schema layer.  Wildcards (``+``/``#``)
 # are rejected separately with a more specific message.
 _SAFE_TOPIC_PREFIX_RE = re.compile(r"^[A-Za-z0-9_./:-]*$")
+_INSTANCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]*$")
 
 
 class MqttSettings(BaseModel):
@@ -143,6 +144,17 @@ class MqttSettings(BaseModel):
             "Set via MQTT__TOPIC_PREFIX to override."
         ),
     )
+    instance_id: str = Field(
+        default="",
+        description=(
+            "Identity of this app instance in Home Assistant discovery and "
+            "openHAB output (node_id, unique_id, device identifiers, Thing "
+            "UID). When empty, falls back to App(name=...), keeping existing "
+            "ids stable. Set a distinct value via MQTT__INSTANCE_ID for each "
+            "instance when several instances of one app share a broker "
+            "(ADR-089)."
+        ),
+    )
     error_publish_verbose: bool = Field(
         default=False,
         description=(
@@ -198,6 +210,17 @@ class MqttSettings(BaseModel):
             )
             raise ValueError(msg)
         return v.strip("/")
+
+    @field_validator("instance_id")
+    @classmethod
+    def _validate_instance_id(cls, v: str) -> str:
+        """Restrict to characters that survive every generated identifier."""
+        if not _INSTANCE_ID_RE.match(v):
+            msg = (
+                f"instance_id may only contain letters, digits, '_' and '-' (got {v!r})"
+            )
+            raise ValueError(msg)
+        return v
 
     @model_validator(mode="after")
     def _validate_tls_settings(self) -> MqttSettings:

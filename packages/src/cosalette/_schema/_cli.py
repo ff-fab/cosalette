@@ -282,6 +282,39 @@ def _validated_topic_prefix(value: str) -> str:
         raise typer.Exit(EXIT_CONFIG_ERROR) from None
 
 
+def _validated_instance_id(value: str | None, registry: SchemaRegistry) -> str | None:
+    """Validate an ``--instance-id`` value for *registry*, or exit.
+
+    Uses ``settings.mqtt.instance_id``'s own validator, and rejects a
+    document describing several apps (ADR-089).
+    """
+    if value is None:
+        return None
+    from pydantic import ValidationError
+
+    from cosalette._schema._consumer_gen import _check_instance_id_scope
+    from cosalette._settings import MqttSettings
+
+    try:
+        instance_id = MqttSettings(instance_id=value).instance_id or None
+        _check_instance_id_scope(registry, instance_id)
+    except (ValidationError, ValueError) as exc:
+        typer.echo(f"Error: invalid --instance-id {value!r}: {exc}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR) from None
+    return instance_id
+
+
+_InstanceIdOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--instance-id",
+        help="Instance identity (settings.mqtt.instance_id, ADR-089) used for "
+        "discovery ids instead of the app name, so several instances of one "
+        "app do not collide. Defaults to the app name.",
+    ),
+]
+
+
 def _import_schema_app(
     spec: str,
     *,
@@ -665,6 +698,7 @@ def ha_discovery(
     format_name: Annotated[
         str, typer.Option("--format", "-f", help="Output format (json or yaml).")
     ] = "json",
+    instance_id: _InstanceIdOpt = None,
 ) -> None:
     """Generate Home Assistant MQTT discovery payloads from schema."""
     from cosalette._schema._consumer_gen import (
@@ -680,7 +714,11 @@ def ha_discovery(
     _warn_unreachable_consumer_annotations(registry)
     _warn_array_item_consumer_annotations(registry)
     _warn_array_of_objects_consumer_annotations(registry)
-    generator = HaDiscoveryGenerator(registry=registry, discovery_prefix=prefix)
+    generator = HaDiscoveryGenerator(
+        registry=registry,
+        discovery_prefix=prefix,
+        instance_id=_validated_instance_id(instance_id, registry),
+    )
     payloads = generator.generate()
 
     if format_name == "json":
@@ -701,6 +739,7 @@ def openhab(
     output: Annotated[
         str, typer.Option("--output", "-o", help="Output: things, items, or both.")
     ] = "both",
+    instance_id: _InstanceIdOpt = None,
 ) -> None:
     """Generate OpenHAB .things/.items configuration from schema."""
     from cosalette._schema._consumer_gen import OpenHabGenerator
@@ -716,7 +755,11 @@ def openhab(
     _warn_unreachable_consumer_annotations(registry)
     _warn_array_item_consumer_annotations(registry)
     _warn_array_of_objects_consumer_annotations(registry)
-    generator = OpenHabGenerator(registry=registry, broker_uid=broker_uid)
+    generator = OpenHabGenerator(
+        registry=registry,
+        broker_uid=broker_uid,
+        instance_id=_validated_instance_id(instance_id, registry),
+    )
 
     if output in ("things", "both"):
         typer.echo(generator.generate_things())

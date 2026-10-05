@@ -620,6 +620,13 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(EXIT_LOOP_STALL), dumping every thread's stack to stderr, once the "
         "event loop has not run that long, so restart: unless-stopped recovers "
         "a wedged app. Off by default (see: cosalette ai help health).",
+        "Opt-in instance identity (ADR-089): set mqtt.instance_id "
+        "(MQTT__INSTANCE_ID) per instance when several instances of one app "
+        "share a broker. It replaces the app name in HA discovery node_id/"
+        "unique_id/device ids, the discovery orphan-cleanup key and openHAB "
+        "Thing UIDs/Item ids; unset output is unchanged. `schema ha-discovery` "
+        "and `schema openhab` accept --instance-id (see: cosalette ai help "
+        "discovery).",
     ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "

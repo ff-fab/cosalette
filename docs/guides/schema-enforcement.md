@@ -707,7 +707,8 @@ configure/expand lifecycle so [ADR-023](../adr/ADR-023-on-configure-lifecycle-ph
 callable `name=` registrations are expanded. Multi-segment prefixes
 (`house/wiz`) are supported; MQTT wildcards are rejected. The prefix changes
 addresses only — identity, and therefore Home Assistant `object_id` /
-`unique_id`, is unaffected.
+`unique_id`, is unaffected. To run several instances of one app, see
+[Several instances of one app](#several-instances-of-one-app).
 
 ---
 
@@ -720,8 +721,8 @@ addresses only — identity, and therefore Home Assistant `object_id` /
 | `cosalette schema dump --app module:attr [--topic-prefix PREFIX]` | Generate canonical AsyncAPI 3.0.0 YAML via `app.asyncapi()` (typed schemas, archetype extensions, contract-version). |
 | `cosalette schema init --app module:attr [--topic-prefix PREFIX]` | Generate starter schema with cosalette extensions (for editing). |
 | `cosalette schema slice --network <file> --app <name>` | Extract one app's slice from a network schema. |
-| `cosalette schema ha-discovery <file> [--prefix PREFIX] [--format json\|yaml]` | Generate Home Assistant MQTT discovery payloads. |
-| `cosalette schema openhab <file> [--broker-uid UID] [--output things\|items\|both]` | Generate OpenHAB `.things` / `.items` configuration. |
+| `cosalette schema ha-discovery <file> [--prefix PREFIX] [--format json\|yaml] [--instance-id ID]` | Generate Home Assistant MQTT discovery payloads. |
+| `cosalette schema openhab <file> [--broker-uid UID] [--output things\|items\|both] [--instance-id ID]` | Generate OpenHAB `.things` / `.items` configuration. |
 | `cosalette schema acl <file> [--format FORMAT]` | Generate broker ACL configuration. |
 | `cosalette schema monitor <file> [--broker HOST:PORT] [--timeout SECS]` | Monitor fleet schema compliance via MQTT. |
 
@@ -988,6 +989,54 @@ the message and the Item keeps its previous value rather than going `UNDEF`; an
 empty array yields 0. Reach for a channel-level `ha_entities()` composite only
 when you need the list *contents* as Home Assistant attributes — which serves
 Home Assistant only; `schema openhab` has no composite equivalent.
+
+### Several instances of one app
+
+Discovery ids derive from the app name: the discovery topic
+`homeassistant/<component>/<app>/<object_id>/config`, `unique_id`
+`cosalette_<app>_<object_id>`, and the device `identifiers` and `via_device`.
+Two instances of the same app on one broker therefore claim the same
+entities, even when their `MQTT__TOPIC_PREFIX` differs: the last one to
+publish wins and Home Assistant shows only one instance.
+
+Give each instance its own identity with `MQTT__INSTANCE_ID`
+([ADR-089](../adr/ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md)):
+
+```yaml
+# docker-compose.yml
+services:
+  wiz-attic:
+    environment:
+      MQTT__TOPIC_PREFIX: house/attic/wiz
+      MQTT__INSTANCE_ID: wiz-attic
+  wiz-cellar:
+    environment:
+      MQTT__TOPIC_PREFIX: house/cellar/wiz
+      MQTT__INSTANCE_ID: wiz-cellar
+```
+
+The instance id replaces the app name in every identity field: `node_id`,
+`unique_id`, device `identifiers`, `via_device`, the bridge device name, and
+the store key that discovery orphan cleanup uses, so one instance never
+clears another's configs even when both share a store. In openHAB output it
+names the Thing UID, Thing label, Item ids and item group. Topics still follow
+`MQTT__TOPIC_PREFIX`, and the `origin` block still names the app. The
+offline generators take the same value:
+
+```bash
+cosalette schema ha-discovery schema.yaml --instance-id wiz-attic
+cosalette schema openhab schema.yaml --instance-id wiz-attic
+```
+
+`--instance-id` is rejected for a document that describes several apps.
+
+When the id is unset, output is byte-identical to earlier releases, so
+existing entities keep their `unique_id`s. Setting it on a deployment that
+is already discovered changes its ids once: Home Assistant creates new
+entities, and the old retained configs stay until you delete the old device
+in Home Assistant. With runtime discovery enabled, the app logs a warning at
+startup when `MQTT__TOPIC_PREFIX` differs from the app name and no instance
+id is set, because that is the usual sign of a second instance.
 
 ### OpenHAB Configuration
 

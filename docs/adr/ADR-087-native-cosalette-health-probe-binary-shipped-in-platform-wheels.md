@@ -9,7 +9,7 @@ tags: [health, packaging, cli, release]
 
 ## Status
 
-Accepted **Date:** 2026-10-04 | Amended **Date:** 2026-10-04
+Accepted **Date:** 2026-10-04 | Amended **Date:** 2026-10-04 | Amended **Date:** 2026-10-05
 
 ## Context
 
@@ -127,3 +127,8 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-10-04)"
     Health-file numeric parsing follows serde_json: integer literals in the i64/u64 range remain integers; integers outside that range are converted to finite floating-point values when possible; values that overflow to infinity make the document unreadable. The Python fallback uses the same rule, covered by shared fixtures at both integer boundaries and for overflow.
+
+## Amendment (2026-10-05) — Minor
+
+!!! note "Editorial note (2026-10-05)"
+    The platform matrix now also builds musllinux armv7 (`armv7-unknown-linux-musleabihf`, for example Alpine on a 32-bit Raspberry Pi), checked and smoke-tested like the other Linux targets. The supported-platform table lives in the installation docs (Getting Started, Supported platforms).

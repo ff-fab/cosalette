@@ -110,6 +110,32 @@ cosalette is published on [PyPI](https://pypi.org/project/cosalette/).
 - Python 3.14+
 - An MQTT broker (e.g. [Mosquitto](https://mosquitto.org/))
 
+### Supported platforms
+
+cosalette contains a compiled Rust extension, so every release publishes
+prebuilt wheels (CPython 3.14+ abi3) for these platforms:
+
+| OS | libc | Architecture | Prebuilt wheel | Typical host |
+| --- | --- | --- | --- | --- |
+| Linux | glibc 2.17+ | x86_64 | :material-check: | Debian/Ubuntu servers, `python:*-slim` |
+| Linux | glibc 2.17+ | aarch64 | :material-check: | Raspberry Pi 3/4/5 (64-bit OS) |
+| Linux | glibc 2.17+ | armv7 | :material-check: | Raspberry Pi 2/3/4 (32-bit OS) |
+| Linux | musl 1.2+ | x86_64 | :material-check: | Alpine, `python:*-alpine` |
+| Linux | musl 1.2+ | aarch64 | :material-check: | Alpine on a 64-bit Pi |
+| Linux | musl 1.2+ | armv7 | :material-check: | Alpine on a 32-bit Pi |
+| macOS | — | x86_64, arm64 | :material-check: | Development machines |
+| Windows | — | x86_64 | :material-check: | Development machines |
+| anything else | | | :material-close: | e.g. armv6 (Pi Zero/1), Windows arm64 |
+
+Each wheel also bundles the native `cosalette-health` probe
+([Health File](../reference/health-file.md)). On any other platform the
+installer falls back to the source distribution, which compiles the
+extension with [maturin](https://www.maturin.rs/) and therefore needs a Rust
+toolchain (`rustup`, plus a C linker) in the build environment; in a
+Dockerfile, install it in a build stage and copy the resulting virtualenv into
+the runtime image. A source install ships `cosalette-health` as a
+stdlib-only Python script with the same behaviour.
+
 ## Next Steps
 
 Once you have cosalette installed:
