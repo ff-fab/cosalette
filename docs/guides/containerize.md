@@ -210,6 +210,17 @@ Two settings make a measurable difference:
   with two or three threads may use multiple arenas, so its memory and contention
   effects depend on the workload.
 
+Typer, which cosalette uses for its CLI, pulls in `rich`, `pygments` and
+`markdown-it-py` (about 15 MB). They load only for `--help` and CLI errors, so they
+add image size, not resident memory. Typer requires rich, so cosalette cannot drop it
+from its own dependencies. If image size matters, exclude them in your app's
+`pyproject.toml`. cosalette then prints plain help and error output:
+
+```toml
+[tool.uv]
+override-dependencies = ["rich; sys_platform == 'never'"]
+```
+
 ---
 
 **Related guides:**

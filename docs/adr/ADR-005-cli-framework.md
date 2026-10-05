@@ -9,7 +9,7 @@ tags: [cli]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-10-05
 
 ## Context
 
@@ -122,4 +122,28 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Typer is an additional direct dependency (Click is transitive)
 - Projects that need custom CLI commands must learn Typer's API for extension
 
-_2026-02-14_
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** Typer pulls rich, pygments and markdown-it-py (about 15 MB) into every app image, but they load only for --help and CLI errors. Adopters on 512 MB hosts want to drop them (cos-8jxg.6). Typer has no rich-free distribution: since 0.24 typer-slim is a shim that depends on typer, and typer requires rich. Typer only checks the TYPER_USE_RICH variable, so an image without rich (or without pygments, which rich.syntax imports) crashed on --help and on every usage error.
+
+### Additional Sub-Decision: Plain help when rich is not installed
+
+Every Typer instance cosalette builds (the app CLI, the `schema` group and the `cosalette` package CLI) gets `rich_markup_mode=None` and `pretty_exceptions_enable=False` when rich, pygments or markdown-it-py cannot be found (`_utils._typer_options()`). Help and usage errors then use Click's plain formatter, with the same exit codes. With all three installed nothing changes. cosalette keeps depending on `typer`, and therefore on rich; apps that want a smaller image exclude rich with a uv `override-dependencies` entry, documented in the containerize guide.
+
+### Additional Considered Options
+
+**Make Typer an optional extra**
+
+Move typer to a `cosalette[cli]` extra so the default install has no rich.
+
+- *Advantages:* The default install drops rich, pygments and markdown-it-py without any downstream configuration.
+- *Disadvantages:* `--help`, `--version`, the schema and health subcommands and the `cosalette` package CLI would all need a second implementation or would fail on a default install.; A breaking change for every app for an image-size-only gain.
+
+### Additional Positive Consequences
+
+- Images can delete rich, pygments and markdown-it-py without breaking --help or CLI error messages.
+
+### Additional Negative Consequences
+
+- Help output looks different (plain, no panels) in images without rich.
+- The default install still contains rich; removing it needs a downstream uv override.

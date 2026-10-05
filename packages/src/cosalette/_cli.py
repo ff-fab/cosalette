@@ -35,6 +35,7 @@ from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
 from cosalette._settings._config_file import SettingsLoadError
 from cosalette._supervisor import TaskSupervisionError
+from cosalette._utils import _typer_options
 
 if TYPE_CHECKING:
     from cosalette._app import App
@@ -186,6 +187,7 @@ def build_cli(app: App) -> typer.Typer:
 
     cli = typer.Typer(
         help=f"{name} v{version} — {description} (powered by cosalette)",
+        **_typer_options(),
     )
 
     # -- schema subcommands -------------------------------------------------
