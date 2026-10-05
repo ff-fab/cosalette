@@ -43,11 +43,13 @@ This image attribution does not establish host non-applicability. The inspection
 reports `6.18.33.2-microsoft-standard-WSL2`; vendor backport status and other
 developers' and CI runners' kernels have not been verified. The individual review lists
 the GPU, filesystem, network, architecture and other subsystem checks required for each
-advisory. Issue cos-dam4 tracks that host assessment.
+advisory. The [host kernel assessment](host-kernel-assessment.md) (cos-dam4) records
+that review for the workstation and CI hosts.
 
 Docker-in-Docker currently needs privileged mode for its mount/cgroup startup. Disabling
 the flag without a working replacement breaks the documented workflow. Issue cos-2jj7
-tracks a validated restricted/rootless or reviewed remote builder. Mounting a Docker
+tracks a validated restricted/rootless or reviewed remote builder; see the
+[restricted builder evaluation](restricted-builder-evaluation.md). Mounting a Docker
 socket is not a substitute for a privilege assessment because it grants control of that
 daemon. The security owner issue cos-nxu6 is reopened and depends on both follow-ups; it
 must remain open after this PR merges.
