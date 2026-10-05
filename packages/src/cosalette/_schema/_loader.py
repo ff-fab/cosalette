@@ -91,10 +91,8 @@ _schema_deps_checked = False
 def _ensure_schema_deps() -> None:
     """Verify that optional schema dependencies are available.
 
-    Checks presence only, without importing: runtime discovery passes a
-    dict to :func:`load_schema` and needs neither package, and importing
-    them would keep about 70 modules resident.  Each is imported where
-    it is used.
+    Checks presence only, without importing: importing them would keep
+    about 70 modules resident.  Each is imported where it is used.
     """
     global _schema_deps_checked  # noqa: PLW0603
     if _schema_deps_checked:
@@ -164,13 +162,16 @@ def _resolve_refs(
 
 
 async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
-    """Load and parse AsyncAPI schema from source."""
-    _ensure_schema_deps()
+    """Load and parse AsyncAPI schema from source.
 
+    A dict source (runtime discovery, ADR-059) needs neither PyYAML nor
+    jsonschema, so only a text source requires the ``[schema]`` extra.
+    """
     if isinstance(source, dict):
         doc: dict[str, Any] = cast("dict[str, Any]", source)
         source_description = "<dict>"
     else:
+        _ensure_schema_deps()
         import yaml
 
         source_description = source.description
