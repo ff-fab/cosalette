@@ -29,6 +29,7 @@ from cosalette._constants import (
 )
 from cosalette._health._liveness import StaleTelemetryError
 from cosalette._health._liveness_cli import HealthCommand, health_command
+from cosalette._health._loop_stall import LoopStallConfigError
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
 from cosalette._settings import LoggingSettings
@@ -111,8 +112,9 @@ def _run_app(app: App, settings: Settings) -> None:
     Handles :class:`KeyboardInterrupt` (suppressed),
     :class:`SystemExit` (re-raised), a supervised task failure (exits
     with :data:`EXIT_TASK_FAILURE`, ADR-081), ``exit_after_stale`` (exits
-    with :data:`EXIT_STALE`, ADR-083), and unexpected exceptions (exits
-    with :data:`EXIT_RUNTIME_ERROR`).
+    with :data:`EXIT_STALE`, ADR-083), an invalid loop-stall timeout
+    (exits with :data:`EXIT_CONFIG_ERROR`, ADR-088), and unexpected
+    exceptions (exits with :data:`EXIT_RUNTIME_ERROR`).
     """
     try:
         with contextlib.suppress(KeyboardInterrupt):
@@ -126,6 +128,9 @@ def _run_app(app: App, settings: Settings) -> None:
     except StaleTelemetryError as exc:
         logger.error("Exiting after stale telemetry: %s", exc)
         sys.exit(EXIT_STALE)
+    except LoopStallConfigError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        sys.exit(EXIT_CONFIG_ERROR)
     except Exception as exc:
         logger.error("Runtime error: %s", exc)
         sys.exit(EXIT_RUNTIME_ERROR)

@@ -615,6 +615,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         'HEALTHCHECK CMD ["cosalette-health"]. The health file now carries '
         "health_file_version: 1; probes report unknown versions unhealthy "
         "(see: cosalette ai help health).",
+        "Loop-stall watchdog (ADR-088): set COSALETTE_LOOP_STALL_TIMEOUT to a "
+        "number of seconds and the process exits with the new code 6 "
+        "(EXIT_LOOP_STALL), dumping every thread's stack to stderr, once the "
+        "event loop has not run that long, so restart: unless-stopped recovers "
+        "a wedged app. Off by default (see: cosalette ai help health).",
     ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "

@@ -9,7 +9,7 @@ tags: [cli, health, lifecycle, telemetry]
 
 ## Status
 
-Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-04
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-04 | Amended **Date:** 2026-10-05
 
 ## Context
 
@@ -159,3 +159,19 @@ The health file is a JSON object. `written_at` (Unix seconds) is required and mu
 ### Additional Negative Consequences
 
 - Incompatible format changes need a new major `health_file_version` and probe releases that understand it
+
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** The first 2026-10-04 amendment names a gap: a wedged event loop never reaches the freshness check, so exit_after_stale cannot fire, and on plain Docker nothing restarts the app until a loop-stall watchdog exists. ADR-088 adds that watchdog. This amendment records how it fits the recommended default. The health file, the probes and the API decided here are unchanged.
+
+### Additional Sub-Decision: Loop-stall watchdog closes the stalled-loop gap
+
+Setting `COSALETTE_LOOP_STALL_TIMEOUT` (seconds, off by default) arms the watchdog from ADR-088. A thread outside the event loop exits the process with code 6 (`EXIT_LOOP_STALL`) once the loop has not run for that long, after writing every thread's stack to stderr. It is armed from the run phase until shutdown begins, so startup and teardown are not watched. The recommended default from the first 2026-10-04 amendment gains a third recovery exit next to exit codes 4 and 5: `restart: unless-stopped` together with `COSALETTE_LOOP_STALL_TIMEOUT` restarts an app whose loop is wedged, on plain Docker and without a probe. A health-file probe still sees a wedged loop as a stale `written_at`, so orchestrators that act on the probe do not need the watchdog for detection.
+
+### Additional Positive Consequences
+
+- A wedged event loop after startup now ends in exit code 6, which a restart policy recovers, so the gap named in the first 2026-10-04 amendment is closed for the run phase
+
+### Additional Negative Consequences
+
+- A loop that wedges during startup or teardown is still not detected; the watchdog is opt-in and armed only for the run phase (ADR-088)

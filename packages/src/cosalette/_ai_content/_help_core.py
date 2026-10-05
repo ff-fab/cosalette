@@ -650,6 +650,18 @@ Container Liveness (ADR-083) — MQTT first, probe opt-in:
     stale_after= has been stale that long: CRITICAL log, clean shutdown,
     StaleTelemetryError, CLI exit code 5,
     so a restart policy recovers (plain Docker never restarts unhealthy)
+  • COSALETTE_LOOP_STALL_TIMEOUT=300 (ADR-088, off by default) → a thread
+    exits the process with code 6 (EXIT_LOOP_STALL) once the event loop has
+    not run for 300 s: CRITICAL line + every thread's stack on stderr, no
+    graceful shutdown, broker publishes the LWT. Covers a wedged loop that
+    exit_after_stale never sees. Armed from the run phase (after the
+    lifespan started) until shutdown begins; startup may block freely.
+    A loop stuck in C code holding the GIL exits 1 (not 6) via a
+    faulthandler backstop after 2 x timeout: stderr shows "Timeout
+    (H:MM:SS)!" + stacks, no CRITICAL line; on-failure / unless-stopped
+    still restart on 1. The backstop owns the process-wide
+    faulthandler.dump_traceback_later timer, so do not call it from the
+    app too. Invalid value (0, negative, text) → exit 1
   • Root streams count for the health file and exit_after_stale too; their
     heartbeat-only availability means no MQTT availability topic, not an
     exemption from liveness checks. Streams require an explicit stale_after=

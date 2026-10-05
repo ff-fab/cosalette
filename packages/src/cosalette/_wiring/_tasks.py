@@ -42,8 +42,10 @@ from cosalette._wiring._task_lifecycle import (
     start_health_check_task,
     start_health_file_task,
     start_heartbeat_task,
+    start_loop_stall_watchdog,
     start_periodic_tasks,
     start_stream_tasks,
+    stop_loop_stall_watchdog,
     track_streams,
     track_telemetry_freshness,
     wire_restart_callback,
@@ -55,6 +57,7 @@ if TYPE_CHECKING:
 
     from cosalette._context import DeviceContext
     from cosalette._health._liveness import HealthFileWriter, StaleTelemetryError
+    from cosalette._health._loop_stall import LoopStallWatchdog
     from cosalette._registration import _ReactorRegistration
     from cosalette._runners._periodic import _PeriodicRegistration
     from cosalette._supervisor import TaskSupervisor
@@ -248,6 +251,7 @@ async def run_lifespan_and_devices(
     reconnect_wake: _ReconnectWake | None = None,
     supervisor: TaskSupervisor | None = None,
     health_file: Path | None = None,
+    loop_stall_timeout: float | None = None,
     exit_after_stale: float | None = None,
     restart_on_stale: bool = False,
 ) -> None:
@@ -270,6 +274,10 @@ async def run_lifespan_and_devices(
     once a telemetry entity or stream has been stale that long (ADR-083).
     *restart_on_stale* restarts the adapters a newly stale entity depends
     on through *health_check_runner* (ADR-084).
+
+    *loop_stall_timeout* arms the loop-stall watchdog together with the
+    health file, after the lifespan has started, and disarms it when
+    shutdown begins (ADR-088).
     """
     app_context = AppContext(
         settings=resolved_settings,
@@ -281,6 +289,7 @@ async def run_lifespan_and_devices(
     health_check_task: asyncio.Task[None] | None = None
     health_file_writer: HealthFileWriter | None = None
     health_file_task: asyncio.Task[None] | None = None
+    loop_stall_watchdog: LoopStallWatchdog | None = None
 
     try:
         _validate_lifespan_state(lifespan_state, resolved_adapters, resolved_settings)
@@ -297,6 +306,7 @@ async def run_lifespan_and_devices(
                 supervisor,
             )
         )
+        loop_stall_watchdog = start_loop_stall_watchdog(loop_stall_timeout)
 
         await await_first_connect(
             first_connect,
@@ -431,6 +441,8 @@ async def run_lifespan_and_devices(
         await shutdown_event.wait()
 
         # --- Phase 4: Tear down ---
+        # Teardown may block legitimately; a stall here must not exit 6.
+        stop_loop_stall_watchdog(loop_stall_watchdog)
         await _cancel_phase_tasks(
             device_tasks,
             health_check_task,
@@ -442,6 +454,7 @@ async def run_lifespan_and_devices(
             health_file_task=health_file_task,
         )
     finally:
+        stop_loop_stall_watchdog(loop_stall_watchdog)
         # Startup cancellation and errors can bypass the normal Phase 4 path.
         # Always stop the writer before removing its snapshot.
         try:

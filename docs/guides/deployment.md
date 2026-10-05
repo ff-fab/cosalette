@@ -211,6 +211,15 @@ changing either setting.
 | `MYAPP_LOGGING__MAX_FILE_SIZE_MB` | `logging.max_file_size_mb` | `10` | Max log file size before rotation |
 | `MYAPP_LOGGING__BACKUP_COUNT` | `logging.backup_count` | `3` | Number of rotated log files to keep |
 
+#### Framework Variables
+
+These per-deployment switches are not settings fields and carry no app prefix.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `COSALETTE_HEALTH_FILE` | unset (off) | Path of the opt-in health file for a container probe ([Probe for orchestrators](#probe-for-orchestrators-that-act-on-it)) |
+| `COSALETTE_LOOP_STALL_TIMEOUT` | unset (off) | Seconds without the event loop before the process exits with code `6`; must be a positive number ([Loop-stall watchdog](#loop-stall-watchdog)) |
+
 !!! tip "How env var nesting works"
 
     pydantic-settings maps environment variables to nested models using the
@@ -314,6 +323,8 @@ services:
   myapp:
     # ...
     restart: unless-stopped
+    environment:
+      COSALETTE_LOOP_STALL_TIMEOUT: "300"  # exit 6 after 5 min without the event loop
 ```
 
 ```python title="app.py"
@@ -329,8 +340,13 @@ app = cosalette.App(
 - `on_task_failure="restart"` (the default) restarts a framework-started task
   that dies (device, telemetry, periodic or stream handler) with backoff and
   exits with code `4` once `task_max_restarts` is spent; `"exit"` exits with
-  `4` on the first failure. See
-  [exit codes](../reference/cli.md#exit-codes).
+  `4` on the first failure.
+- `COSALETTE_LOOP_STALL_TIMEOUT` turns on the loop-stall watchdog
+  ([ADR-088](../adr/ADR-088-opt-in-event-loop-stall-watchdog-with-exit-code-6.md)).
+  It ends the process with exit code `6` once the event loop has not run for
+  that many seconds; see [Loop-stall watchdog](#loop-stall-watchdog).
+
+See [exit codes](../reference/cli.md#exit-codes).
 
 Docker waits before each restart: 100 ms, doubling up to a cap of one minute, and
 back to 100 ms once the container has run for 10 seconds. A crash loop, such as a
@@ -338,11 +354,6 @@ bad configuration that exits `1` at once, therefore restarts about once a minute
 and `{prefix}/status` flaps between `"offline"` and the heartbeat each time. Every
 restart also republishes availability, so Home Assistant entities show
 *unavailable* for a few seconds.
-
-A blocked event loop, such as a synchronous call that never returns, never
-reaches the stale check, so `exit_after_stale` cannot fire. The LWT still
-reports the app `"offline"`, but on plain Docker nothing restarts it; use the
-[probe](#probe-for-orchestrators-that-act-on-it) where an orchestrator can.
 
 !!! warning "Give `restart_on_stale` time before `exit_after_stale` fires"
 
@@ -372,6 +383,42 @@ reports the app `"offline"`, but on plain Docker nothing restarts it; use the
     `2 × (60 s + restart_cooldown + the longest interval of the affected
     telemetry)`. For a 300 s interval and the default 5 s cooldown, that is
     730 s, so `1800` leaves room.
+
+#### Loop-stall watchdog
+
+A blocked event loop, such as a synchronous call that never returns, never
+reaches the stale check, so `exit_after_stale` cannot fire. The LWT reports the
+app `"offline"` once the broker drops the connection, but nothing restarts it.
+The loop-stall watchdog closes that gap. It is **off by default**; set
+`COSALETTE_LOOP_STALL_TIMEOUT` to a number of seconds to turn it on.
+
+- A timer on the event loop records a timestamp every `timeout / 4` seconds (at
+  most every 5 s), and a background thread checks it. When the loop has not run
+  for longer than the timeout, the thread writes a
+  `CRITICAL cosalette: event loop stalled ...` line and every thread's stack to
+  stderr and exits with code `6` at once. There is no graceful shutdown: the
+  broker publishes the LWT `"offline"` and the restart policy starts the app.
+- A loop stuck in C code that holds the GIL stops the thread too. A
+  `faulthandler` backstop then exits with code `1`, not `6`, after twice the
+  timeout. Its stderr starts with faulthandler's `Timeout (H:MM:SS)!` header
+  (`Timeout (0:10:00)!` for a 300 s timeout) followed by every thread's stack,
+  without the `CRITICAL` line. `restart: on-failure` and `unless-stopped` still
+  restart the container on code `1`.
+- The watchdog runs from the moment the app's lifespan has started, which is
+  also when the health file is first written, until shutdown begins. Adapter
+  entry, `on_configure` hooks, `@app.state` factories and the lifespan may block
+  as long as they need; a hang there is not detected.
+- An invalid value (`0`, a negative number, text) stops the app at startup with
+  exit code `1`.
+
+Pick a timeout well above the longest call that legitimately blocks the loop,
+such as a slow synchronous adapter read. A few minutes (`300`) suits most apps;
+a single blocking call longer than the timeout restarts the app.
+
+!!! note "One `dump_traceback_later` timer per process"
+    The backstop uses `faulthandler.dump_traceback_later`, and Python keeps a
+    single process-wide timer for it. Each call replaces the previous one, so
+    do not combine the watchdog with your own `dump_traceback_later` calls.
 
 ### Probe for orchestrators that act on it
 

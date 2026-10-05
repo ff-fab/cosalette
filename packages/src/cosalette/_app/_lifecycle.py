@@ -44,6 +44,7 @@ from cosalette._clock import ClockPort, SystemClock
 from cosalette._context import DeviceContext
 from cosalette._health import HealthReporter
 from cosalette._health._liveness import health_file_from_env
+from cosalette._health._loop_stall import loop_stall_timeout_from_env
 from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
@@ -223,6 +224,8 @@ class _LifecycleMixin:
             clock: Override clock (inject fake for tests).
         """
         # --- Phase 1: Bootstrap infrastructure ---
+        # Read first so a bad value fails before anything starts (ADR-088).
+        loop_stall_timeout = loop_stall_timeout_from_env()
         resolved_settings = _wiring.resolve_settings(
             settings, self._settings, self._settings_class
         )
@@ -522,6 +525,7 @@ class _LifecycleMixin:
                             reconnect_wake=reconnect_wake,
                             supervisor=supervisor,
                             health_file=health_file_from_env(),
+                            loop_stall_timeout=loop_stall_timeout,
                             exit_after_stale=self._exit_after_stale,
                             restart_on_stale=self._restart_on_stale,
                         )
