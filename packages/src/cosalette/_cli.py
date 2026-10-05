@@ -3,7 +3,8 @@
 Provides :func:`build_cli` which constructs a Typer app that parses
 framework-level options (``--dry-run``, ``--version``, ``--log-level``,
 ``--log-format``, ``--env-file``) and hands off to the application's
-async lifecycle.
+async lifecycle.  :meth:`App.cli` skips it for a plain run, see
+:mod:`cosalette._cli_run`.
 
 See Also:
     ADR-005 — CLI framework decision.
@@ -11,59 +12,18 @@ See Also:
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import logging
-import sys
-from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, cast, get_args
+from typing import TYPE_CHECKING, Annotated
 
 import typer
-from pydantic import ValidationError
 
-from cosalette._constants import (
-    EXIT_CONFIG_ERROR,
-    EXIT_RUNTIME_ERROR,
-    EXIT_STALE,
-    EXIT_TASK_FAILURE,
-)
-from cosalette._health._liveness import StaleTelemetryError
+from cosalette import _cli_run
 from cosalette._health._liveness_cli import HealthCommand, health_command
-from cosalette._health._loop_stall import LoopStallConfigError
 from cosalette._mcp._introspect import format_asyncapi_table
 from cosalette._schema._cli import schema_app
-from cosalette._settings import LoggingSettings
-from cosalette._settings._config_file import SettingsLoadError
-from cosalette._supervisor import TaskSupervisionError
 from cosalette._utils import _typer_options
 
 if TYPE_CHECKING:
     from cosalette._app import App
-    from cosalette._settings import Settings
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Allowed values from LoggingSettings Literal types
-# ---------------------------------------------------------------------------
-
-_VALID_LOG_LEVELS = cast(
-    "tuple[str, ...]",
-    get_args(
-        LoggingSettings.model_fields["level"].annotation,
-    ),
-)
-_VALID_LOG_FORMATS = cast(
-    "tuple[str, ...]",
-    get_args(
-        LoggingSettings.model_fields["format"].annotation,
-    ),
-)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _validate_log_options(log_level: str | None, log_format: str | None) -> None:
@@ -73,95 +33,19 @@ def _validate_log_options(log_level: str | None, log_format: str | None) -> None
         typer.BadParameter: If the value is not ``None`` and not among
             the allowed choices.
     """
-    if log_level is not None and log_level.upper() not in _VALID_LOG_LEVELS:
+    if log_level is not None and log_level.upper() not in _cli_run.VALID_LOG_LEVELS:
         raise typer.BadParameter(
             f"Invalid log level '{log_level}'. "
-            f"Choose from: {', '.join(_VALID_LOG_LEVELS)}",
+            f"Choose from: {', '.join(_cli_run.VALID_LOG_LEVELS)}",
             param_hint="'--log-level'",
         )
 
-    if log_format is not None and log_format.lower() not in _VALID_LOG_FORMATS:
+    if log_format is not None and log_format.lower() not in _cli_run.VALID_LOG_FORMATS:
         raise typer.BadParameter(
             f"Invalid log format '{log_format}'. "
-            f"Choose from: {', '.join(_VALID_LOG_FORMATS)}",
+            f"Choose from: {', '.join(_cli_run.VALID_LOG_FORMATS)}",
             param_hint="'--log-format'",
         )
-
-
-def _apply_cli_overrides(
-    settings: Settings,
-    log_level: str | None,
-    log_format: str | None,
-) -> Settings:
-    """Return a copy of *settings* with CLI overrides applied."""
-    if log_level is not None:
-        settings.logging = settings.logging.model_copy(
-            update={"level": log_level.upper()},
-        )
-
-    if log_format is not None:
-        settings.logging = settings.logging.model_copy(
-            update={"format": log_format.lower()},
-        )
-
-    return settings
-
-
-def _run_app(app: App, settings: Settings) -> None:
-    """Execute the application's async lifecycle.
-
-    Handles :class:`KeyboardInterrupt` (suppressed),
-    :class:`SystemExit` (re-raised), a supervised task failure (exits
-    with :data:`EXIT_TASK_FAILURE`, ADR-081), ``exit_after_stale`` (exits
-    with :data:`EXIT_STALE`, ADR-083), an invalid loop-stall timeout
-    (exits with :data:`EXIT_CONFIG_ERROR`, ADR-088), and unexpected
-    exceptions (exits with :data:`EXIT_RUNTIME_ERROR`).
-    """
-    try:
-        with contextlib.suppress(KeyboardInterrupt):
-            asyncio.run(app._run_async(settings=settings))
-    except SystemExit:
-        raise
-    except TaskSupervisionError as exc:
-        # The supervisor already logged the failure at CRITICAL.
-        logger.error("Exiting after a task failure: %s", exc)
-        sys.exit(EXIT_TASK_FAILURE)
-    except StaleTelemetryError as exc:
-        logger.error("Exiting after stale telemetry: %s", exc)
-        sys.exit(EXIT_STALE)
-    except LoopStallConfigError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        sys.exit(EXIT_CONFIG_ERROR)
-    except Exception as exc:
-        logger.error("Runtime error: %s", exc)
-        sys.exit(EXIT_RUNTIME_ERROR)
-
-
-def _resolve_settings_or_exit(
-    app: App, env_file: str | None, config_file: str | None
-) -> Settings:
-    """Build settings from the resolved ``--env-file`` / ``--config-file``.
-
-    An explicitly named path must exist (fail-loud); a missing or
-    malformed file exits with :data:`EXIT_CONFIG_ERROR`.  When
-    ``config_file`` is ``None`` it is omitted so a ``config_file=``
-    declared in the app's ``model_config`` is still honoured.
-    """
-    if env_file is not None and not Path(env_file).is_file():
-        typer.echo(f"Error: env file not found: {env_file}", err=True)
-        raise SystemExit(EXIT_CONFIG_ERROR)
-    if config_file is not None and not Path(config_file).is_file():
-        typer.echo(f"Error: config file not found: {config_file}", err=True)
-        raise SystemExit(EXIT_CONFIG_ERROR)
-
-    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
-    if config_file is not None:
-        settings_kwargs["_config_file"] = config_file
-    try:
-        return app._settings_class(**settings_kwargs)
-    except (ValidationError, SettingsLoadError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise SystemExit(EXIT_CONFIG_ERROR) from exc
 
 
 def build_cli(app: App) -> typer.Typer:
@@ -279,17 +163,11 @@ def build_cli(app: App) -> typer.Typer:
         if ctx.invoked_subcommand is not None:
             return
 
-        # -- validate enum-like options -------------------------------------
+        # -- validate enum-like options, then run ----------------------------
         _validate_log_options(log_level, log_format)
-
-        # -- propagate dry-run flag -----------------------------------------
-        app._dry_run = dry_run
-
-        # -- build settings -------------------------------------------------
-        settings = _resolve_settings_or_exit(app, env_file, config_file)
-
-        # -- apply CLI overrides & run --------------------------------------
-        settings = _apply_cli_overrides(settings, log_level, log_format)
-        _run_app(app, settings)
+        _cli_run.run_with_args(
+            app,
+            _cli_run.RunArgs(dry_run, log_level, log_format, env_file, config_file),
+        )
 
     return cli

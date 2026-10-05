@@ -282,14 +282,17 @@ class TestCliMethod:
     to build_cli and Typer.
     """
 
-    def test_cli_method_builds_and_invokes_typer(self, app: App) -> None:
-        """cli() delegates to build_cli().
+    def test_cli_method_builds_and_invokes_typer(
+        self, app: App, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cli() delegates a subcommand to build_cli().
 
         We mock build_cli to verify cli() calls it with the App instance.
         """
         from unittest.mock import MagicMock
 
         mock_typer = MagicMock()
+        monkeypatch.setattr("sys.argv", ["testapp", "schema"])
 
         with patch("cosalette._cli.build_cli", return_value=mock_typer) as mock_build:
             app.cli()

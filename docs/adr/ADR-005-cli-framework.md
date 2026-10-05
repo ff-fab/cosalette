@@ -147,3 +147,19 @@ Move typer to a `cosalette[cli]` extra so the default install has no rich.
 
 - Help output looks different (plain, no panels) in images without rich.
 - The default install still contains rich; removing it needs a downstream uv override.
+
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** App.cli() built the full Typer CLI for every start, including the schema subcommands, the health probe and the AsyncAPI table formatter, and all of it stayed resident for the life of the process. An adopter measured 2.1 MiB RSS and 34 modules for this on the plain run path, which needs only five options (cos-8jxg.4, cosalette-apps memory footprint proposal, target host Raspberry Pi Zero 2 W).
+
+### Additional Sub-Decision: Typer-free run path
+
+`App.cli()` first tries `_cli_run.parse_run_args(sys.argv[1:])`. It accepts only `--dry-run` and `--log-level`, `--log-format`, `--env-file`, `--config-file` (as `--opt value` or `--opt=value`, last value wins) with valid log values and no shell-completion variable set. In that case the app runs without importing Typer or Click. Every other argv (a subcommand, `--help`, `--version`, `--show-devices`, completion, an unknown or malformed option, an invalid log level or format) returns `None` and `App.cli()` builds the Typer CLI as before. Parity is by delegation: the fast path never produces a usage error itself, so usage messages and exit codes come only from Typer. Both paths share the settings and run helpers in `_cli_run`, and back-to-back tests compare their results. Typer remains the CLI framework; the fast path is not a second parser surface.
+
+### Additional Positive Consequences
+
+- A running app no longer keeps Typer, Click, the schema CLI or the AsyncAPI table formatter in memory (about 2 MiB RSS on the adopter's reference app).
+
+### Additional Negative Consequences
+
+- A new run option must be added to both the Typer callback and `_cli_run.parse_run_args`; an option missing from the fast path still works but falls back to Typer, so the omission costs memory, not correctness.
