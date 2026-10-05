@@ -119,3 +119,36 @@ Generate a CycloneDX file from Cargo.lock with cargo-cyclonedx and merge it with
 
 - Every platform wheel job compiles cargo-auditable first (inside the manylinux/musllinux container on Linux)
 - The pyo3 extension's crates are still not listed: maturin has no cargo-auditable option, and syft ignores the PEP 770 SBOM maturin writes to dist-info (tracked as cos-rl4a)
+
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** The previous amendment left the _filters_rs extension's crates (pyo3, pyo3-ffi, libc, once_cell) out of the release SBOM. maturin has no cargo-auditable option, but it already embeds a CycloneDX SBOM of the extension in dist-info/sboms (PEP 770). syft ignored that file only because of its name.
+
+### Additional Sub-Decision: Read the extension's PEP 770 SBOM with syft's sbom-cataloger
+
+`scripts/wheel-sbom.sh` renames each `dist-info/sboms/*.cyclonedx.json` file in the unpacked wheel to `*.cdx.json`. It then runs syft with `--select-catalogers +sbom-cataloger`, which only reads SBOM files with names such as `*.cdx.json`. The release SBOM lists the extension's crates next to the probe's crates, and cites the renamed path as their location. The script fails if a wheel ships `_filters_rs` but the SBOM lists no `pkg:cargo/pyo3` component.
+
+### Additional Considered Options
+
+**Wrap maturin's rustc with cargo-auditable**
+
+Set RUSTC_WORKSPACE_WRAPPER so that maturin's cargo build embeds auditable data in the extension.
+
+- *Advantages:* Describes the shipped binary, like the probe
+- *Disadvantages:* Relies on cargo-auditable's private CARGO_AUDITABLE_ORIG_ARGS protocol; Can break with any cargo-auditable or maturin release
+
+**Merge the embedded SBOM with cyclonedx-cli**
+
+Run `cyclonedx-cli merge` on the syft output and the maturin SBOM.
+
+- *Advantages:* Merges the dependency graph as well as the components
+- *Disadvantages:* Needs another pinned tool in CI and the devcontainer; Its merge output needs its own metadata fixes
+
+### Additional Positive Consequences
+
+- The release SBOM lists every crate of both native binaries in a platform wheel, with no extra tool
+
+### Additional Negative Consequences
+
+- maturin's SBOM is generated from Cargo metadata, so it also lists build-time crates (syn, quote, proc-macro2, pyo3-build-config) that are not linked into the extension
+- The approach depends on syft's sbom-cataloger file name globs; if syft adds PEP 770 support, the rename can be dropped
