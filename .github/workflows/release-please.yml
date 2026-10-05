@@ -132,7 +132,7 @@ jobs:
           mkdir -p sbom
           WHEEL=$(ls dist/*.whl | grep manylinux.*x86_64 | head -1)
           if [ -z "$WHEEL" ]; then echo "No manylinux x86_64 wheel found"; exit 1; fi
-          syft "$WHEEL" -o cyclonedx-json=sbom/cosalette.cdx.json
+          bash scripts/wheel-sbom.sh "$WHEEL" sbom/cosalette.cdx.json
 
       - name: Upload packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

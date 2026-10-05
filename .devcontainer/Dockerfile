@@ -253,6 +253,8 @@ RUN set -eux; \
 ARG RUST_VERSION=1.98
 # renovate: datasource=crate depName=cargo-audit
 ARG CARGO_AUDIT_VERSION=0.22.2
+# renovate: datasource=crate depName=cargo-auditable
+ARG CARGO_AUDITABLE_VERSION=0.7.7
 # Upgrade cargo-deny manually: update the version and both architecture-specific
 # SHA-256 checksums together from the release archives before rebuilding.
 ARG CARGO_DENY_VERSION=0.20.2
@@ -285,6 +287,7 @@ RUN set -eux; \
         --no-modify-path; \
     rustup component add rustfmt clippy; \
     cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked; \
+    cargo install cargo-auditable --version "${CARGO_AUDITABLE_VERSION}" --locked; \
     DENY_DIR="cargo-deny-${CARGO_DENY_VERSION}-${DENY_ARCH}"; \
     curl -fsSL --retry 3 "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${DENY_DIR}.tar.gz" -o /tmp/cargo-deny.tar.gz; \
     echo "${DENY_SHA}  /tmp/cargo-deny.tar.gz" | sha256sum -c -; \
@@ -294,9 +297,11 @@ RUN set -eux; \
     rustc --version; \
     cargo --version; \
     cargo audit --version; \
+    cargo auditable --version; \
     cargo deny --version; \
-    # cargo-audit is installed and the downloaded registry sources are no
-    # longer needed in the image; keep its binary and registry index/cache.
+    # cargo-audit and cargo-auditable are installed and the downloaded registry
+    # sources are no longer needed in the image; keep the binaries and registry
+    # index/cache.
     rm -rf "${CARGO_HOME}/registry/src"; \
     rm -f /tmp/rustup-init /tmp/rustup-init.sha256 /tmp/cargo-deny.tar.gz; \
     chown -R vscode:vscode /home/vscode/.cargo /home/vscode/.rustup

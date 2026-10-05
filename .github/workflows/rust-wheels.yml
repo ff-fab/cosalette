@@ -20,6 +20,7 @@ on:
       - 'pyproject.toml'
       - 'packages/src/cosalette/_health/_probe.py'
       - 'scripts/bundle-health-probe.sh'
+      - 'scripts/wheel-sbom.sh'
       - 'scripts/check-probe-wheel.py'
       - 'scripts/smoke-health-probe.py'
       - '.github/workflows/rust-wheels.yml'
@@ -30,6 +31,12 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # The probe is built with cargo-auditable so release SBOMs list its crates
+  # (scripts/bundle-health-probe.sh, scripts/wheel-sbom.sh).
+  # renovate: datasource=crate depName=cargo-auditable
+  CARGO_AUDITABLE_VERSION: 0.7.7
 
 jobs:
   build-wheels:
@@ -91,6 +98,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           rustup target add "$TARGET"
+          cargo install cargo-auditable --version "$CARGO_AUDITABLE_VERSION" --locked
           bash scripts/bundle-health-probe.sh "$TARGET"
 
       - name: Build wheel
@@ -99,7 +107,9 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: ${{ matrix.manylinux || 'auto' }}
-          before-script-linux: bash scripts/bundle-health-probe.sh ${{ matrix.target }}
+          before-script-linux: >-
+            cargo install cargo-auditable --version ${{ env.CARGO_AUDITABLE_VERSION }} --locked &&
+            bash scripts/bundle-health-probe.sh ${{ matrix.target }}
 
       - name: Check bundled probe
         shell: bash
