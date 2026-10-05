@@ -17,11 +17,7 @@ fn reject_bool(param: &Bound<'_, PyAny>, name: &str) -> PyResult<f64> {
 }
 
 /// Extract f64 from an optional PyAny, using a default when None.
-fn extract_param(
-    param: Option<&Bound<'_, PyAny>>,
-    name: &str,
-    default: f64,
-) -> PyResult<f64> {
+fn extract_param(param: Option<&Bound<'_, PyAny>>, name: &str, default: f64) -> PyResult<f64> {
     match param {
         None => Ok(default),
         Some(p) => reject_bool(p, name),

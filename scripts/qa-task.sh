@@ -152,11 +152,11 @@ _run_impl() {
             ;;
 
         rust:fmt)
-            cargo fmt -p cosalette-health --check
+            cargo fmt --all --check
             ;;
 
         rust:clippy)
-            cargo clippy --locked -p cosalette-health --all-targets -- -D warnings
+            cargo clippy --locked --workspace --all-targets -- -D warnings
             ;;
 
         rust:test)
