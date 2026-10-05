@@ -62,8 +62,21 @@ def loop_stall_timeout_from_env() -> float | None:
         timeout = float(raw)
     except ValueError:
         timeout = math.nan
-    if not (math.isfinite(timeout) and timeout > 0):
-        msg = f"{LOOP_STALL_ENV} must be a positive number of seconds, got {raw!r}"
+    try:
+        backstop_timeout = timeout * BACKSTOP_FACTOR
+        # dump_traceback_later converts seconds to a C time_t deadline. Keep
+        # this bound comfortably below the platform range to avoid overflow.
+        max_timer_timeout = float((1 << 31) - 1)
+        representable = math.isfinite(backstop_timeout) and (
+            backstop_timeout <= max_timer_timeout
+        )
+    except OverflowError:
+        representable = False
+    if not (math.isfinite(timeout) and timeout > 0 and representable):
+        msg = (
+            f"{LOOP_STALL_ENV} must be a positive number of seconds whose "
+            f"backstop timer is representable, got {raw!r}"
+        )
         raise LoopStallConfigError(msg)
     return timeout
 

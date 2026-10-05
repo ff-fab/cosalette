@@ -109,7 +109,20 @@ class TestTimeoutFromEnv:
         assert loop_stall_timeout_from_env() == expected
 
     @pytest.mark.parametrize(
-        "value", ["0", "0.0", "-0.001", "-1", "off", "5s", "nan", "inf", "-inf"]
+        "value",
+        [
+            "0",
+            "0.0",
+            "-0.001",
+            "-1",
+            "off",
+            "5s",
+            "nan",
+            "inf",
+            "-inf",
+            "1e10",
+            "1e308",
+        ],
     )
     def test_invalid_value_raises(
         self, monkeypatch: pytest.MonkeyPatch, value: str
