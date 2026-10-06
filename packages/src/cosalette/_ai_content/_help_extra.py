@@ -1803,6 +1803,21 @@ Orphaned Entity Cleanup:
   `Store` is configured (the default). No extra opt-in needed beyond
   `app.discovery()` itself.
 
+Several Instances of One App (ADR-089):
+  Discovery ids (node_id, unique_id, device identifiers, via_device) derive
+  from the app name, NOT mqtt.topic_prefix, so two instances that differ only
+  in their prefix overwrite each other in Home Assistant. Set a distinct
+  MQTT__INSTANCE_ID (lowercase letters, digits, single underscores between
+  nonempty segments; start with a letter, e.g. wiz_attic) per instance: it replaces the
+  app name in every identity field and in the orphan-cleanup snapshot key;
+  topics still follow the prefix. Unset = byte-identical output. The app logs
+  a startup warning when discovery is on, the prefix differs from the app
+  name and no instance id is set. Offline: `schema ha-discovery --instance-id`
+  and `schema openhab --instance-id`.
+  Generated flat identities frame explicit ids as i<length>_<id> before
+  appending device/entity names, so a + b_sensor differs from a_b + sensor.
+  Discovery node_id topics and display labels keep the raw id.
+
 Scope — Home Assistant Only:
   openHAB has no equivalent runtime MQTT discovery protocol (its
   `.things`/`.items` output is static configuration consumed a different way),

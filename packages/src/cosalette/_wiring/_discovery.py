@@ -21,6 +21,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from asyncio import to_thread
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from cosalette._mqtt import MqttPort
     from cosalette._persistence._stores import Store
     from cosalette._schema._consumer_gen import HaDiscoveryPayload, HaEnrichHook
+    from cosalette._settings import MqttSettings
 
 logger = logging.getLogger("cosalette._wiring")
 
@@ -42,6 +44,9 @@ class DiscoveryConfig:
 
     discovery_prefix: str = "homeassistant"
     enrich: HaEnrichHook | None = None
+    #: ``settings.mqtt.instance_id`` (ADR-089), filled in at startup by
+    #: :func:`resolve_discovery_config`; ``None`` means the app name.
+    instance_id: str | None = None
 
 
 class _DiscoveryApp(Protocol):
@@ -66,9 +71,40 @@ _DISCOVERY_SNAPSHOT_SCHEMA_VERSION = 1
 _DISCOVERY_SNAPSHOT_KEY_PREFIX = "__cosalette_discovery_snapshot__"
 
 
-def _discovery_snapshot_key(app_name: str, discovery_prefix: str) -> str:
-    """Return the store key for *app_name* and *discovery_prefix*'s topic snapshot."""
-    return f"{_DISCOVERY_SNAPSHOT_KEY_PREFIX}{app_name}__{discovery_prefix}"
+def _discovery_snapshot_key(identity: str, discovery_prefix: str) -> str:
+    """Return the store key for *identity* and *discovery_prefix*'s topic snapshot.
+
+    *identity* is the instance id, else the app name (ADR-089), so two
+    instances sharing a store never diff against each other's topics.
+    """
+    return f"{_DISCOVERY_SNAPSHOT_KEY_PREFIX}{identity}__{discovery_prefix}"
+
+
+def resolve_discovery_config(
+    config: DiscoveryConfig | None, mqtt: MqttSettings, app_name: str
+) -> DiscoveryConfig | None:
+    """Bind ``mqtt.instance_id`` into *config* and warn about likely collisions.
+
+    A custom topic prefix is the usual sign of a second instance of the same
+    app, and without an instance id both would publish the same discovery
+    ids (ADR-089). The prefix itself never changes identity, so existing
+    single-instance deployments keep their unique_ids.
+    """
+    if config is None:
+        return None
+    if mqtt.instance_id:
+        return dataclasses.replace(config, instance_id=mqtt.instance_id)
+    if mqtt.topic_prefix and mqtt.topic_prefix != app_name:
+        logger.warning(
+            "MQTT topic prefix %r differs from app name %r but no instance id "
+            "is set: Home Assistant discovery ids derive from the app name, so "
+            "another instance of %r on this broker would overwrite them. Set "
+            "MQTT__INSTANCE_ID to a unique value per instance.",
+            mqtt.topic_prefix,
+            app_name,
+            app_name,
+        )
+    return config
 
 
 async def build_discovery_payloads(
@@ -116,6 +152,7 @@ async def build_discovery_payloads(
         registry=registry,
         discovery_prefix=config.discovery_prefix,
         enrich=config.enrich,
+        instance_id=config.instance_id,
     )
     payloads = generator.generate()
     app._discovery_payloads_cache = (config, topic_prefix, payloads)
@@ -221,7 +258,9 @@ async def reconcile_discovery_topics(
     """
     if store is None:
         return
-    key = _discovery_snapshot_key(app.name, config.discovery_prefix)
+    key = _discovery_snapshot_key(
+        config.instance_id or app.name, config.discovery_prefix
+    )
     try:
         payloads, previous = await asyncio.gather(
             build_discovery_payloads(app, config, topic_prefix),

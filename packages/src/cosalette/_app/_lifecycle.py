@@ -54,6 +54,7 @@ from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
 from cosalette._supervisor import TaskSupervisor
 from cosalette._wiring import _adapter_lifecycle
+from cosalette._wiring._discovery import resolve_discovery_config
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +250,6 @@ class _LifecycleMixin:
             version=self._version,
             redact=self._redactor,
         )
-
         # ADR-064: a stable Phase-1 handle, late-bound to the trigger slots
         # once TriggerConfig.build has run in Phase 2.  Adapter factories,
         # @app.state factories, on_configure hooks and handlers all receive
@@ -282,6 +282,9 @@ class _LifecycleMixin:
             resolved_settings,
             resolved_adapters,
             resolved_clock,
+        )
+        discovery_config = resolve_discovery_config(
+            self._discovery, resolved_settings.mqtt, self._name
         )
         _wiring.expand_name_specs(
             self._telemetry,
@@ -360,7 +363,7 @@ class _LifecycleMixin:
             self._announced_registrations,
             prefix,
             _cleanup_store,
-            self._discovery,
+            discovery_config,
             self._retained_cleanup_snapshot_key,
         )
         # After the reannounce callback, so the gate opens once it has run.
@@ -425,7 +428,7 @@ class _LifecycleMixin:
                         prefix,
                         _cleanup_store,
                         connect_aware=connect_aware,
-                        discovery_config=self._discovery,
+                        discovery_config=discovery_config,
                         snapshot_key=self._retained_cleanup_snapshot_key,
                     )
 

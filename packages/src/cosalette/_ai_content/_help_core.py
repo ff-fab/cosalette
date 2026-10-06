@@ -347,6 +347,9 @@ Topic Prefix vs App Identity (ADR-072):
     running configure hooks — for CI gates that cannot load settings
   • Device names and HA object_id/unique_id are derived past the prefix, so
     changing the prefix never orphans existing Home Assistant entities
+  • Several instances of one app on one broker: set a distinct
+    mqtt.instance_id (MQTT__INSTANCE_ID) per instance — it replaces the app
+    name in HA discovery / openHAB ids (ADR-089); the prefix alone does not
 
 Environment Variables:
   • Use MYAPP_ prefix to avoid conflicts

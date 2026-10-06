@@ -101,3 +101,4 @@ rationale, and consequences.
 | [ADR-086](ADR-086-framework-availability-channels-in-the-generated-asyncapi-document.md) | Framework availability channels in the generated AsyncAPI document | Accepted | 2026-10-03 |
 | [ADR-087](ADR-087-native-cosalette-health-probe-binary-shipped-in-platform-wheels.md) | Native cosalette-health probe binary shipped in platform wheels | Accepted | 2026-10-04 |
 | [ADR-088](ADR-088-opt-in-event-loop-stall-watchdog-with-exit-code-6.md) | Opt-in event-loop stall watchdog with exit code 6 | Accepted | 2026-10-05 |
+| [ADR-089](ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md) | Opt-in instance identity for HA discovery and openHAB output | Accepted | 2026-10-05 |

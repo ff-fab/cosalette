@@ -1,0 +1,62 @@
+[
+  {
+    "topic": "homeassistant/sensor/testapp/sensor_celsius/config",
+    "config": {
+      "name": "Temperature",
+      "unique_id": "cosalette_testapp_sensor_celsius",
+      "object_id": "sensor_celsius",
+      "state_topic": "house/wiz/sensor/state",
+      "value_template": "{{ value_json.celsius }}",
+      "device_class": "temperature",
+      "unit_of_measurement": "\u00b0C",
+      "state_class": "measurement",
+      "availability": [
+        {
+          "topic": "house/wiz/sensor/availability"
+        },
+        {
+          "topic": "house/wiz/status",
+          "value_template": "{{ value_json.status if value_json is mapping else value }}"
+        }
+      ],
+      "availability_mode": "all",
+      "payload_available": "online",
+      "payload_not_available": "offline",
+      "device": {
+        "identifiers": [
+          "cosalette_testapp_sensor"
+        ],
+        "name": "sensor",
+        "manufacturer": "cosalette",
+        "via_device": "cosalette_testapp"
+      },
+      "origin": {
+        "name": "testapp",
+        "sw_version": "1.0.0"
+      }
+    }
+  },
+  {
+    "topic": "homeassistant/binary_sensor/testapp/bridge/config",
+    "config": {
+      "name": "Bridge",
+      "unique_id": "cosalette_testapp_bridge",
+      "object_id": "bridge",
+      "state_topic": "house/wiz/status",
+      "value_template": "{{ 'ON' if (value_json.status if value_json is mapping else value) == 'online' else 'OFF' }}",
+      "device_class": "connectivity",
+      "entity_category": "diagnostic",
+      "device": {
+        "identifiers": [
+          "cosalette_testapp"
+        ],
+        "name": "testapp",
+        "manufacturer": "cosalette"
+      },
+      "origin": {
+        "name": "testapp",
+        "sw_version": "1.0.0"
+      }
+    }
+  }
+]
