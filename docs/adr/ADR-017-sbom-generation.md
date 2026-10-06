@@ -92,15 +92,15 @@ Accepted  **Date:** 2026-02-27 | Amended **Date:** 2026-10-05
 
 ## Amendment (2026-10-05) — Additive
 
-**Rationale:** syft reported zero components for a cosalette .whl: it does not look inside the wheel archive. Since ADR-087 platform wheels also carry a native cosalette-health binary whose Rust crates were invisible to any SBOM.
+**Rationale:** syft reported zero components for a cosalette .whl because it does not look inside the wheel archive. ADR-087 platform wheels also carry a native cosalette-health binary whose Rust crates were invisible to the SBOM.
 
 ### Additional Sub-Decision: Scan the unpacked wheel
 
-`scripts/wheel-sbom.sh` unpacks the wheel and runs syft on the directory with `--source-name cosalette --source-version <wheel version>` and per-file entries disabled. The release workflow and `task sbom` both use it. The SBOM still covers the manylinux x86_64 platform wheel.
+`scripts/wheel-sbom.sh` unpacks the wheel and runs syft on the directory with `--source-name cosalette --source-version <wheel version>` and per-file entries disabled. The release workflow, PR wheel validation and `task sbom` use it. The SBOM covers the manylinux x86_64 platform wheel.
 
 ### Additional Sub-Decision: Build the probe with cargo-auditable
 
-`scripts/bundle-health-probe.sh` builds `cosalette-health` with `cargo auditable build`, which embeds the crate dependency list in a linker section that survives `strip`. syft reads it as `pkg:cargo/...` components, and grype can match them. CI installs a pinned `cargo-auditable` (`CARGO_AUDITABLE_VERSION` in `rust-wheels.yml`), and so does the devcontainer. `wheel-sbom.sh` fails if a wheel bundles the probe but the SBOM lists none of its crates.
+`scripts/bundle-health-probe.sh` builds `cosalette-health` with `cargo auditable build`, which embeds the crate dependency list in a linker section that survives `strip`. syft reads it as `pkg:cargo/...` components, and grype can match them. CI installs a pinned `cargo-auditable` (`CARGO_AUDITABLE_VERSION` in `rust-wheels.yml`), and so does the devcontainer. The Linux build explicitly adds Cargo's install directory to PATH. `wheel-sbom.sh` fails if a wheel bundles the probe but the SBOM lists none of its crates.
 
 ### Additional Considered Options
 
@@ -114,6 +114,7 @@ Generate a CycloneDX file from Cargo.lock with cargo-cyclonedx and merge it with
 ### Additional Positive Consequences
 
 - The release SBOM lists the cosalette package and every crate linked into the cosalette-health probe
+- PR CI validates SBOM generation before publication; shell tests cover missing probe crate rejection
 
 ### Additional Negative Consequences
 
