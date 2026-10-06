@@ -159,19 +159,65 @@ class TestDistinctInstances:
                 re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) for name in item_ids
             )
             item_sets.append(item_ids)
-            assert f"(g{identity[0].upper()}{identity[1:]})" in items
+            assert f"(gI{len(identity)}_{identity})" in items
         assert item_sets[0].isdisjoint(item_sets[1])
 
     async def test_ha_identities_use_instance_id(self) -> None:
         payloads = {p.config["unique_id"]: p for p in await _payloads("attic")}
 
-        bridge = payloads["cosalette_attic_bridge"]
-        sensor = payloads["cosalette_attic_sensor_celsius"]
+        bridge = payloads["cosalette_i5_attic_bridge"]
+        sensor = payloads["cosalette_i5_attic_sensor_celsius"]
         assert bridge.topic == "homeassistant/binary_sensor/attic/bridge/config"
-        assert bridge.config["device"]["identifiers"] == ["cosalette_attic"]
+        assert bridge.config["device"]["identifiers"] == ["cosalette_i5_attic"]
         assert bridge.config["device"]["name"] == "attic"
-        assert sensor.config["device"]["via_device"] == "cosalette_attic"
+        assert sensor.config["device"]["via_device"] == "cosalette_i5_attic"
         assert sensor.config["origin"]["name"] == APP
+
+    async def test_instance_device_boundaries_cannot_collide(self) -> None:
+        app = App(name=APP, version="1.0.0")
+
+        async def reading() -> _TempReading:
+            return _TempReading(celsius=21.5)
+
+        for device in ("b", "b_sensor", "sensor"):
+            app.telemetry(device, interval=30, state_model=_TempReading)(reading)
+
+        registry = await load_schema(app.asyncapi(topic_prefix=PREFIX))
+        ha = [
+            HaDiscoveryGenerator(registry=registry, instance_id=identity).generate()
+            for identity in ("a", "a_b")
+        ]
+        assert _identities(ha[0]).isdisjoint(_identities(ha[1]))
+        assert {
+            identifier
+            for payload in ha[0]
+            for identifier in payload.config["device"]["identifiers"]
+        } == {
+            "cosalette_i1_a",
+            "cosalette_i1_a_b",
+            "cosalette_i1_a_b_sensor",
+            "cosalette_i1_a_sensor",
+        }
+
+        thing_sets, item_sets = [], []
+        for identity in ("a", "a_b"):
+            generator = OpenHabGenerator(registry=registry, instance_id=identity)
+            things = {
+                line.split()[1]
+                for line in generator.generate_things().splitlines()
+                if line.startswith("Thing ")
+            }
+            items = generator.generate_items()
+            thing_sets.append(things)
+            item_sets.append(
+                {line.split()[1] for line in items.splitlines() if "{ channel=" in line}
+            )
+            references = re.findall(r'channel="([^"]+)"', items)
+            assert all(
+                reference.rsplit(":", 1)[0] in things for reference in references
+            )
+        assert thing_sets[0].isdisjoint(thing_sets[1])
+        assert item_sets[0].isdisjoint(item_sets[1])
 
     async def test_ha_topics_still_follow_topic_prefix(self) -> None:
         payloads = await _payloads("attic")
@@ -183,9 +229,9 @@ class TestDistinctInstances:
         a, b = await _openhab("attic"), await _openhab("cellar")
 
         things_a = a.generate_things() + a.generate_items()
-        assert "mqtt:topic:broker:attic_sensor" in things_a
-        assert "Attic_Sensor_Celsius" in things_a
-        assert "(gAttic)" in things_a
+        assert "mqtt:topic:broker:i5_attic_sensor" in things_a
+        assert "I5_attic_Sensor_Celsius" in things_a
+        assert "(gI5_attic)" in things_a
         assert "testapp" not in things_a.replace(f"{PREFIX}/", "")
         assert "attic" not in b.generate_things() + b.generate_items()
 
@@ -400,7 +446,7 @@ class TestCli:
 
         assert result.exit_code == EXIT_OK
         ids = {p["config"]["unique_id"] for p in json.loads(result.stdout)}
-        assert ids == {"cosalette_attic_sensor_celsius", "cosalette_attic_bridge"}
+        assert ids == {"cosalette_i5_attic_sensor_celsius", "cosalette_i5_attic_bridge"}
 
     def test_openhab_instance_id(self, schema_file: Path) -> None:
         result = CliRunner().invoke(
@@ -408,7 +454,7 @@ class TestCli:
         )
 
         assert result.exit_code == EXIT_OK
-        assert "Thing mqtt:topic:broker:attic_sensor" in result.stdout
+        assert "Thing mqtt:topic:broker:i5_attic_sensor" in result.stdout
 
     @pytest.mark.parametrize("command", ["ha-discovery", "openhab"])
     @pytest.mark.parametrize(

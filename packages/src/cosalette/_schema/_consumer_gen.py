@@ -27,7 +27,10 @@ from cosalette._schema import (
     _device_name_from_template,
     _prefix_depth,
 )
-from cosalette._schema._identity import check_instance_id_scope
+from cosalette._schema._identity import (
+    check_instance_id_scope,
+    instance_identity_token,
+)
 
 # ---------------------------------------------------------------------------
 # HA Discovery
@@ -275,7 +278,7 @@ def _availability_block(
 
 
 def _device_block(
-    app: str, node_id: str, device_name: str, *, is_root: bool
+    app: str, identity_token: str, device_name: str, *, is_root: bool
 ) -> dict[str, Any]:
     """Build the HA ``device`` block for *device_name* (F19, ADR-058).
 
@@ -285,7 +288,7 @@ def _device_block(
     device-name segment) attach straight to the bridge identity — for an
     unnamed device, the app *is* the device.
     """
-    bridge_id = f"{_MANUFACTURER}_{node_id}"
+    bridge_id = f"{_MANUFACTURER}_{identity_token}"
     if is_root:
         return {
             "identifiers": [bridge_id],
@@ -940,7 +943,8 @@ class HaDiscoveryGenerator:
     def _build_bridge_payload(self, app: str) -> HaDiscoveryPayload:
         identity = self.instance_id or app
         node_id = _slugify(identity)
-        bridge_id = f"cosalette_{node_id}"
+        identity_token = instance_identity_token(self.instance_id, node_id)
+        bridge_id = f"cosalette_{identity_token}"
         object_id = "bridge"
         unique_id = f"{bridge_id}_{object_id}"
         topic = f"{self.discovery_prefix}/binary_sensor/{node_id}/{object_id}/config"
@@ -960,7 +964,7 @@ class HaDiscoveryGenerator:
             # No availability block: the bridge IS the connectivity indicator.
             # Its state machine (ON/OFF via LWT) is the availability signal —
             # hiding it as "unavailable" at disconnect defeats its purpose.
-            "device": _device_block(identity, node_id, identity, is_root=True),
+            "device": _device_block(identity, identity_token, identity, is_root=True),
             "origin": _origin_block(app, self.registry.app_version),
         }
         return HaDiscoveryPayload(topic=topic, config=config)
@@ -1031,7 +1035,8 @@ class HaDiscoveryGenerator:
         command_topic: str | None,
     ) -> HaDiscoveryPayload:
         object_id = _slugify(f"{device_name}_{spec.name or spec.component}")
-        unique_id = f"cosalette_{node_id}_{object_id}"
+        identity_token = instance_identity_token(self.instance_id, node_id)
+        unique_id = f"cosalette_{identity_token}_{object_id}"
         topic = f"{self.discovery_prefix}/{spec.component}/{node_id}/{object_id}/config"
 
         config: dict[str, Any] = {
@@ -1055,7 +1060,7 @@ class HaDiscoveryGenerator:
             )
         )
         config["device"] = _device_block(
-            self.instance_id or app, node_id, device_name, is_root=is_root
+            self.instance_id or app, identity_token, device_name, is_root=is_root
         )
         config["origin"] = _origin_block(app, self.registry.app_version)
         # extra is an open passthrough merged last, mirroring
@@ -1104,7 +1109,8 @@ class HaDiscoveryGenerator:
         suffix = "_cmd" if is_command else ""
         object_id = _slugify(f"{device_name}_{prop.name}") + suffix
         node_id = _slugify(self.instance_id or app)
-        unique_id = f"cosalette_{node_id}_{object_id}"
+        identity_token = instance_identity_token(self.instance_id, node_id)
+        unique_id = f"cosalette_{identity_token}_{object_id}"
 
         topic = f"{self.discovery_prefix}/{component}/{node_id}/{object_id}/config"
 
@@ -1125,7 +1131,7 @@ class HaDiscoveryGenerator:
             )
         )
         config["device"] = _device_block(
-            self.instance_id or app, node_id, device_name, is_root=is_root
+            self.instance_id or app, identity_token, device_name, is_root=is_root
         )
         config["origin"] = _origin_block(app, self.registry.app_version)
         self._apply_enrichment(channel, prop, config)
@@ -1500,7 +1506,8 @@ class OpenHabGenerator:
         if not any(_is_emittable(p) for ch in channels for p in ch.properties.values()):
             return []
         identity = self.instance_id or app
-        thing_uid = _openhab_thing_uid(self.broker_uid, identity, device)
+        identity_token = instance_identity_token(self.instance_id, identity)
+        thing_uid = _openhab_thing_uid(self.broker_uid, identity_token, device)
         # Escape before embedding in the quoted .things label — app/device names
         # permit quotes/backslashes (validate_mqtt_name only bars /+#/control
         # chars), which would otherwise break out of the DSL string.
@@ -1561,9 +1568,10 @@ class OpenHabGenerator:
         self, app: str, device: str, channels: list[ChannelSchema]
     ) -> list[str]:
         identity = self.instance_id or app
+        identity_token = instance_identity_token(self.instance_id, identity)
         group_name = f"g{identity.replace('-', '_').title().replace('_', '')}"
         if self.instance_id:
-            group_name = f"g{identity[0].upper()}{identity[1:]}"
+            group_name = f"g{identity_token[0].upper()}{identity_token[1:]}"
         lines: list[str] = []
         for channel in channels:  # already address-ordered from _channels_by_device
             for prop in sorted(channel.properties.values(), key=lambda p: p.name):
@@ -1573,7 +1581,7 @@ class OpenHabGenerator:
                     lines.append(
                         _format_item_line(
                             self.broker_uid,
-                            identity,
+                            identity_token,
                             device,
                             prop,
                             group_name,

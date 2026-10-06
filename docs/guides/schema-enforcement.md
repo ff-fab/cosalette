@@ -1035,6 +1035,12 @@ Uppercase, hyphens, leading digits, repeated underscores, and trailing underscor
 are rejected instead of being normalized into another instance's identity.
 OpenHAB Item and group prefixes preserve these underscores; unset ids retain
 the existing CamelCase output.
+Flat identities use a length-prefixed token, `i<length>_<id>` (for example
+`i9_wiz_attic`), before appending device/entity segments. This keeps instance
+`a` with device `b_sensor` distinct from instance `a_b` with device `sensor`.
+The token appears in HA `unique_id`, bridge/device `identifiers`, `via_device`,
+and openHAB Thing UIDs, channel links, Item ids and groups. Discovery topic
+`node_id` and display labels still use the raw ID.
 
 When the id is unset, output is byte-identical to earlier releases, so
 existing entities keep their `unique_id`s. Setting it on a deployment that

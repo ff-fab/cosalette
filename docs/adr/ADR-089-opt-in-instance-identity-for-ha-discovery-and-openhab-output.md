@@ -96,13 +96,13 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 ## Amendment (2026-10-06) — Corrective
 
-**Rationale:** The proposed broad character allowlist maps distinct IDs to identical HA slugs, and openHAB Item names can start with digits or lose distinguishing underscores.
+**Rationale:** The proposed broad character allowlist maps distinct IDs to identical HA slugs, and openHAB Item names can start with digits or lose distinguishing underscores. Flat identity concatenation is also ambiguous across instance/device boundaries: instance a with b_sensor collides with a_b with sensor.
 
 > **Justification for amendment (not supersession):** The opt-in setting has not merged or shipped. Tightening its accepted inputs and preserving explicit-ID underscores affects no existing downstream deployment; unset-ID output remains byte-identical, so supersession is not warranted.
 
 ### Revised Decision
 
-Use an opt-in canonical instance identity, `settings.mqtt.instance_id` (env `MQTT__INSTANCE_ID`), for Home Assistant discovery and openHAB identity fields while leaving unset-ID output byte-identical. An explicit ID must fully match `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and use lowercase letters, digits, and single underscores between nonempty segments. Reject noncanonical spelling instead of normalizing distinct inputs to the same identity. Explicit-ID openHAB Item and group prefixes capitalize only the first letter and preserve underscores. Topics follow `mqtt.topic_prefix`, and HA `origin.name` remains the app name. Apply the same validation to settings, offline CLI options, and direct generators; reject explicit IDs for multi-app schemas. Resolve runtime discovery after configure hooks so hooks can enable or replace its configuration.
+Use an opt-in canonical instance identity, `settings.mqtt.instance_id` (env `MQTT__INSTANCE_ID`), for Home Assistant discovery and openHAB identity fields while leaving unset-ID output byte-identical. An explicit ID must fully match `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and use lowercase letters, digits, and single underscores between nonempty segments. Reject noncanonical spelling instead of normalizing distinct inputs to the same identity. Frame explicit IDs as `i<length>_<id>` before appending device/entity segments in HA unique_ids, bridge/device identifiers and via_device, plus openHAB Thing UIDs, linked channels, Item IDs and groups. Length makes instance/device boundaries unambiguous. OpenHAB Item and group prefixes capitalize only the token's first letter and preserve underscores. Discovery topic node_id and display labels retain the raw ID. Topics follow `mqtt.topic_prefix`, and HA `origin.name` remains the app name. Apply the same validation to settings, offline CLI options, and direct generators; reject explicit IDs for multi-app schemas. Resolve runtime discovery after configure hooks so hooks can enable or replace its configuration.
 
 ```yaml
 # docker-compose.yml
@@ -119,11 +119,14 @@ services:
 
 ### Additional Sub-Decision: Canonical instance identities
 
-Accept an empty fallback or a full match of `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and permit lowercase letters, digits, and single underscores between nonempty segments. Reject uppercase, hyphens, leading digits, repeated underscores, trailing underscores, and control characters rather than normalizing them. Settings, offline CLI, and direct generators share validation. HA and Thing identities preserve the canonical ID. Explicit-ID openHAB Item and group prefixes capitalize only the first letter and preserve underscores, keeping `a1_b` distinct from `a1b`; unset-ID CamelCase output remains unchanged. Examples use `wiz_attic` and `wiz_cellar`. Resolve discovery after configure hooks so hooks may enable or update discovery before startup publication.
+Accept an empty fallback or a full match of `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and permit lowercase letters, digits, and single underscores between nonempty segments. Reject uppercase, hyphens, leading digits, repeated underscores, trailing underscores, and control characters rather than normalizing them. Settings, offline CLI, and direct generators share validation. Generated flat HA and openHAB identities preserve the canonical ID inside a length-prefixed `i<length>_<id>` token to disambiguate instance/device boundaries; discovery topic node_id and display labels use the raw ID. Explicit-ID openHAB Item and group prefixes capitalize only the token's first letter and preserve underscores, keeping `a1_b` distinct from `a1b`; unset-ID CamelCase output remains unchanged. Examples use `wiz_attic` and `wiz_cellar`. Resolve discovery after configure hooks so hooks may enable or update discovery before startup publication.
+
+!!! note "Editorial note (2026-10-06)"
+    Flat identity prefixes use the shared token i<length>_<instance_id> for explicit IDs, for example i1_a and i3_a_b. This distinguishes instance a with device b_sensor from a_b with device sensor, and separates a_b's bridge from a's child device b. Unset IDs preserve every legacy spelling.
 
 ### Additional Positive Consequences
 
-- Distinct accepted IDs remain distinct through HA slugification and openHAB identity formatting, and generated Item IDs start with letters.
+- Distinct accepted IDs remain distinct through HA slugification, flat instance/device concatenation, and openHAB identity formatting, and generated Item IDs start with letters.
 
 ### Additional Negative Consequences
 

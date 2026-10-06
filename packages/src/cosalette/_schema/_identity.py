@@ -10,6 +10,15 @@ if TYPE_CHECKING:
     from cosalette._schema import SchemaRegistry
 
 
+def instance_identity_token(instance_id: str | None, fallback: str) -> str:
+    """Frame explicit IDs so app/device concatenations have an unambiguous boundary.
+
+    ``a`` with device ``b_sensor`` must differ from ``a_b`` with ``sensor``.
+    Length counts canonical ASCII characters; absent IDs keep legacy spelling.
+    """
+    return f"i{len(instance_id)}_{instance_id}" if instance_id else fallback
+
+
 def check_instance_id_scope(registry: SchemaRegistry, instance_id: str | None) -> None:
     """Require a canonical identity naming a single app instance (ADR-089)."""
     if not instance_id:

@@ -1814,6 +1814,9 @@ Several Instances of One App (ADR-089):
   a startup warning when discovery is on, the prefix differs from the app
   name and no instance id is set. Offline: `schema ha-discovery --instance-id`
   and `schema openhab --instance-id`.
+  Generated flat identities frame explicit ids as i<length>_<id> before
+  appending device/entity names, so a + b_sensor differs from a_b + sensor.
+  Discovery node_id topics and display labels keep the raw id.
 
 Scope — Home Assistant Only:
   openHAB has no equivalent runtime MQTT discovery protocol (its
