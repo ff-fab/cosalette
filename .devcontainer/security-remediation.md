@@ -2,7 +2,9 @@
 
 The [5 October review](security-review-2026-10-05.md) records all 64 previously
 unreviewed fingerprints from PR 499, with individual recommendations and sources. It is
-a historical scan snapshot; use the final image scan for current inventory.
+a historical scan snapshot; use the final image scan for current inventory. The
+[cos-yi5p renewal](security-review-2026-10-05-renewal.md) re-reviews the groups that
+expired on 11 October.
 
 ## Python installation ownership
 
