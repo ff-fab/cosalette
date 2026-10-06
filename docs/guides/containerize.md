@@ -198,6 +198,10 @@ code: Python keeps every imported module in memory, so the footprint drops only 
 the app loads fewer modules. The file-backed part (about 18 MiB) is shared between
 containers that run the same image.
 
+cosalette keeps its own share small: `app.cli()` starts a plain run without loading
+the Typer CLI, and cron schedules, publish strategies, the command and stream
+runners and the discovery generator load only when the app uses them.
+
 Two settings make a measurable difference:
 
 - **Compile bytecode in the image.** The Dockerfile above sets
@@ -209,6 +213,17 @@ Two settings make a measurable difference:
   is a glibc allocator control and is ignored by musl. On glibc, even a process
   with two or three threads may use multiple arenas, so its memory and contention
   effects depend on the workload.
+
+Typer, which cosalette uses for its CLI, pulls in `rich`, `pygments` and
+`markdown-it-py` (about 15 MB). They load only for `--help` and CLI errors, so they
+add image size, not resident memory. Typer requires rich, so cosalette cannot drop it
+from its own dependencies. If image size matters, exclude them in your app's
+`pyproject.toml`. cosalette then prints plain help and error output:
+
+```toml
+[tool.uv]
+override-dependencies = ["rich; sys_platform == 'never'"]
+```
 
 ---
 

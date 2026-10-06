@@ -30,7 +30,8 @@ import pytest
 from typer.testing import CliRunner
 
 from cosalette import App
-from cosalette._cli import _run_app, build_cli
+from cosalette._cli import build_cli
+from cosalette._cli_run import run_app as _run_app
 from cosalette._constants import EXIT_STALE
 from cosalette._health import HealthReporter
 from cosalette._health._liveness import (
@@ -444,7 +445,7 @@ class TestAppCallbackSkipsSubcommands:
         # Arrange
         started: list[object] = []
         monkeypatch.setattr(
-            "cosalette._cli._run_app", lambda app, settings: started.append(app)
+            "cosalette._cli_run.run_app", lambda app, settings: started.append(app)
         )
         cli = build_cli(App("probeapp", version="1.0.0"))
 

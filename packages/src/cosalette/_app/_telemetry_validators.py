@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from cosalette._cron import CronSchedule
 from cosalette._registration import (
     _UNSET,
     CronSpec,
@@ -26,6 +25,9 @@ from cosalette._runners._trigger import (
     normalize_trigger_source,
 )
 from cosalette._utils import _callable_qualname
+
+if TYPE_CHECKING:
+    from cosalette._cron import CronSchedule
 
 
 def validate_group_name(group: str | None) -> None:
@@ -100,9 +102,13 @@ def resolve_telemetry_name_spec(
 
 
 def parse_schedule(
-    schedule: str | CronSchedule | None,
+    schedule: object,
 ) -> CronSchedule | None:
     """Parse a schedule string or pass through a CronSchedule."""
+    if schedule is None:
+        return None
+    from cosalette._cron import CronSchedule  # deferred: cron apps only
+
     if isinstance(schedule, str):
         return CronSchedule(schedule)
     if isinstance(schedule, CronSchedule):

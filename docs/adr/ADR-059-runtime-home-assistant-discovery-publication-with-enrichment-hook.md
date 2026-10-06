@@ -9,7 +9,7 @@ tags: [mqtt, discovery, architecture, cli, persistence]
 
 ## Status
 
-Accepted **Date:** 2026-08-11
+Accepted **Date:** 2026-08-11 | Amended **Date:** 2026-10-05
 
 ## Context
 
@@ -108,4 +108,20 @@ _Scale: 1 (poor) to 5 (excellent)_
 - The new discovery-topic snapshot is a second persisted key per app in the same Store used by ADR-048, growing the store's schema surface and the number of reserved key prefixes an operator inspecting the store needs to know about.
 - openHAB has no equivalent runtime discovery protocol (its .things/.items output is static configuration, not retained MQTT topics), so this ADR's runtime-publication half is HA-only; openHAB remains served exclusively by the offline CLI path, which is a capability asymmetry between the two consumers that this ADR does not resolve.
 
-_2026-08-11_
+## Amendment (2026-10-05) — Corrective
+
+**Rationale:** Runtime discovery no longer round-trips through YAML: build_discovery_payloads() passes the App.asyncapi() dict straight to load_schema(), which needs neither PyYAML nor jsonschema. The remaining _ensure_schema_deps() call only enforced the [schema] extra; adopters measured jsonschema + PyYAML at about 4 MiB RSS and 68 resident modules on a Raspberry Pi Zero 2 W class host (cos-8jxg, cosalette-apps memory footprint proposal). cos-8jxg.2 already stopped importing the packages; this amendment drops the requirement itself (cos-8jxg.7).
+
+> **Justification for amendment (not supersession):** The change only removes a runtime requirement: apps that install cosalette[schema] keep working unchanged, and the loader, generator and published payloads are identical. Impact is confined to _wiring/_discovery.py and load_schema()'s dict branch, so supersession is not warranted.
+
+### Revised Decision
+
+Runtime discovery (App.discovery()) passes the live App.asyncapi() dict directly to load_schema() and does not require the optional cosalette[schema] extra. The [schema] presence check applies only to text sources (files, inline YAML) and the `cosalette schema` CLI, which parse YAML or validate payloads with jsonschema. Everything else in this ADR stands: payloads still come from the post-expand registry through the same loader and HaDiscoveryGenerator, publication is opt-in and first-connect-only, and the discovery-topic snapshot and enrichment hook are unchanged.
+
+### Additional Positive Consequences
+
+- Apps that only use App.discovery() can drop cosalette[schema] from their install, removing PyYAML, jsonschema, referencing, rpds and attrs from the image.
+
+### Additional Negative Consequences
+
+- The Negative consequence that opted-in apps depend on cosalette[schema] at runtime no longer holds; a missing extra now only affects the schema CLI and text-source loading.

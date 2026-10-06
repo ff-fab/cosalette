@@ -186,11 +186,24 @@ class _LifecycleMixin:
         ``--log-level``, ``--log-format``, ``--env-file``), and
         orchestrates the full async lifecycle.
 
+        A plain run (only the run options above, no subcommand, help or
+        version) is parsed without Typer, which then never loads; any
+        other invocation builds the Typer CLI.
+
         For production use without CLI parsing, prefer :meth:`run`.
 
         See Also:
-            ADR-005 — CLI framework.
+            ADR-005 — CLI framework (and its Typer-free run path amendment).
         """
+        import sys
+
+        from cosalette._cli_run import parse_run_args, run_with_args
+
+        args = parse_run_args(sys.argv[1:])
+        if args is not None:
+            run_with_args(cast("App", self), args)
+            return
+
         from cosalette._cli import build_cli
 
         cli = build_cli(cast("App", self))
