@@ -62,9 +62,17 @@ user's files. Escape needed no kernel exploit.
   own network namespace. rootlesskit binds published ports on the devcontainer's
   loopback instead.
 
-The image installs `docker-ce-rootless-extras` (pinned to `DOCKER_VERSION`), `uidmap`
-and `slirp4netns`. Debian's setuid `newuidmap`/`newgidmap` fail with `EPERM` writing the
-namespace map in an unprivileged container; the image replaces the setuid bit with the
+The image installs `uidmap` and `slirp4netns`. It downloads the
+`docker-ce-rootless-extras` Debian package pinned to `DOCKER_VERSION` using apt's signed
+repository metadata and extracts only its two daemon launcher/setup scripts. It does not
+install that package: its `dbus-user-session` dependency installs systemd, although this
+container starts the daemon directly without a service manager. RootlessKit's three
+binaries are installed separately from the checksum-pinned
+[upstream v3.2.0 release](https://github.com/rootless-containers/rootlesskit/releases/tag/v3.2.0).
+The inspected amd64 binary reports Go 1.26.8, `golang.org/x/net v0.58.0` and
+`golang.org/x/crypto v0.57.0`, replacing Docker's vulnerable bundled module versions.
+Debian's setuid `newuidmap`/`newgidmap` fail with `EPERM` writing the namespace map in
+an unprivileged container; the image replaces the setuid bit with the
 `cap_setuid`/`cap_setgid` file capabilities. Docker's own `docker:dind-rootless` image
 also ships them without the setuid bit.
 

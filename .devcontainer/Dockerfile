@@ -59,7 +59,7 @@ RUN set -eux; \
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
 # so it becomes a cacheable BuildKit layer instead of a slow feature bind-mount.
 # The daemon runs rootless in an unprivileged devcontainer (cos-2jj7): the rootless
-# extras, uidmap and slirp4netns provide rootlesskit, the ID-mapping helpers and
+# scripts, uidmap and slirp4netns provide the daemon launcher, ID-mapping helpers and
 # user-mode networking. The startup script (docker-init.sh) is called from
 # post-start.sh.
 # renovate: datasource=docker depName=docker versioning=docker
@@ -68,6 +68,11 @@ ARG DOCKER_VERSION=29.8.1
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
 ARG BUILDX_VERSION=0.37.1
+# Upgrade RootlessKit and both archive checksums together. Docker's bundled
+# binary still links vulnerable x/net and x/crypto versions (PR 505 scan).
+ARG ROOTLESSKIT_VERSION=v3.2.0
+ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
+ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
 # DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
@@ -76,7 +81,9 @@ ARG BUILDX_VERSION=0.37.1
 # SC1091: shellcheck can't follow /etc/os-release in static analysis - benign.
 # DL3008: general utilities intentionally unpinned (see comment above).
 # Docker official GPG key fingerprint — verify at https://docs.docker.com/engine/install/debian/
-# hadolint ignore=DL3008,SC1091
+# DL3003: temporary cd confines downloaded packages to a disposable directory;
+# the layer returns to / without changing the image's configured WORKDIR.
+# hadolint ignore=DL3008,DL3003,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y upgrade --no-install-recommends \
@@ -110,8 +117,32 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         "docker-ce=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
-        "docker-ce-rootless-extras=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    # Only the launcher scripts are needed: installing rootless-extras brings
+    # dbus-user-session and systemd, although post-start launches the daemon
+    # directly. apt verifies the downloaded package against its signed index.
+    && install -d /tmp/rootless-extras \
+    && cd /tmp/rootless-extras \
+    && apt-get download "docker-ce-rootless-extras=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    && dpkg-deb --extract ./*.deb extracted \
+    && install -m 0755 extracted/usr/bin/dockerd-rootless.sh \
+        extracted/usr/bin/dockerd-rootless-setuptool.sh /usr/bin/ \
+    && cd / \
+    && rm -rf /tmp/rootless-extras \
+    # Install patched upstream binaries at the same paths used by Docker's
+    # launcher. Do not leave the vulnerable package binaries elsewhere in PATH.
+    && ARCH="$(dpkg --print-architecture)" \
+    && case "${ARCH}" in \
+        amd64) ROOTLESSKIT_ARCH=x86_64; EXPECTED_SHA="${ROOTLESSKIT_SHA256_AMD64}" ;; \
+        arm64) ROOTLESSKIT_ARCH=aarch64; EXPECTED_SHA="${ROOTLESSKIT_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL --retry 3 "https://github.com/rootless-containers/rootlesskit/releases/download/${ROOTLESSKIT_VERSION}/rootlesskit-${ROOTLESSKIT_ARCH}.tar.gz" \
+        -o /tmp/rootlesskit.tar.gz \
+    && echo "${EXPECTED_SHA}  /tmp/rootlesskit.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/rootlesskit.tar.gz -C /usr/bin rootlesskit rootlessctl rootlesskit-docker-proxy \
+    && rm -f /tmp/rootlesskit.tar.gz \
+    && rootlesskit --version \
     # The Python base image includes MySQL and ImageMagick development libraries
     # that this project does not use. Remove their vulnerable MariaDB/OpenEXR
     # dependencies explicitly; broad autoremove also drops ICU required by bd.
