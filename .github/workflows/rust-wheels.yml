@@ -20,6 +20,8 @@ on:
       - 'pyproject.toml'
       - 'packages/src/cosalette/_health/_probe.py'
       - 'scripts/bundle-health-probe.sh'
+      - 'scripts/wheel-sbom.sh'
+      - 'scripts/tests/wheel-sbom.sh'
       - 'scripts/check-probe-wheel.py'
       - 'scripts/smoke-health-probe.py'
       - '.github/workflows/rust-wheels.yml'
@@ -30,6 +32,12 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # The probe is built with cargo-auditable so release SBOMs list its crates
+  # (scripts/bundle-health-probe.sh, scripts/wheel-sbom.sh).
+  # renovate: datasource=crate depName=cargo-auditable
+  CARGO_AUDITABLE_VERSION: 0.7.7
 
 jobs:
   build-wheels:
@@ -96,6 +104,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           rustup target add "$TARGET"
+          cargo install cargo-auditable --version "$CARGO_AUDITABLE_VERSION" --locked
           bash scripts/bundle-health-probe.sh "$TARGET"
 
       - name: Build wheel
@@ -104,7 +113,11 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: ${{ matrix.manylinux || 'auto' }}
-          before-script-linux: bash scripts/bundle-health-probe.sh ${{ matrix.target }}
+          before-script-linux: >-
+            export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" &&
+            cargo install cargo-auditable --target "$(rustc -vV | sed -n 's/^host: //p')"
+            --version ${{ env.CARGO_AUDITABLE_VERSION }} --locked &&
+            bash scripts/bundle-health-probe.sh ${{ matrix.target }}
 
       - name: Check bundled probe
         shell: bash
@@ -128,6 +141,17 @@ jobs:
         run: |
           pip install --quiet --no-deps dist/*.whl
           python scripts/smoke-health-probe.py native
+
+      - name: Install syft for wheel SBOM validation
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+
+      - name: Validate wheel SBOM
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          bash scripts/tests/wheel-sbom.sh
+          bash scripts/wheel-sbom.sh dist/*.whl dist/cosalette.cdx.json
 
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

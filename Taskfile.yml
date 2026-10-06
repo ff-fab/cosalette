@@ -279,12 +279,12 @@ tasks:
   # ===========================================================================
 
   rust:fmt:
-    desc: Check formatting of the cosalette-health probe crate (cargo fmt)
+    desc: Check formatting of all Rust workspace crates (cargo fmt)
     cmds:
       - bash scripts/qa-task.sh rust:fmt
 
   rust:clippy:
-    desc: Lint the cosalette-health probe crate (cargo clippy, warnings are errors)
+    desc: Lint all Rust workspace crates (cargo clippy, warnings are errors)
     cmds:
       - bash scripts/qa-task.sh rust:clippy
 
@@ -540,12 +540,17 @@ tasks:
   # ===========================================================================
 
   sbom:
-    desc: Generate CycloneDX SBOM from built wheel
+    desc: Generate CycloneDX SBOM from a host platform wheel with the native probe
     cmds:
       - rm -rf dist/
-      - uv run --with build python -m build
-      - syft dist/*.whl -o cyclonedx-json=dist/cosalette.cdx.json
+      - task: build:wheel:probe
+      - bash scripts/wheel-sbom.sh dist/*.whl dist/cosalette.cdx.json
       - echo "SBOM written to dist/cosalette.cdx.json"
+
+  test:sbom:
+    desc: Test wheel SBOM acceptance and rejection paths
+    cmds:
+      - bash scripts/tests/wheel-sbom.sh
 
   # ===========================================================================
   # PR Helpers
