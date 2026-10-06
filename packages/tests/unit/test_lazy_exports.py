@@ -180,3 +180,28 @@ def test_running_telemetry_app_skips_unused_subsystems(tmp_path: Path) -> None:
     loaded = set(result.stdout.split())
     assert "cosalette._runners._telemetry_runner" in loaded
     assert loaded.isdisjoint(DEFERRED_SUBSYSTEMS)
+
+
+def test_registration_annotations_resolve_canonical_types_on_demand() -> None:
+    """Runtime annotation users receive real classes without eager imports."""
+    script = """
+import sys
+from typing import get_args, get_type_hints
+import cosalette
+
+registration = cosalette.TelemetryRegistration
+alias = cosalette.CronSpec
+assert "cosalette._cron" not in sys.modules
+assert "cosalette._strategies" not in sys.modules
+
+value = alias.__value__
+from cosalette._cron import CronSchedule
+assert CronSchedule in get_args(get_args(value)[1])
+assert "cosalette._strategies" not in sys.modules
+
+hints = get_type_hints(registration)
+from cosalette._strategies import PublishStrategy
+assert hints["schedule"] == CronSchedule | None
+assert hints["publish_strategy"] == PublishStrategy | None
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)

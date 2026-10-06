@@ -49,7 +49,6 @@ class TestParseRunArgs:
                 RunArgs(dry_run=True, env_file="a.env", config_file="c.toml"),
             ),
             (["--log-level", "INFO", "--log-level=ERROR"], RunArgs(log_level="ERROR")),
-            (["--env-file="], RunArgs(env_file="")),
         ],
     )
     def test_accepts_run_options(self, argv: list[str], expected: RunArgs) -> None:
@@ -73,6 +72,12 @@ class TestParseRunArgs:
             ["--log-level", "BOGUS"],
             ["--log-format=xml"],
             ["--"],
+            ["--env-file="],
+            ["--config-file="],
+            ["--env-file", ""],
+            ["--config-file", ""],
+            ["--log-level="],
+            ["--log-format="],
         ],
     )
     def test_hands_other_argv_to_typer(self, argv: list[str]) -> None:

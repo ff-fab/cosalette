@@ -17,6 +17,8 @@ import sys
 
 import pytest
 
+from cosalette._utils import _typer_options
+
 pytestmark = pytest.mark.unit
 
 _APP_CLI = """
@@ -29,6 +31,22 @@ _PACKAGE_CLI = """
 from cosalette._package_cli import app
 app()
 """
+
+
+@pytest.mark.parametrize("name", ["rich", "pygments", "markdown_it"])
+def test_blocked_module_selects_plain_typer_options(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_spec recognises sys.modules entries that block imports."""
+    _typer_options.cache_clear()
+    try:
+        monkeypatch.setitem(sys.modules, name, None)
+        assert _typer_options() == {
+            "rich_markup_mode": None,
+            "pretty_exceptions_enable": False,
+        }
+    finally:
+        _typer_options.cache_clear()
 
 
 def _run(

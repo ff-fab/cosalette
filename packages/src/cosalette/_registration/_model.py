@@ -12,19 +12,16 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from cosalette._context import AppContext
 from cosalette._injection import resolve_request_kwargs
 from cosalette._persistence._persist import PersistPolicy
+from cosalette._registration import _annotation_types
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._runners._trigger import TriggerSource
 from cosalette._settings import Settings
-
-if TYPE_CHECKING:
-    from cosalette._cron import CronSchedule
-    from cosalette._strategies import PublishStrategy
 
 type IntervalSpec = float | Callable[..., float]
 """Interval for telemetry: a concrete float or a settings-derived callable.
@@ -62,7 +59,7 @@ Used for the ``timeout=`` field (replaced during bootstrap by either
 ``App.__init__`` (triggers auto-resolution of the default store path).
 """
 
-type CronSpec = Callable[..., str | CronSchedule]
+type CronSpec = Callable[..., str | _annotation_types.CronSchedule]
 """Per-device cron schedule spec: a callable receiving per-device config.
 
 Only valid with ``name=callable`` (dict-based multi-device registration).
@@ -186,7 +183,7 @@ class _TelemetryRegistration:
     interval: IntervalSpec
     is_root: bool = False
     enabled_spec: EnabledSpec = True
-    publish_strategy: PublishStrategy | None = None
+    publish_strategy: _annotation_types.PublishStrategy | None = None
     persist_policy: PersistPolicy | None = None
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
@@ -198,7 +195,7 @@ class _TelemetryRegistration:
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
     timeout: TimeoutSpec | None | _Unset = _UNSET
-    schedule: CronSchedule | None = None
+    schedule: _annotation_types.CronSchedule | None = None
     schedule_spec: CronSpec | None = None
     # Normalized trigger source; None when the entity is not triggerable.
     triggerable: TriggerSource | None = None

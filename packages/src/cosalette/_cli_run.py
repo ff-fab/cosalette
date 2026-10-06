@@ -100,6 +100,8 @@ def parse_run_args(argv: Sequence[str]) -> RunArgs | None:
             value = next(args, None)
             if value is None or value.startswith("-"):
                 return None
+        if not value:
+            return None
         values[_VALUE_OPTIONS[name]] = value
     parsed = RunArgs(**values)
     if not log_options_valid(parsed.log_level, parsed.log_format):

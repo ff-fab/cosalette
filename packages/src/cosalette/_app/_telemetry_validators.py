@@ -102,14 +102,18 @@ def resolve_telemetry_name_spec(
 
 
 def parse_schedule(
-    schedule: str | CronSchedule | None,
+    schedule: object,
 ) -> CronSchedule | None:
     """Parse a schedule string or pass through a CronSchedule."""
-    if isinstance(schedule, str):
-        from cosalette._cron import CronSchedule  # deferred: cron apps only
+    if schedule is None:
+        return None
+    from cosalette._cron import CronSchedule  # deferred: cron apps only
 
+    if isinstance(schedule, str):
         return CronSchedule(schedule)
-    return schedule
+    if isinstance(schedule, CronSchedule):
+        return schedule
+    return None
 
 
 def prepare_schedule_spec(
