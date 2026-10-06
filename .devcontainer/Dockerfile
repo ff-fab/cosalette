@@ -58,13 +58,21 @@ RUN set -eux; \
 # Install system dependencies and Docker CE in a single apt layer.
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
 # so it becomes a cacheable BuildKit layer instead of a slow feature bind-mount.
-# The daemon startup script (docker-init.sh) is called from post-start.sh.
+# The daemon runs rootless in an unprivileged devcontainer (cos-2jj7): the rootless
+# scripts, uidmap and slirp4netns provide the daemon launcher, ID-mapping helpers and
+# user-mode networking. The startup script (docker-init.sh) is called from
+# post-start.sh.
 # renovate: datasource=docker depName=docker versioning=docker
 ARG DOCKER_VERSION=29.8.1
 # renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
 ARG BUILDX_VERSION=0.37.1
+# Upgrade RootlessKit and both archive checksums together. Docker's bundled
+# binary still links vulnerable x/net and x/crypto versions (PR 505 scan).
+ARG ROOTLESSKIT_VERSION=v3.2.0
+ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
+ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
 # DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
@@ -73,7 +81,9 @@ ARG BUILDX_VERSION=0.37.1
 # SC1091: shellcheck can't follow /etc/os-release in static analysis - benign.
 # DL3008: general utilities intentionally unpinned (see comment above).
 # Docker official GPG key fingerprint — verify at https://docs.docker.com/engine/install/debian/
-# hadolint ignore=DL3008,SC1091
+# DL3003: temporary cd confines downloaded packages to a disposable directory;
+# the layer returns to / without changing the image's configured WORKDIR.
+# hadolint ignore=DL3008,DL3003,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y upgrade --no-install-recommends \
@@ -85,6 +95,9 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         # Docker CE prerequisites
         ca-certificates \
         gnupg \
+        # Rootless Docker: subordinate ID mapping and user-mode networking
+        uidmap \
+        slirp4netns \
     && install -m 0755 -d /usr/share/keyrings \
     && curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
        https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
@@ -105,6 +118,31 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    # Only the launcher scripts are needed: installing rootless-extras brings
+    # dbus-user-session and systemd, although post-start launches the daemon
+    # directly. apt verifies the downloaded package against its signed index.
+    && install -d /tmp/rootless-extras \
+    && cd /tmp/rootless-extras \
+    && apt-get download "docker-ce-rootless-extras=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    && dpkg-deb --extract ./*.deb extracted \
+    && install -m 0755 extracted/usr/bin/dockerd-rootless.sh \
+        extracted/usr/bin/dockerd-rootless-setuptool.sh /usr/bin/ \
+    && cd / \
+    && rm -rf /tmp/rootless-extras \
+    # Install patched upstream binaries at the same paths used by Docker's
+    # launcher. Do not leave the vulnerable package binaries elsewhere in PATH.
+    && ARCH="$(dpkg --print-architecture)" \
+    && case "${ARCH}" in \
+        amd64) ROOTLESSKIT_ARCH=x86_64; EXPECTED_SHA="${ROOTLESSKIT_SHA256_AMD64}" ;; \
+        arm64) ROOTLESSKIT_ARCH=aarch64; EXPECTED_SHA="${ROOTLESSKIT_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL --retry 3 "https://github.com/rootless-containers/rootlesskit/releases/download/${ROOTLESSKIT_VERSION}/rootlesskit-${ROOTLESSKIT_ARCH}.tar.gz" \
+        -o /tmp/rootlesskit.tar.gz \
+    && echo "${EXPECTED_SHA}  /tmp/rootlesskit.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/rootlesskit.tar.gz -C /usr/bin rootlesskit rootlessctl rootlesskit-docker-proxy \
+    && rm -f /tmp/rootlesskit.tar.gz \
+    && rootlesskit --version \
     # The Python base image includes MySQL and ImageMagick development libraries
     # that this project does not use. Remove their vulnerable MariaDB/OpenEXR
     # dependencies explicitly; broad autoremove also drops ICU required by bd.
@@ -123,16 +161,25 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get -y purge \
         python3 python3-minimal libpython3-stdlib \
         python3.13 python3.13-minimal libpython3.13-minimal libpython3.13-stdlib \
-    && groupadd -f docker \
-    && usermod -aG docker vscode \
+    # Setuid newuidmap/newgidmap cannot write a user namespace map in an
+    # unprivileged container; file capabilities can. They grant only the ID
+    # mapping that /etc/subuid and /etc/subgid allow.
+    && chmod u-s /usr/bin/newuidmap /usr/bin/newgidmap \
+    && setcap cap_setuid=ep /usr/bin/newuidmap \
+    && setcap cap_setgid=ep /usr/bin/newgidmap \
+    # Rootless data root (a named volume, see devcontainer.json) must belong to
+    # the development user. The runtime directory /run/user/1000 is a tmpfs
+    # mounted at container start (devcontainer.json runArgs).
+    && install -d -o vscode -g vscode /home/vscode/.local /home/vscode/.local/share \
+        /home/vscode/.local/share/docker \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the dockerd startup script (adapted from the docker-in-docker feature).
-# Called from post-start.sh on every container start instead of being wired as
-# a container entrypoint — simpler and works identically in VS Code, Codespaces,
-# and CI (devcontainers/ci).
+# Copy the rootless dockerd startup script. Called from post-start.sh on every
+# container start instead of being wired as a container entrypoint — simpler and
+# works identically in VS Code, Codespaces, and CI (devcontainers/ci).
 COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
+COPY --chmod=0755 docker-runtime.sh /usr/local/share/docker-runtime.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task

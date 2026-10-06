@@ -45,16 +45,38 @@ This image attribution does not establish host non-applicability. The inspection
 reports `6.18.33.2-microsoft-standard-WSL2`; vendor backport status and other
 developers' and CI runners' kernels have not been verified. The individual review lists
 the GPU, filesystem, network, architecture and other subsystem checks required for each
-advisory. Issue cos-dam4 tracks that host assessment.
+advisory. The [host kernel assessment](host-kernel-assessment.md) (cos-dam4) records
+that review for the workstation and CI hosts.
 
-Docker-in-Docker currently needs privileged mode for its mount/cgroup startup. Disabling
-the flag without a working replacement breaks the documented workflow. Issue cos-2jj7
-tracks a validated restricted/rootless or reviewed remote builder. Mounting a Docker
-socket is not a substitute for a privilege assessment because it grants control of that
-daemon. The security owner issue cos-nxu6 is reopened and depends on both follow-ups; it
-must remain open after this PR merges.
+Privileged Docker-in-Docker has been replaced by a rootless daemon inside an
+unprivileged devcontainer (cos-2jj7); see the
+[restricted builder evaluation](restricted-builder-evaluation.md) for validation and
+remaining restrictions. Host-kernel applicability remains tracked by cos-dam4. Mounting
+a Docker socket is not a substitute for a privilege assessment because it grants control
+of that daemon. The security owner issue cos-nxu6 is reopened and depends on both
+follow-ups; it must remain open after this PR merges.
 
 ## Evidence and validation
+
+### Findings introduced by the rootless builder
+
+The initial PR 505 image scan reported six unreviewed findings: four systemd package
+fingerprints for CVE-2026-16742 and two in Docker's bundled RootlessKit
+(`x/net v0.55.0`, CVE-2026-46600; `x/crypto v0.52.0`, CVE-2026-56854). No acceptance
+rows are added for them. The image now extracts only the rootless launcher scripts from
+Docker's signed apt package, avoiding its systemd/dbus runtime dependency chain, and
+installs checksum-pinned upstream RootlessKit v3.2.0 binaries. The inspected amd64
+release binary embeds `x/net v0.58.0` and `x/crypto v0.57.0`, beyond the scan's fixed
+versions 0.56.0 and 0.55.0 respectively.
+
+[Debian's tracker](https://security-tracker.debian.org/tracker/CVE-2026-16742) describes
+the systemd-homed flaw and lists trixie as vulnerable. The package is omitted because
+this container does not need the service manager; this does not rely on an
+exploitability exemption. The
+[RootlessKit release](https://github.com/rootless-containers/rootlesskit/releases/tag/v3.2.0)
+publishes its archive checksums; both supported architectures are pinned in the
+Dockerfile. Validate the rebuilt image with the rootless startup check, native toolchain
+check and exact-tag Trivy scan before claiming the six findings are resolved.
 
 Run `task build:devcontainer` and scan the resulting image with
 `DOCKER_SCAN_IMAGE=cosalette-devcontainer-pr-validation:latest task security:docker:scan`.
