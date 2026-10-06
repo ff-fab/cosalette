@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import importlib
+from importlib.util import find_spec
 from typing import Any
 
 
@@ -37,6 +38,21 @@ def _import_string(dotted_path: str) -> Any:
     module_path, attr_name = parts
     module = importlib.import_module(module_path)
     return getattr(module, attr_name)
+
+
+@functools.cache
+def _typer_options() -> dict[str, Any]:
+    """Return Typer keyword arguments that keep the CLI working without rich.
+
+    Typer requires rich, but downstream images may delete it (or pygments,
+    which ``rich.syntax`` needs) to save space.  Typer only checks the
+    ``TYPER_USE_RICH`` variable, so without those packages ``--help`` and
+    usage errors would crash; this falls back to plain output instead
+    (ADR-005 amendment, cos-8jxg.6).
+    """
+    if all(find_spec(name) for name in ("rich", "pygments", "markdown_it")):
+        return {}
+    return {"rich_markup_mode": None, "pretty_exceptions_enable": False}
 
 
 def _callable_qualname(func: Any) -> str:

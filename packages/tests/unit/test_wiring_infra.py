@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from cosalette._errors import ErrorPublisher
-from cosalette._runners._command_runner import (
+from cosalette._runners._command_errors import (
     _FRAMEWORK_ERROR_TYPE_MAP,
     InvalidJsonError,
 )

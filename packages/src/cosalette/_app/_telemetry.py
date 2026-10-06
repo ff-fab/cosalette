@@ -26,7 +26,6 @@ from cosalette._app._telemetry_validators import (
     validate_triggerable,
     validate_unavailable_on,
 )
-from cosalette._cron import CronSchedule
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
@@ -51,11 +50,13 @@ from cosalette._retry import (
     CircuitBreaker,
 )
 from cosalette._runners._trigger import normalize_trigger_source
-from cosalette._strategies import PublishStrategy
 from cosalette._utils import _callable_name, _callable_qualname
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
+
+    from cosalette._cron import CronSchedule
+    from cosalette._strategies import PublishStrategy
 
 logger = logging.getLogger(__name__)
 

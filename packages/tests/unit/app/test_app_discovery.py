@@ -205,6 +205,26 @@ class TestBuildDiscoveryPayloads:
         assert "jsonschema" not in sys.modules
         assert "yaml" not in sys.modules
 
+    async def test_works_without_schema_extra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Runtime discovery does not require the [schema] extra.
+
+        Technique: Equivalence Partitioning — an app installed without
+        PyYAML and jsonschema still builds payloads (cos-8jxg.7, ADR-059
+        amendment).
+        """
+        # Arrange
+        monkeypatch.setattr("cosalette._schema._loader._schema_deps_checked", False)
+        monkeypatch.setattr("cosalette._schema._loader.find_spec", lambda _name: None)
+        app = _annotated_app()
+
+        # Act
+        payloads = await build_discovery_payloads(app, DiscoveryConfig())
+
+        # Assert
+        assert payloads
+
     async def test_result_is_cached_on_app(self) -> None:
         app = _annotated_app()
         config = DiscoveryConfig()
@@ -296,10 +316,10 @@ class TestPublishDiscovery:
         app = _annotated_app()
         mqtt = MockMqttClient()
 
-        def _boom(*_args: object, **_kwargs: object) -> None:
-            raise RuntimeError("schema deps missing")
+        async def _boom(*_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("schema load failed")
 
-        monkeypatch.setattr("cosalette._wiring._discovery._ensure_schema_deps", _boom)
+        monkeypatch.setattr("cosalette._schema._loader.load_schema", _boom)
 
         with caplog.at_level(logging.ERROR):
             await publish_discovery(cast(MqttPort, mqtt), app, DiscoveryConfig())

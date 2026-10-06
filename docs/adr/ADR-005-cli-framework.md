@@ -9,7 +9,7 @@ tags: [cli]
 
 ## Status
 
-Accepted **Date:** 2026-02-14
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-10-05
 
 ## Context
 
@@ -122,4 +122,44 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Typer is an additional direct dependency (Click is transitive)
 - Projects that need custom CLI commands must learn Typer's API for extension
 
-_2026-02-14_
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** Typer pulls rich, pygments and markdown-it-py (about 15 MB) into every app image, but they load only for --help and CLI errors. Adopters on 512 MB hosts want to drop them (cos-8jxg.6). Typer has no rich-free distribution: since 0.24 typer-slim is a shim that depends on typer, and typer requires rich. Typer only checks the TYPER_USE_RICH variable, so an image without rich (or without pygments, which rich.syntax imports) crashed on --help and on every usage error.
+
+### Additional Sub-Decision: Plain help when rich is not installed
+
+Every Typer instance cosalette builds (the app CLI, the `schema` group and the `cosalette` package CLI) gets `rich_markup_mode=None` and `pretty_exceptions_enable=False` when rich, pygments or markdown-it-py cannot be found (`_utils._typer_options()`). Help and usage errors then use Click's plain formatter, with the same exit codes. With all three installed nothing changes. cosalette keeps depending on `typer`, and therefore on rich; apps that want a smaller image exclude rich with a uv `override-dependencies` entry, documented in the containerize guide.
+
+### Additional Considered Options
+
+**Make Typer an optional extra**
+
+Move typer to a `cosalette[cli]` extra so the default install has no rich.
+
+- *Advantages:* The default install drops rich, pygments and markdown-it-py without any downstream configuration.
+- *Disadvantages:* `--help`, `--version`, the schema and health subcommands and the `cosalette` package CLI would all need a second implementation or would fail on a default install.; A breaking change for every app for an image-size-only gain.
+
+### Additional Positive Consequences
+
+- Images can delete rich, pygments and markdown-it-py without breaking --help or CLI error messages.
+
+### Additional Negative Consequences
+
+- Help output looks different (plain, no panels) in images without rich.
+- The default install still contains rich; removing it needs a downstream uv override.
+
+## Amendment (2026-10-05) — Additive
+
+**Rationale:** App.cli() built the full Typer CLI for every start, including the schema subcommands, the health probe and the AsyncAPI table formatter, and all of it stayed resident for the life of the process. An adopter measured 2.1 MiB RSS and 34 modules for this on the plain run path, which needs only five options (cos-8jxg.4, cosalette-apps memory footprint proposal, target host Raspberry Pi Zero 2 W).
+
+### Additional Sub-Decision: Typer-free run path
+
+`App.cli()` first tries `_cli_run.parse_run_args(sys.argv[1:])`. It accepts only `--dry-run` and `--log-level`, `--log-format`, `--env-file`, `--config-file` (as `--opt value` or `--opt=value`, last value wins) with valid log values and no shell-completion variable set. In that case the app runs without importing Typer or Click. Every other argv (a subcommand, `--help`, `--version`, `--show-devices`, completion, an unknown or malformed option, an invalid log level or format) returns `None` and `App.cli()` builds the Typer CLI as before. Parity is by delegation: the fast path never produces a usage error itself, so usage messages and exit codes come only from Typer. Both paths share the settings and run helpers in `_cli_run`, and back-to-back tests compare their results. Typer remains the CLI framework; the fast path is not a second parser surface.
+
+### Additional Positive Consequences
+
+- A running app no longer keeps Typer, Click, the schema CLI or the AsyncAPI table formatter in memory (about 2 MiB RSS on the adopter's reference app).
+
+### Additional Negative Consequences
+
+- A new run option must be added to both the Typer callback and `_cli_run.parse_run_args`; an option missing from the fast path still works but falls back to Typer, so the omission costs memory, not correctness.

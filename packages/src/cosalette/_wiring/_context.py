@@ -22,7 +22,6 @@ from cosalette._registration import (
     _StreamRegistration,
     _TelemetryRegistration,
 )
-from cosalette._runners._command_runner import CommandRunner
 from cosalette._runners._stream_types import Stream, StreamablePort
 from cosalette._runners._telemetry_runner import _TriggerSlot
 from cosalette._runners._trigger import arms_locally, arms_via_mqtt
@@ -360,8 +359,38 @@ async def wire_router(
         inbound_providers: Application-scoped dependencies available to inbound
             handlers, including settings, adapters, clock, and logger.
     """
-    cmd_runner = CommandRunner(store=store)
     router = TopicRouter(topic_prefix=prefix)
+    if devices or commands:
+        await _register_command_proxies(
+            devices, commands, store, contexts, error_publisher, router, reactors
+        )
+
+    if trigger_config and trigger_config.slots:
+        _register_triggerable_telemetry(
+            trigger_config.slots, trigger_config.telemetry, prefix, router
+        )
+
+    if inbounds:
+        for inbound_reg in inbounds:
+            _register_inbound_proxy(inbound_reg, router, inbound_providers or {})
+
+    return router
+
+
+async def _register_command_proxies(
+    devices: list[_DeviceRegistration],
+    commands: list[_CommandRegistration],
+    store: Store | None,
+    contexts: dict[str, DeviceContext],
+    error_publisher: ErrorPublisher,
+    router: TopicRouter,
+    reactors: list[_ReactorRegistration] | None,
+) -> None:
+    """Register device and command proxies on *router* (see :func:`wire_router`)."""
+    # Deferred: an app without devices or commands never loads the runner.
+    from cosalette._runners._command_runner import CommandRunner
+
+    cmd_runner = CommandRunner(store=store)
     for reg in devices:
         CommandRunner.register_device_proxy(
             reg, contexts[reg.name], error_publisher, router
@@ -376,17 +405,6 @@ async def wire_router(
         await cmd_runner.register_sub_command_proxy(
             group, contexts[name], error_publisher, router, reactors
         )
-
-    if trigger_config and trigger_config.slots:
-        _register_triggerable_telemetry(
-            trigger_config.slots, trigger_config.telemetry, prefix, router
-        )
-
-    if inbounds:
-        for inbound_reg in inbounds:
-            _register_inbound_proxy(inbound_reg, router, inbound_providers or {})
-
-    return router
 
 
 async def subscribe_and_connect(

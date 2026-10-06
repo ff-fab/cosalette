@@ -32,6 +32,9 @@ Schema enforcement fills that gap using **AsyncAPI 3.0.0** documents annotated w
     enforcement mode and the CLI commands are still available for validation in CI
     environments that have the dependencies installed.
 
+    Runtime discovery (`app.discovery()`) does not need the extra: it builds payloads
+    from the app's in-memory AsyncAPI document (ADR-059).
+
 ## Quick Start
 
 ### 1 — Generate a starter schema from your app

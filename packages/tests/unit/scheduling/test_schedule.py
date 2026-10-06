@@ -52,6 +52,15 @@ def _make_reg(
 class TestTelemetryDecoratorSchedule:
     """Registration via @app.telemetry()."""
 
+    @pytest.mark.parametrize("schedule", [42, object()])
+    def test_invalid_schedule_is_rejected_during_registration(
+        self, app: App, schedule: object
+    ) -> None:
+        """Malformed dynamic input fails before the runner starts."""
+        with pytest.raises(ValueError, match="required"):
+            app.telemetry("t", schedule=schedule)(_dummy)  # ty: ignore[invalid-argument-type]
+        assert not app._telemetry
+
     def test_telemetry_schedule_string_stores_cron_schedule(self, app: App) -> None:
         """String schedule is parsed into a CronSchedule instance.
 
@@ -133,6 +142,12 @@ class TestTelemetryDecoratorSchedule:
 
 class TestAddTelemetrySchedule:
     """Registration via app.add_telemetry()."""
+
+    def test_invalid_schedule_is_rejected_during_registration(self, app: App) -> None:
+        """The imperative API retains the same early validation."""
+        with pytest.raises(ValueError, match="required"):
+            app.add_telemetry("t", _dummy, schedule=object())  # ty: ignore[invalid-argument-type]
+        assert not app._telemetry
 
     def test_add_telemetry_schedule_string_parses(self, app) -> None:
         """String schedule is parsed into CronSchedule on imperative path.
