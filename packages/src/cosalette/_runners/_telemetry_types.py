@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from cosalette._cron import CronSchedule
     from cosalette._runners._trigger import TriggerRunSource
+    from cosalette._strategies import PublishStrategy
 
-from cosalette._cron import CronSchedule
 from cosalette._persistence._stores import DeviceStore
 from cosalette._registration import _TelemetryRegistration
 from cosalette._runners._trigger import TriggerPayload
-from cosalette._strategies import PublishStrategy
 
 _TICK_PRECISION = 1000  # milliseconds
 

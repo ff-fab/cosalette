@@ -28,16 +28,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from cosalette._json import dumps as _json_dumps
-from cosalette._schema._consumer_gen import HaDiscoveryGenerator, HaDiscoveryPayload
-from cosalette._schema._loader import (
-    _ensure_schema_deps,
-    load_schema,
-)
 
 if TYPE_CHECKING:
     from cosalette._mqtt import MqttPort
     from cosalette._persistence._stores import Store
-    from cosalette._schema._consumer_gen import HaEnrichHook
+    from cosalette._schema._consumer_gen import HaDiscoveryPayload, HaEnrichHook
     from cosalette._settings import MqttSettings
 
 logger = logging.getLogger("cosalette._wiring")
@@ -146,7 +141,10 @@ async def build_discovery_payloads(
     if cached is not None and cached[0] == config and cached[1] == topic_prefix:
         return cached[2]
 
-    _ensure_schema_deps()
+    # Deferred: apps that never call app.discovery() skip the generator and
+    # loader (about 120 KiB of bytecode).
+    from cosalette._schema._consumer_gen import HaDiscoveryGenerator
+    from cosalette._schema._loader import load_schema
 
     doc = app.asyncapi(topic_prefix=topic_prefix)
     registry = await load_schema(doc)
@@ -172,9 +170,8 @@ async def publish_discovery(
     *topic_prefix* is the resolved MQTT topic prefix the runtime publishes
     under; see :func:`build_discovery_payloads`.
 
-    Fail-closed: any error (including a missing ``[schema]`` extra) is
-    logged and swallowed so a discovery-publication failure never breaks
-    app startup.
+    Fail-closed: any error is logged and swallowed so a discovery-publication
+    failure never breaks app startup.
     """
     try:
         payloads = await build_discovery_payloads(app, config, topic_prefix)

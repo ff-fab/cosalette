@@ -19,6 +19,7 @@ import importlib
 import inspect
 import subprocess
 import sys
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -124,3 +125,83 @@ class TestImportCost:
         # Assert
         loaded = set(result.stdout.split())
         assert loaded.isdisjoint(forbidden)
+
+
+#: Subsystems a telemetry-only app never needs at run time (cos-8jxg.5).
+DEFERRED_SUBSYSTEMS = {
+    "cosalette._cron",
+    "cosalette._strategies",
+    "cosalette._runners._command_runner",
+    "cosalette._runners._stream_runner",
+    "cosalette._schema._consumer_gen",
+    "cosalette._schema._loader",
+    "typer",
+}
+
+_TELEMETRY_APP = """
+import asyncio, sys
+import cosalette
+from cosalette._mqtt import MockMqttClient
+from cosalette._settings import Settings
+
+app = cosalette.App(name="demo", version="1.0")
+
+@app.telemetry("temp", interval=0.01)
+async def temp() -> dict[str, float]:
+    return {"c": 1.0}
+
+async def main() -> None:
+    stop = asyncio.Event()
+    asyncio.get_running_loop().call_later(0.1, stop.set)
+    mqtt = MockMqttClient()
+    await app._run_async(mqtt=mqtt, settings=Settings(), shutdown_event=stop)
+
+asyncio.run(main())
+print(*sorted(sys.modules), sep="\\n")
+"""
+
+
+def test_running_telemetry_app_skips_unused_subsystems(tmp_path: Path) -> None:
+    """Technique: Equivalence Partitioning — a running telemetry-only app.
+
+    Pins the subsystems that load on first use, so an eager import does not
+    creep back into the run path unnoticed.
+    """
+    # Act
+    result = subprocess.run(
+        [sys.executable, "-c", _TELEMETRY_APP],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+
+    # Assert
+    loaded = set(result.stdout.split())
+    assert "cosalette._runners._telemetry_runner" in loaded
+    assert loaded.isdisjoint(DEFERRED_SUBSYSTEMS)
+
+
+def test_registration_annotations_resolve_canonical_types_on_demand() -> None:
+    """Runtime annotation users receive real classes without eager imports."""
+    script = """
+import sys
+from typing import get_args, get_type_hints
+import cosalette
+
+registration = cosalette.TelemetryRegistration
+alias = cosalette.CronSpec
+assert "cosalette._cron" not in sys.modules
+assert "cosalette._strategies" not in sys.modules
+
+value = alias.__value__
+from cosalette._cron import CronSchedule
+assert CronSchedule in get_args(get_args(value)[1])
+assert "cosalette._strategies" not in sys.modules
+
+hints = get_type_hints(registration)
+from cosalette._strategies import PublishStrategy
+assert hints["schedule"] == CronSchedule | None
+assert hints["publish_strategy"] == PublishStrategy | None
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)

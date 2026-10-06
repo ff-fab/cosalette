@@ -31,7 +31,7 @@ from typing import Any, ClassVar
 import pytest
 
 from cosalette import App
-from cosalette._cli import _run_app
+from cosalette._cli_run import run_app as _run_app
 from cosalette._constants import EXIT_CONFIG_ERROR
 from cosalette._context import AppContext
 from cosalette._health._loop_stall import (

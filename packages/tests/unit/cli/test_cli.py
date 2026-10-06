@@ -17,8 +17,13 @@ from pydantic_settings import SettingsConfigDict
 from typer.testing import CliRunner
 
 from cosalette._app import App
-from cosalette._cli import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR, build_cli
-from cosalette._constants import EXIT_OK, EXIT_TASK_FAILURE
+from cosalette._cli import build_cli
+from cosalette._constants import (
+    EXIT_CONFIG_ERROR,
+    EXIT_OK,
+    EXIT_RUNTIME_ERROR,
+    EXIT_TASK_FAILURE,
+)
 from cosalette._context import DeviceContext
 from cosalette._settings import Settings
 from cosalette._supervisor import TaskSupervisionError

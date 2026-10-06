@@ -25,7 +25,6 @@ from cosalette._registration import (
     _TelemetryRegistration,
 )
 from cosalette._runners._periodic import _PeriodicRegistration, run_periodic
-from cosalette._runners._stream_runner import run_stream
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
@@ -384,6 +383,11 @@ def start_stream_tasks(
     at its first item (ADR-081).
     """
     tasks: list[asyncio.Task[None]] = []
+    if not streams:
+        return tasks
+    # Deferred: an app without streams never loads the stream runner.
+    from cosalette._runners._stream_runner import run_stream
+
     for reg in streams:
         stream_providers: dict[type, Any] = {
             **providers,

@@ -29,6 +29,7 @@ from cosalette._schema._cli_helpers import (
     _reject_unexpanded_name_specs,
     _resolve_app_settings,
 )
+from cosalette._utils import _typer_options
 
 # ---------------------------------------------------------------------------
 # Schema subcommand group
@@ -37,7 +38,8 @@ from cosalette._schema._cli_helpers import (
 schema_app = typer.Typer(
     help="Schema validation and tooling. Commands that take --app import that "
     "module (running its top-level code) — do not point them at untrusted "
-    "specs/repos; see SECURITY.md."
+    "specs/repos; see SECURITY.md.",
+    **_typer_options(),
 )
 
 

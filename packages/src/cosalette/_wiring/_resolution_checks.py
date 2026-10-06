@@ -6,7 +6,6 @@ import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
 from cosalette._app._inbound import _validate_inbound_topic
-from cosalette._cron import CronSchedule
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._registration import (
     IntervalSpec,
@@ -24,6 +23,8 @@ from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from cosalette._cron import CronSchedule
 
 
 def _validate_config_type(config: Any) -> None:
@@ -192,6 +193,8 @@ def _resolve_per_device_schedule(
         )
         raise ValueError(msg)
     result = reg.schedule_spec(config)
+    from cosalette._cron import CronSchedule  # deferred: cron apps only
+
     if isinstance(result, str):
         return CronSchedule(result)
     if isinstance(result, CronSchedule):

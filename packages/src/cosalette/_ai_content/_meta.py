@@ -622,11 +622,20 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "a wedged app. Off by default (see: cosalette ai help health).",
         "Opt-in instance identity (ADR-089): set mqtt.instance_id "
         "(MQTT__INSTANCE_ID) per instance when several instances of one app "
-        "share a broker. It replaces the app name in HA discovery node_id/"
-        "unique_id/device ids, the discovery orphan-cleanup key and openHAB "
-        "Thing UIDs/Item ids; unset output is unchanged. `schema ha-discovery` "
+        "share a broker. It supplies the HA discovery node_id and cleanup key, "
+        "and length-framed HA unique_id/device ids and openHAB Thing/Item ids; "
+        "unset output is unchanged. `schema ha-discovery` "
         "and `schema openhab` accept --instance-id (see: cosalette ai help "
         "discovery).",
+        "Smaller runtime footprint: app.cli() runs a plain start (only "
+        "--dry-run, --log-level, --log-format, --env-file, --config-file) "
+        "without importing Typer (ADR-005 amendment), and a running app loads "
+        "cron, publish strategies, the command and stream runners and the "
+        "discovery generator only when it uses them.",
+        "app.discovery() no longer needs the cosalette[schema] extra (ADR-059 "
+        "amendment). --help and CLI errors fall back to plain output when rich "
+        "or pygments is missing, so an image can drop them with a uv "
+        "override-dependencies entry (see: docs/guides/containerize.md).",
     ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "

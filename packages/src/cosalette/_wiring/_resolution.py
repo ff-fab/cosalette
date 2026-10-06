@@ -8,9 +8,8 @@ import itertools
 import logging
 import math
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from cosalette._cron import CronSchedule
 from cosalette._persistence._stores import Store
 from cosalette._registration import (
     _UNSET,
@@ -26,6 +25,9 @@ from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._runners._trigger import arms_via_mqtt
 from cosalette._settings import Settings
 from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
+
+if TYPE_CHECKING:
+    from cosalette._cron import CronSchedule
 
 logger = logging.getLogger("cosalette._wiring")
 

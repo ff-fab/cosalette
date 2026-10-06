@@ -30,6 +30,11 @@ from cosalette._registration import (
     _DeviceRegistration,
     _ReactorRegistration,
 )
+from cosalette._runners._command_errors import (
+    InvalidJsonError,
+    MissingSubKeyError,
+    UnknownSubCommandError,
+)
 from cosalette._runners._contracts import normalize_handler_return
 from cosalette._runners._runner_utils import (
     create_device_store,
@@ -39,28 +44,6 @@ from cosalette._runners._runner_utils import (
 from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 
 logger = logging.getLogger(__name__)
-
-
-class InvalidJsonError(Exception):
-    """Raised when command payload is not valid JSON."""
-
-
-class MissingSubKeyError(Exception):
-    """Raised when sub-command payload missing required routing key."""
-
-
-class UnknownSubCommandError(Exception):
-    """Raised when sub-command value is not recognized."""
-
-
-_FRAMEWORK_ERROR_TYPE_MAP: dict[type[Exception], str] = {
-    InvalidJsonError: "invalid_json",
-    MissingSubKeyError: "missing_sub_key",
-    UnknownSubCommandError: "unknown_sub_command",
-    # Watchdog cancellation (ADR-060); matches the documented taxonomy
-    # (reference/errors.md) which already promised this mapping.
-    TimeoutError: "timeout",
-}
 
 
 @functools.lru_cache(maxsize=64)
