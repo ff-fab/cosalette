@@ -620,6 +620,13 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "(EXIT_LOOP_STALL), dumping every thread's stack to stderr, once the "
         "event loop has not run that long, so restart: unless-stopped recovers "
         "a wedged app. Off by default (see: cosalette ai help health).",
+        "Opt-in instance identity (ADR-089): set mqtt.instance_id "
+        "(MQTT__INSTANCE_ID) per instance when several instances of one app "
+        "share a broker. It supplies the HA discovery node_id and cleanup key, "
+        "and length-framed HA unique_id/device ids and openHAB Thing/Item ids; "
+        "unset output is unchanged. `schema ha-discovery` "
+        "and `schema openhab` accept --instance-id (see: cosalette ai help "
+        "discovery).",
         "Smaller runtime footprint: app.cli() runs a plain start (only "
         "--dry-run, --log-level, --log-format, --env-file, --config-file) "
         "without importing Typer (ADR-005 amendment), and a running app loads "

@@ -333,11 +333,19 @@ class TestAppLifecycle:
             "cosalette._wiring._task_lifecycle.LoopStallWatchdog", _RecordingWatchdog
         )
         armed_in_lifespan: list[int] = []
+        stopped_at_teardown: list[bool] = []
 
         @contextlib.asynccontextmanager
         async def lifespan(_: AppContext) -> AsyncIterator[None]:
             armed_in_lifespan.append(len(_RecordingWatchdog.instances))
-            yield
+            try:
+                yield
+            finally:
+                # Disarm must precede teardown: a blocking __aexit__ must
+                # never trigger exit 6 (ADR-088).
+                stopped_at_teardown.extend(
+                    d._stopped.is_set() for d in _RecordingWatchdog.instances
+                )
 
         harness = AppHarness.create(clock=ManualClock(), lifespan=lifespan)
 
@@ -357,4 +365,5 @@ class TestAppLifecycle:
         assert armed_in_lifespan == [0]
         assert dog.timeout == 30.0
         assert armed_during_run
+        assert stopped_at_teardown == [True]
         assert dog._stopped.is_set()

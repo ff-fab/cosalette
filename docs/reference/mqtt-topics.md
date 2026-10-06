@@ -139,6 +139,12 @@ Device names — and therefore Home Assistant `object_id` and `unique_id` —
 are parsed *past* the whole prefix, so adopting or changing a prefix never
 orphans existing entities.
 
+Because the prefix never changes identity, two instances of one app that
+differ only in their prefix would share discovery ids. Give each one its own
+`MQTT__INSTANCE_ID`, which replaces the app name in the Home Assistant and
+openHAB identity fields; see
+[Several instances of one app](../guides/schema-enforcement.md#several-instances-of-one-app).
+
 ### Generated artefacts
 
 Generated AsyncAPI composes `channel.address` from the resolved prefix and

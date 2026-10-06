@@ -76,6 +76,11 @@ jobs:
             os: ubuntu-latest
             smoke-image: python:3.14-slim
             smoke-platform: linux/arm/v7
+          - target: armv7-unknown-linux-musleabihf # Alpine on 32-bit Raspberry Pi
+            os: ubuntu-latest
+            manylinux: musllinux_1_2
+            smoke-image: python:3.14-alpine
+            smoke-platform: linux/arm/v7
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
