@@ -62,17 +62,17 @@ claimed for them.
 
 ## Privileged Docker-in-Docker exposure
 
-`devcontainer.json` sets `privileged: true`, and the `vscode` user has passwordless
-sudo. Together they give any process in the devcontainer root on the host kernel: all
-capabilities, every device (including the VM's block devices and `/dev/kvm`), module
-loading and mounts. On the workstation, the host is the WSL2 VM, which also mounts the
-Windows user's files.
+When recorded, `devcontainer.json` set `privileged: true`, and the `vscode` user has
+passwordless sudo. Together they gave any process in the devcontainer root on the host
+kernel: all capabilities, every device (including the VM's block devices and
+`/dev/kvm`), module loading and mounts. On the workstation, the host is the WSL2 VM,
+which also mounts the Windows user's files. No kernel advisory added a container escape:
+escape needed no exploit.
 
-So no kernel advisory adds a container escape on the workstation: escape needs no
-exploit. The advisories matter in two other cases: input that does not come from the
-devcontainer (network peers, mounted media), and a future unprivileged devcontainer. The
-second case is cos-2jj7. Until it lands, the residual risk is that any code run in the
-devcontainer (dependencies, build scripts, coding agents) controls the WSL2 VM.
+cos-2jj7 removes privileged mode: Docker now runs rootless in an unprivileged
+devcontainer ([evaluation](restricted-builder-evaluation.md)). Root in the devcontainer
+no longer has host capabilities or devices, so the kernel advisories that an
+unprivileged process can reach matter again. They are listed after the table.
 
 ## Verdicts for the maintainer workstation
 
@@ -135,17 +135,21 @@ each WSL kernel update (`wsl --update`).
 | 61  | CVE-2026-89638 | SMB client           | CIFS=m                | open    | As #59                                                                                   |
 | 62  | CVE-2026-89675 | NFS server           | NFSD=m                | n/a     | Fixed only in 6.18.51; no NFS server runs, nfsd not loaded                               |
 
-Totals: 26 fixed, 12 not applicable, 13 open. Nine open entries (#10, #11, #38, #51,
-#54, #55, #59–#61) need root to trigger. #12 (OverlayFS), #43 (network stack), #49
-(`/dev/kvm`) and #58 (SCTP) do not. On this host, root is already given to the
-devcontainer, so the open entries add no exposure beyond the privileged configuration.
-They become relevant once cos-2jj7 removes privileged mode, or if untrusted network
-peers reach the VM.
+Totals: 26 fixed, 12 not applicable, 13 open.
+
+Reachability from the unprivileged devcontainer (cos-2jj7):
+
+- Not reachable: #10, #11, #38, #54 and #59–#61 need `CAP_SYS_ADMIN` in the host's
+  initial user namespace (mounting F2FS or SMB, setting up dm-verity), which the
+  devcontainer no longer has. #49 needs `/dev/kvm`, which is no longer passed in.
+- Reachable: #12 (OverlayFS in a user namespace), #43 (network stack), #51 and #55
+  (IPsec states can be configured in a network namespace owned by a user namespace,
+  which rootless Docker creates) and #58 (SCTP sockets, if the module autoloads). These
+  five wait for a WSL kernel with the upstream fixes.
 
 ## Follow-up
 
 - Recheck the open entries when the WSL kernel moves past 6.18.51 or to 7.x, and before
   the header baseline entries expire on 27 October 2026.
 - Add a column for every further host that runs the devcontainer.
-- cos-2jj7 owns removing privileged mode; see
-  [restricted builder evaluation](restricted-builder-evaluation.md).
+- Prioritise the five entries still reachable from the unprivileged devcontainer.

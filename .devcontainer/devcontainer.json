@@ -202,20 +202,40 @@
 
   "remoteUser": "vscode",
 
-  // Required for Docker-in-Docker: mount syscalls (securityfs, tmpfs, cgroup nesting)
-  // need elevated kernel privileges. Previously provided automatically by the
-  // ghcr.io/devcontainers/features/docker-in-docker:2 feature metadata; now explicit.
-  "privileged": true,
+  // Docker runs rootless inside an unprivileged container (cos-2jj7, see
+  // .devcontainer/restricted-builder-evaluation.md). rootlesskit needs to create
+  // a user namespace and mount /proc in it, which Docker's default seccomp and
+  // AppArmor profiles and masked /proc paths forbid; slirp4netns needs a TUN
+  // device. Unlike "privileged", this grants no extra capabilities and no host
+  // devices besides /dev/net/tun. The runtime directory is a tmpfs: the daemon
+  // leaves sockets there owned by subordinate IDs, which vscode cannot remove,
+  // so it must start empty on every container start.
+  "runArgs": [
+    "--security-opt=seccomp=unconfined",
+    "--security-opt=apparmor=unconfined",
+    "--security-opt=systempaths=unconfined",
+    "--device=/dev/net/tun",
+    "--tmpfs=/run/user/1000:uid=1000,gid=1000,mode=0700"
+  ],
 
-  // Mount /var/lib/docker as a named volume so it sits on a native filesystem
-  // (ext4), not on the container's overlayfs layer. This is the same mount that
-  // ghcr.io/devcontainers/features/docker-in-docker:2 provided via its feature
-  // metadata. Without it, the inner Docker daemon tries overlay-on-overlay, which
-  // fails with EINVAL on GitHub Actions runners.
+  "containerEnv": {
+    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "DOCKER_HOST": "unix:///run/user/1000/docker.sock",
+    // Ports published by the rootless daemon are bound on this container's
+    // loopback. Without these, testcontainers detects Docker-in-Docker and
+    // connects to the bridge gateway, which is only reachable inside
+    // rootlesskit's network namespace.
+    "TESTCONTAINERS_HOST_OVERRIDE": "localhost",
+    "TESTCONTAINERS_CONNECTION_MODE": "docker_host"
+  },
+
+  // Keep the rootless data root on a named volume so it sits on a native
+  // filesystem (ext4), not on the container's overlayfs layer. Without it, the
+  // inner daemon tries overlay-on-overlay, which fails with EINVAL.
   "mounts": [
     {
-      "source": "dind-var-lib-docker-${devcontainerId}",
-      "target": "/var/lib/docker",
+      "source": "dind-rootless-docker-${devcontainerId}",
+      "target": "/home/vscode/.local/share/docker",
       "type": "volume"
     }
   ]

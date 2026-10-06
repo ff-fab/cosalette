@@ -1,66 +1,106 @@
 # Restricted Docker builder for the devcontainer
 
-Evaluation for cos-2jj7, started 5 October 2026. **Status: options assessed, validation
-not yet run.** `devcontainer.json` keeps `privileged: true` until one option passes
-every check below on both the workstation and CI.
+Evaluation and decision for cos-2jj7, 5 October 2026. **Outcome: the devcontainer no
+longer runs privileged.** Docker runs rootless inside it (option 1 below). This record
+lists the options, the configuration that was validated and the evidence.
 
-## Why privileged mode matters
+## Why privileged mode mattered
 
 The [host assessment](host-kernel-assessment.md) shows that privileged mode plus
-passwordless sudo gives any process in the devcontainer root on the host kernel. On the
+passwordless sudo gave any process in the devcontainer root on the host kernel. On the
 workstation that is the WSL2 VM, including its block devices, `/dev/kvm` and the Windows
-user's files. Kernel advisories add no escape path only because escape needs no exploit.
+user's files. Escape needed no kernel exploit.
 
 ## What the devcontainer needs Docker for
 
-| Workflow                                  | Docker use                                                               |
-| ----------------------------------------- | ------------------------------------------------------------------------ |
-| `task test:mqtt`, `test:integration:full` | testcontainers starts `eclipse-mosquitto` and `testcontainers/ryuk`      |
-| `task build:devcontainer`                 | builds the devcontainer image                                            |
-| `task security:docker:scan`               | Trivy reads the local daemon's image through the Docker socket           |
-| `task security:docker:lint`               | runs hadolint in a container                                             |
-| `task build:wheel:probe` (cross)          | manylinux / musl cross images; QEMU for foreign `--platform` smoke tests |
-
-`docker-init.sh` currently mounts `securityfs`, moves processes into a child cgroup to
-enable cgroup v2 nesting, and starts a rootful `dockerd`. Each step needs privileges
-that a default container lacks.
+| Workflow                                  | Docker use                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `task test:mqtt`, `test:integration:full` | testcontainers starts `eclipse-mosquitto` and `testcontainers/ryuk` |
+| `task build:devcontainer`                 | builds the devcontainer image                                       |
+| `task security:docker:scan`               | Trivy reads the local daemon's image through the Docker socket      |
+| `task security:docker:lint`               | runs hadolint in a container                                        |
+| foreign `--platform` smoke tests          | QEMU through the host kernel's `binfmt_misc` registrations          |
 
 ## Options
 
-1. **Rootless Docker-in-Docker** (`dockerd-rootless.sh` with rootlesskit, user
-   namespaces and fuse-overlayfs). Docker's own `docker:dind-rootless` image documents
-   `--privileged`; known unprivileged setups instead need
-   `--security-opt seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined`
-   and `/dev/fuse`. That is far less than privileged mode, but still loosens isolation.
-   Multi-arch QEMU (`binfmt_misc` registration) needs host root and would move to the
-   host or CI runner.
-2. **Sysbox runtime** on the host (`--runtime=sysbox-runc`). Runs a normal rootful
-   `dockerd` inside an unprivileged container through user-namespace isolation. Needs
-   Sysbox installed on every developer host and in every CI job before the container
-   starts; support on WSL2 kernels is unverified.
-3. **Reviewed remote builder** (`docker context` / `DOCKER_HOST` over SSH to a separate
-   VM, or BuildKit remote driver). The devcontainer needs no privileges. The remote
-   daemon is still fully controlled by whoever can reach it, so it must be a dedicated,
-   disposable VM. testcontainers then starts Mosquitto remotely, so tests need the
-   remote host's address (`TESTCONTAINERS_HOST_OVERRIDE`) and network reachability.
-4. **Host Docker socket mount.** Rejected: it hands the devcontainer root-equivalent
-   control of the host daemon, which is no improvement over privileged mode.
+1. **Rootless Docker-in-Docker** (chosen). `dockerd-rootless.sh` runs the daemon in a
+   user namespace mapped to the `vscode` user's subordinate IDs (`/etc/subuid`), with
+   slirp4netns networking. The devcontainer gets no added capabilities and no host
+   devices except `/dev/net/tun`.
+2. **Sysbox runtime** on the host. Needs Sysbox installed on every developer host and in
+   every CI job before the container starts; not needed once option 1 works.
+3. **Reviewed remote builder** over SSH or a BuildKit remote driver. Needs a dedicated
+   disposable VM and network setup for testcontainers; kept as the fallback.
+4. **Host Docker socket mount.** Rejected: it gives root-equivalent control of the host
+   daemon, which is no improvement over privileged mode.
 
-Recommendation: validate option 1 first, because it keeps the workflow self-contained
-and runs on both WSL2 and GitHub-hosted runners. Fall back to option 3 if rootless
-startup or testcontainers fails.
+## Validated configuration
 
-## Validation checklist (not yet run)
+`devcontainer.json` drops `privileged` and sets:
 
-Each check must pass with `privileged` removed, on the workstation and in the
-`devcontainer-build.yml` PR job:
+- `--security-opt=seccomp=unconfined`: Docker's default seccomp profile forbids creating
+  user namespaces without `CAP_SYS_ADMIN`.
+- `--security-opt=apparmor=unconfined`: the `docker-default` AppArmor profile forbids
+  the mounts rootlesskit makes (no effect on WSL2, which has no AppArmor).
+- `--security-opt=systempaths=unconfined`: rootlesskit mounts a fresh `/proc` in its
+  namespaces, which masked `/proc` paths prevent.
+- `--device=/dev/net/tun` for slirp4netns.
+- A named volume at `/home/vscode/.local/share/docker` (the rootless data root), because
+  overlayfs on the container's own overlay root fails with `EINVAL`.
+- `XDG_RUNTIME_DIR` and `DOCKER_HOST` pointing at `/run/user/1000`.
+- `--tmpfs=/run/user/1000:uid=1000,gid=1000,mode=0700` for that runtime directory. The
+  daemon leaves its sockets and state there owned by subordinate IDs, which `vscode`
+  cannot remove, so a restarted container could not clean it up. The tmpfs starts empty
+  on every container start; `docker-init.sh` fails with a clear message if it finds
+  state of a previous daemon.
+- `TESTCONTAINERS_HOST_OVERRIDE=localhost` and
+  `TESTCONTAINERS_CONNECTION_MODE=docker_host`. testcontainers otherwise detects
+  Docker-in-Docker and connects to the bridge gateway, which rootless mode keeps in its
+  own network namespace. rootlesskit binds published ports on the devcontainer's
+  loopback instead.
 
-1. Container startup: `post-start.sh` starts the daemon and `docker info` succeeds.
-2. Nested build: `task build:devcontainer` completes.
-3. Integration tests: `task test:integration:full` passes (testcontainers, Ryuk).
-4. Image scan: `task security:docker:scan` reads the local image.
-5. Lint: `task security:docker:lint` passes.
-6. Cross builds: document which wheel targets or `--platform` smoke tests need the host.
+The image installs `docker-ce-rootless-extras` (pinned to `DOCKER_VERSION`), `uidmap`
+and `slirp4netns`. Debian's setuid `newuidmap`/`newgidmap` fail with `EPERM` writing the
+namespace map in an unprivileged container; the image replaces the setuid bit with the
+`cap_setuid`/`cap_setgid` file capabilities. Docker's own `docker:dind-rootless` image
+also ships them without the setuid bit.
 
-Record results here, then change `devcontainer.json` in the same PR that adds the
-evidence.
+`/dev/fuse` is not needed: the rootless daemon uses native overlayfs in the user
+namespace.
+
+## Evidence
+
+Tested on the workstation (WSL2 6.18.33.2) in a container without `--privileged`,
+started by the existing Docker 29.8.1 daemon:
+
+| Check                                  | Result                                                  |
+| -------------------------------------- | ------------------------------------------------------- |
+| Baseline: rootful `docker-init.sh`     | Fails without privileges (iptables `Permission denied`) |
+| Rootless daemon start                  | Pass, `docker info` reports `name=rootless`, no cgroups |
+| Nested `docker run` and `docker build` | Pass                                                    |
+| `task test:mqtt`                       | 13 passed (with the testcontainers settings above)      |
+| `task test:integration:full`           | 101 + 13 passed                                         |
+| `task security:docker:lint`            | Pass                                                    |
+| `task build:devcontainer` (nested)     | Pass (exit 0, inside a rootless test container)         |
+| `task security:docker:scan`            | Not run locally; verified by the CI scan (see below)    |
+
+CI: the PR job of `devcontainer-build.yml` starts the devcontainer from
+`devcontainer.json` (post-start starts the rootless daemon) and runs
+`.devcontainer/tests/rootless-docker.sh`. It fails if the container is privileged or the
+daemon is not rootless, and builds an image and connects to a published port. The same
+job then runs `security:docker:scan` (Trivy) on the built image and uploads the review
+report; that scan is the evidence for the image's findings and secrets. It runs against
+the runner's rootful daemon, so the scan through the rootless socket (`DOCKER_HOST` in
+`scripts/qa-task.sh`) is not exercised by it and is not yet verified.
+
+## Limits
+
+- Without systemd, the rootless daemon has no cgroup controller: `--memory`, `--cpus`
+  and similar limits on nested containers are not enforced.
+- Registering QEMU (`tonistiigi/binfmt --install`) needs host root. Foreign `--platform`
+  runs work only if the host kernel already has the registrations (Docker Desktop and CI
+  set them up); otherwise run them in CI.
+- slirp4netns networking is slower than a bridge for large image pulls.
+- Code in the devcontainer still has passwordless sudo, but that is now root of an
+  unprivileged container, not of the host kernel. Kernel advisories that do not need
+  root (see the host assessment) matter again.

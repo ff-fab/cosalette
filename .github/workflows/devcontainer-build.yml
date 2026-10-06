@@ -67,7 +67,7 @@ jobs:
       - name: Test image scan policy
         run: bash scripts/tests/image-scan-policy.sh
 
-      # The privileged devcontainer shares the runner kernel; record it for the
+      # The devcontainer shares the runner kernel; record it for the
       # host assessment (.devcontainer/host-kernel-assessment.md).
       - name: Record runner kernel inventory
         run: bash scripts/host-kernel-inventory.sh
@@ -79,7 +79,9 @@ jobs:
         with:
           imageName: cosalette-devcontainer-pr-validation
           push: never
-          runCmd: bash .devcontainer/tests/security-toolchain.sh
+          runCmd: |
+            bash .devcontainer/tests/security-toolchain.sh
+            bash .devcontainer/tests/rootless-docker.sh
 
       - name: Scan locally built image with Trivy
         env:

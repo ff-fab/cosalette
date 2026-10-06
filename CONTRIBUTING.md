@@ -99,7 +99,8 @@ Integration tests are split into two suites based on external service requiremen
 - **`task test:integration`** -- fast, no external services; covered by PR, push, and
   `task pre-pr` gates. MQTT tests are excluded via the `-m 'not mqtt'` pytest marker.
 - **`task test:mqtt`** -- spins up a real Mosquitto broker via testcontainers; requires
-  a Docker Engine socket. Run inside the DevContainer, which provides Docker-in-Docker.
+  a Docker Engine socket. Run inside the DevContainer, which runs a rootless Docker
+  daemon.
 - **`task test:integration:full`** -- runs both suites together.
 
 MQTT tests are intentionally excluded from default PR/push/`task pre-pr` gates. Full
@@ -109,7 +110,8 @@ TestPyPI.
 
 ### Running MQTT tests locally
 
-The DevContainer provides Docker-in-Docker, so no extra setup is needed:
+The DevContainer runs a rootless Docker daemon (no privileged mode), so no extra setup
+is needed:
 
 ```bash
 task test:mqtt              # MQTT suite only (Mosquitto via testcontainers)

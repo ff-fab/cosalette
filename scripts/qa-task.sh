@@ -366,8 +366,14 @@ _run_impl() {
             }
             scan_report="$(mktemp)"
             scan_rc=0
+            # A rootless daemon (devcontainer) listens on DOCKER_HOST, not the
+            # default socket path.
+            docker_socket=/var/run/docker.sock
+            case "${DOCKER_HOST:-}" in
+                unix://*) docker_socket="${DOCKER_HOST#unix://}" ;;
+            esac
             docker run --rm \
-                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "${docker_socket}:/var/run/docker.sock" \
                 "${TRIVY_IMAGE}" \
                 image --scanners vuln,secret --timeout 15m \
                 --exit-code 0 --format json --no-progress "${SCAN_IMAGE}" \

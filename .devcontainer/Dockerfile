@@ -58,7 +58,10 @@ RUN set -eux; \
 # Install system dependencies and Docker CE in a single apt layer.
 # Docker CE is baked in here (moved from ghcr.io/devcontainers/features/docker-in-docker:2)
 # so it becomes a cacheable BuildKit layer instead of a slow feature bind-mount.
-# The daemon startup script (docker-init.sh) is called from post-start.sh.
+# The daemon runs rootless in an unprivileged devcontainer (cos-2jj7): the rootless
+# extras, uidmap and slirp4netns provide rootlesskit, the ID-mapping helpers and
+# user-mode networking. The startup script (docker-init.sh) is called from
+# post-start.sh.
 # renovate: datasource=docker depName=docker versioning=docker
 ARG DOCKER_VERSION=29.8.1
 # renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
@@ -85,6 +88,9 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         # Docker CE prerequisites
         ca-certificates \
         gnupg \
+        # Rootless Docker: subordinate ID mapping and user-mode networking
+        uidmap \
+        slirp4netns \
     && install -m 0755 -d /usr/share/keyrings \
     && curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
        https://download.docker.com/linux/debian/gpg -o /tmp/docker.gpg.asc \
@@ -104,6 +110,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         "docker-ce=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce-rootless-extras=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
         "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
     # The Python base image includes MySQL and ImageMagick development libraries
     # that this project does not use. Remove their vulnerable MariaDB/OpenEXR
@@ -123,15 +130,23 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get -y purge \
         python3 python3-minimal libpython3-stdlib \
         python3.13 python3.13-minimal libpython3.13-minimal libpython3.13-stdlib \
-    && groupadd -f docker \
-    && usermod -aG docker vscode \
+    # Setuid newuidmap/newgidmap cannot write a user namespace map in an
+    # unprivileged container; file capabilities can. They grant only the ID
+    # mapping that /etc/subuid and /etc/subgid allow.
+    && chmod u-s /usr/bin/newuidmap /usr/bin/newgidmap \
+    && setcap cap_setuid=ep /usr/bin/newuidmap \
+    && setcap cap_setgid=ep /usr/bin/newgidmap \
+    # Rootless data root (a named volume, see devcontainer.json) must belong to
+    # the development user. The runtime directory /run/user/1000 is a tmpfs
+    # mounted at container start (devcontainer.json runArgs).
+    && install -d -o vscode -g vscode /home/vscode/.local /home/vscode/.local/share \
+        /home/vscode/.local/share/docker \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the dockerd startup script (adapted from the docker-in-docker feature).
-# Called from post-start.sh on every container start instead of being wired as
-# a container entrypoint — simpler and works identically in VS Code, Codespaces,
-# and CI (devcontainers/ci).
+# Copy the rootless dockerd startup script. Called from post-start.sh on every
+# container start instead of being wired as a container entrypoint — simpler and
+# works identically in VS Code, Codespaces, and CI (devcontainers/ci).
 COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
