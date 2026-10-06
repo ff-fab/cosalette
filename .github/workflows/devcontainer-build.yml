@@ -36,10 +36,9 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch: # Manual trigger for bootstrap and ad-hoc rebuilds
 
-# Concurrency: only one devcontainer publish runs at a time. Later runs cancel
-# in-progress ones to avoid GHCR races between overlapping push/schedule triggers.
+# Keep PR validation isolated; publication shares one group to avoid GHCR races.
 concurrency:
-  group: devcontainer-build
+  group: devcontainer-build-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
   cancel-in-progress: true
 
 # Minimum top-level scope. Each job declares its own elevated permissions.
