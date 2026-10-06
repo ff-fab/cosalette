@@ -1807,7 +1807,8 @@ Several Instances of One App (ADR-089):
   Discovery ids (node_id, unique_id, device identifiers, via_device) derive
   from the app name, NOT mqtt.topic_prefix, so two instances that differ only
   in their prefix overwrite each other in Home Assistant. Set a distinct
-  MQTT__INSTANCE_ID (letters, digits, '_', '-') per instance: it replaces the
+  MQTT__INSTANCE_ID (lowercase letters, digits, single underscores between
+  nonempty segments; start with a letter, e.g. wiz_attic) per instance: it replaces the
   app name in every identity field and in the orphan-cleanup snapshot key;
   topics still follow the prefix. Unset = byte-identical output. The app logs
   a startup warning when discovery is on, the prefix differs from the app

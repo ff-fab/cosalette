@@ -47,6 +47,7 @@ from cosalette._settings._config_file import (
     _config_file_override,
     _ConfigFileSource,
 )
+from cosalette._settings._identity import validate_instance_id
 
 # -------------------------------------------------------------------
 # Sub-models (BaseModel, NOT BaseSettings — nested via composition)
@@ -58,7 +59,6 @@ from cosalette._settings._config_file import (
 # local to avoid coupling settings to the schema layer.  Wildcards (``+``/``#``)
 # are rejected separately with a more specific message.
 _SAFE_TOPIC_PREFIX_RE = re.compile(r"^[A-Za-z0-9_./:-]*$")
-_INSTANCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]*$")
 
 
 class MqttSettings(BaseModel):
@@ -152,7 +152,8 @@ class MqttSettings(BaseModel):
             "UID). When empty, falls back to App(name=...), keeping existing "
             "ids stable. Set a distinct value via MQTT__INSTANCE_ID for each "
             "instance when several instances of one app share a broker "
-            "(ADR-089)."
+            "(ADR-089). Use lowercase letters and digits, starting with a letter, "
+            "with single underscores between nonempty segments."
         ),
     )
     error_publish_verbose: bool = Field(
@@ -203,7 +204,7 @@ class MqttSettings(BaseModel):
             if char in v:
                 msg = f"topic_prefix must not contain MQTT wildcard '{char}'"
                 raise ValueError(msg)
-        if not _SAFE_TOPIC_PREFIX_RE.match(v):
+        if not _SAFE_TOPIC_PREFIX_RE.fullmatch(v):
             msg = (
                 "topic_prefix may only contain letters, digits, and '_-./:' "
                 f"(got {v!r})"
@@ -215,12 +216,7 @@ class MqttSettings(BaseModel):
     @classmethod
     def _validate_instance_id(cls, v: str) -> str:
         """Restrict to characters that survive every generated identifier."""
-        if not _INSTANCE_ID_RE.match(v):
-            msg = (
-                f"instance_id may only contain letters, digits, '_' and '-' (got {v!r})"
-            )
-            raise ValueError(msg)
-        return v
+        return validate_instance_id(v)
 
     @model_validator(mode="after")
     def _validate_tls_settings(self) -> MqttSettings:

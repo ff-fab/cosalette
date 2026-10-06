@@ -9,7 +9,7 @@ tags: [mqtt, configuration, naming]
 
 ## Status
 
-Accepted **Date:** 2026-10-05
+Accepted **Date:** 2026-10-05 | Amended **Date:** 2026-10-06
 
 ## Context
 
@@ -94,4 +94,37 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Adding an instance id to a running deployment changes its ids once: Home Assistant creates new entities, and the old retained configs stay until removed (for example by deleting the device in Home Assistant or publishing empty retained messages), because cleanup under the new key cannot know the old identity
 - The startup warning cannot detect two instances that share both the app name and the topic prefix
 
-_2026-10-05_
+## Amendment (2026-10-06) — Corrective
+
+**Rationale:** The proposed broad character allowlist maps distinct IDs to identical HA slugs, and openHAB Item names can start with digits or lose distinguishing underscores.
+
+> **Justification for amendment (not supersession):** The opt-in setting has not merged or shipped. Tightening its accepted inputs and preserving explicit-ID underscores affects no existing downstream deployment; unset-ID output remains byte-identical, so supersession is not warranted.
+
+### Revised Decision
+
+Use an opt-in canonical instance identity, `settings.mqtt.instance_id` (env `MQTT__INSTANCE_ID`), for Home Assistant discovery and openHAB identity fields while leaving unset-ID output byte-identical. An explicit ID must fully match `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and use lowercase letters, digits, and single underscores between nonempty segments. Reject noncanonical spelling instead of normalizing distinct inputs to the same identity. Explicit-ID openHAB Item and group prefixes capitalize only the first letter and preserve underscores. Topics follow `mqtt.topic_prefix`, and HA `origin.name` remains the app name. Apply the same validation to settings, offline CLI options, and direct generators; reject explicit IDs for multi-app schemas. Resolve runtime discovery after configure hooks so hooks can enable or replace its configuration.
+
+```yaml
+# docker-compose.yml
+services:
+  wiz-attic:
+    environment:
+      MQTT__TOPIC_PREFIX: house/attic/wiz
+      MQTT__INSTANCE_ID: wiz_attic
+  wiz-cellar:
+    environment:
+      MQTT__TOPIC_PREFIX: house/cellar/wiz
+      MQTT__INSTANCE_ID: wiz_cellar
+```
+
+### Additional Sub-Decision: Canonical instance identities
+
+Accept an empty fallback or a full match of `[a-z][a-z0-9]*(?:_[a-z0-9]+)*`: start with a lowercase letter and permit lowercase letters, digits, and single underscores between nonempty segments. Reject uppercase, hyphens, leading digits, repeated underscores, trailing underscores, and control characters rather than normalizing them. Settings, offline CLI, and direct generators share validation. HA and Thing identities preserve the canonical ID. Explicit-ID openHAB Item and group prefixes capitalize only the first letter and preserve underscores, keeping `a1_b` distinct from `a1b`; unset-ID CamelCase output remains unchanged. Examples use `wiz_attic` and `wiz_cellar`. Resolve discovery after configure hooks so hooks may enable or update discovery before startup publication.
+
+### Additional Positive Consequences
+
+- Distinct accepted IDs remain distinct through HA slugification and openHAB identity formatting, and generated Item IDs start with letters.
+
+### Additional Negative Consequences
+
+- Instance IDs must use canonical lowercase spelling; arbitrary hyphenated or uppercase values are rejected.

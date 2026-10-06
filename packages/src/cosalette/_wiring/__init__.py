@@ -35,7 +35,6 @@ from cosalette._wiring._discovery import (
     build_discovery_payloads,
     publish_discovery,
     reconcile_discovery_topics,
-    resolve_discovery_config,
 )
 from cosalette._wiring._infra import (
     _REGISTRY_PAYLOAD_WARN_BYTES,
@@ -179,7 +178,6 @@ __all__ = [
     "DiscoveryConfig",
     "build_discovery_payloads",
     "publish_discovery",
-    "resolve_discovery_config",
     "reconcile_discovery_topics",
     # Context
     "DeviceInfo",

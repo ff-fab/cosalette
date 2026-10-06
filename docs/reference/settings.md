@@ -80,7 +80,7 @@ myapp --env-file /etc/myapp/production.env
 | `MQTT__RECONNECT_INTERVAL` | `float` | `5.0` | Initial seconds before reconnecting (doubles with jitter on each failure, up to max) |
 | `MQTT__RECONNECT_MAX_INTERVAL` | `float` | `300.0` | Upper bound (seconds) for exponential reconnect backoff |
 | `MQTT__TOPIC_PREFIX` | `str` | `""` | Root prefix for all MQTT topics. Empty = uses `App(name=...)`. Set to override (e.g. staging) |
-| `MQTT__INSTANCE_ID` | `str` | `""` | Identity of this instance in Home Assistant discovery and openHAB output (letters, digits, `_`, `-`). Empty = uses `App(name=...)`. Set a distinct value per instance when several instances of one app share a broker ([ADR-089](../adr/ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md)) |
+| `MQTT__INSTANCE_ID` | `str` | `""` | Identity of this instance in Home Assistant discovery and openHAB output. Start with a lowercase letter; use lowercase letters, digits, and single underscores between nonempty segments (for example `wiz_attic`). Empty = uses `App(name=...)`. Set a distinct value per instance when several instances of one app share a broker ([ADR-089](../adr/ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md)) |
 | `MQTT__PROTOCOL_VERSION` | `"3.1.1" \| "5"` | `"3.1.1"` | MQTT protocol version. Set `5` to enable retained-message expiry; TOML/JSON may use integer `5`, not `5.0` |
 | `MQTT__MESSAGE_EXPIRY_INTERVAL` | `int` | `86400` | MQTT 5 retained-message and WILL expiry in seconds (3-4294967295); invalid when explicitly set under MQTT 3.1.1 |
 

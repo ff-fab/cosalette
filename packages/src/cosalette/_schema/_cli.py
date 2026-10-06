@@ -292,12 +292,12 @@ def _validated_instance_id(value: str | None, registry: SchemaRegistry) -> str |
         return None
     from pydantic import ValidationError
 
-    from cosalette._schema._consumer_gen import _check_instance_id_scope
+    from cosalette._schema._identity import check_instance_id_scope
     from cosalette._settings import MqttSettings
 
     try:
         instance_id = MqttSettings(instance_id=value).instance_id or None
-        _check_instance_id_scope(registry, instance_id)
+        check_instance_id_scope(registry, instance_id)
     except (ValidationError, ValueError) as exc:
         typer.echo(f"Error: invalid --instance-id {value!r}: {exc}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR) from None

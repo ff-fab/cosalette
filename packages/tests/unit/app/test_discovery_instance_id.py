@@ -22,6 +22,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, cast
@@ -138,6 +139,29 @@ class TestDistinctInstances:
 
         assert _identities(a).isdisjoint(_identities(b))
 
+    @pytest.mark.parametrize(
+        ("first", "second"), [("attic_1", "attic1"), ("a1_b", "a1b")]
+    )
+    async def test_canonical_instances_preserve_distinct_identifiers(
+        self, first: str, second: str
+    ) -> None:
+        assert _identities(await _payloads(first)).isdisjoint(
+            _identities(await _payloads(second))
+        )
+        item_sets = []
+        for identity in (first, second):
+            generator = await _openhab(identity)
+            items = generator.generate_items()
+            item_ids = {
+                line.split()[1] for line in items.splitlines() if "{ channel=" in line
+            }
+            assert all(
+                re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) for name in item_ids
+            )
+            item_sets.append(item_ids)
+            assert f"(g{identity[0].upper()}{identity[1:]})" in items
+        assert item_sets[0].isdisjoint(item_sets[1])
+
     async def test_ha_identities_use_instance_id(self) -> None:
         payloads = {p.config["unique_id"]: p for p in await _payloads("attic")}
 
@@ -175,6 +199,21 @@ class TestDistinctInstances:
 
         with pytest.raises(ValueError, match="2 apps"):
             HaDiscoveryGenerator(registry=multi, instance_id="attic").generate()
+
+    @pytest.mark.parametrize(
+        "identity", ["attic-1", "Attic", "123", "_", "a__b", "a_", "attic\n"]
+    )
+    async def test_direct_generators_reject_noncanonical_instance_ids(
+        self, identity: str
+    ) -> None:
+        registry = await load_schema(_app().asyncapi(topic_prefix=PREFIX))
+        with pytest.raises(ValueError, match="instance_id"):
+            HaDiscoveryGenerator(registry=registry, instance_id=identity).generate()
+        generator = OpenHabGenerator(registry=registry, instance_id=identity)
+        with pytest.raises(ValueError, match="instance_id"):
+            generator.generate_things()
+        with pytest.raises(ValueError, match="instance_id"):
+            generator.generate_items()
 
 
 @pytest.fixture
@@ -270,6 +309,36 @@ class TestAppRun:
         topics = {t for (t, *_r) in harness.mqtt.published}
         assert not any("/testapp/" in t for t in topics if "homeassistant" in t)
 
+    @pytest.mark.parametrize("initial_discovery", [False, True])
+    async def test_configure_hook_can_enable_discovery(
+        self, initial_discovery: bool
+    ) -> None:
+        harness = AppHarness.create(mqtt=MqttSettings(instance_id="attic"))
+        app = harness.app
+        if initial_discovery:
+            app.discovery(discovery_prefix="before_configure")
+
+        @app.telemetry("sensor", interval=30, state_model=_TempReading)
+        async def sensor() -> _TempReading:
+            return _TempReading(celsius=21.5)
+
+        @app.on_configure
+        def configure() -> None:
+            app.discovery(discovery_prefix="configured")
+
+        run = asyncio.create_task(harness.run())
+        try:
+            await harness.wait_for_publish_count(
+                "configured/binary_sensor/attic/bridge/config", 1
+            )
+            assert not any(
+                topic.startswith("before_configure/")
+                for topic, *_ in harness.mqtt.published
+            )
+        finally:
+            harness.trigger_shutdown()
+            await run
+
 
 class TestInstanceIdSetting:
     def test_read_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,10 +346,40 @@ class TestInstanceIdSetting:
 
         assert Settings(_env_file=None).mqtt.instance_id == "attic"
 
-    @pytest.mark.parametrize("value", ["a/b", "a b", "a+b", "ä"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "a/b",
+            "a b",
+            "a+b",
+            "ä",
+            "Attic",
+            "attic-1",
+            "123",
+            "-",
+            "_",
+            "a__b",
+            "a_",
+            "attic\n",
+            "attic\r",
+            "attic\ncellar",
+            "attic\0",
+        ],
+    )
     def test_rejects_unsafe_characters(self, value: str) -> None:
         with pytest.raises(ValidationError, match="instance_id"):
             MqttSettings(instance_id=value)
+
+    @pytest.mark.parametrize("value", ["", "attic", "attic_1", "a1_b", "a1b"])
+    def test_accepts_canonical_identifiers(self, value: str) -> None:
+        assert MqttSettings(instance_id=value).instance_id == value
+
+    @pytest.mark.parametrize(
+        "value", ["house/attic\n", "house/attic\r", "house\nattic", "house/attic\0"]
+    )
+    def test_topic_prefix_rejects_control_characters(self, value: str) -> None:
+        with pytest.raises(ValidationError, match="topic_prefix"):
+            MqttSettings(topic_prefix=value)
 
 
 class TestCli:
@@ -311,9 +410,15 @@ class TestCli:
         assert result.exit_code == EXIT_OK
         assert "Thing mqtt:topic:broker:attic_sensor" in result.stdout
 
-    def test_invalid_instance_id_exits(self, schema_file: Path) -> None:
+    @pytest.mark.parametrize("command", ["ha-discovery", "openhab"])
+    @pytest.mark.parametrize(
+        "value", ["a/b", "attic-1", "Attic", "123", "a__b", "a_", "attic\n"]
+    )
+    def test_invalid_instance_id_exits(
+        self, schema_file: Path, command: str, value: str
+    ) -> None:
         result = CliRunner().invoke(
-            schema_app, ["ha-discovery", str(schema_file), "--instance-id", "a/b"]
+            schema_app, [command, str(schema_file), "--instance-id", value]
         )
 
         assert result.exit_code == EXIT_CONFIG_ERROR

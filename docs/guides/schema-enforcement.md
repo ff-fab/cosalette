@@ -1008,11 +1008,11 @@ services:
   wiz-attic:
     environment:
       MQTT__TOPIC_PREFIX: house/attic/wiz
-      MQTT__INSTANCE_ID: wiz-attic
+      MQTT__INSTANCE_ID: wiz_attic
   wiz-cellar:
     environment:
       MQTT__TOPIC_PREFIX: house/cellar/wiz
-      MQTT__INSTANCE_ID: wiz-cellar
+      MQTT__INSTANCE_ID: wiz_cellar
 ```
 
 The instance id replaces the app name in every identity field: `node_id`,
@@ -1024,11 +1024,17 @@ names the Thing UID, Thing label, Item ids and item group. Topics still follow
 offline generators take the same value:
 
 ```bash
-cosalette schema ha-discovery schema.yaml --instance-id wiz-attic
-cosalette schema openhab schema.yaml --instance-id wiz-attic
+cosalette schema ha-discovery schema.yaml --instance-id wiz_attic
+cosalette schema openhab schema.yaml --instance-id wiz_attic
 ```
 
 `--instance-id` is rejected for a document that describes several apps.
+Ids start with a lowercase letter and contain lowercase letters, digits, and
+single underscores between nonempty segments (`[a-z][a-z0-9]*(?:_[a-z0-9]+)*`).
+Uppercase, hyphens, leading digits, repeated underscores, and trailing underscores
+are rejected instead of being normalized into another instance's identity.
+OpenHAB Item and group prefixes preserve these underscores; unset ids retain
+the existing CamelCase output.
 
 When the id is unset, output is byte-identical to earlier releases, so
 existing entities keep their `unique_id`s. Setting it on a deployment that
