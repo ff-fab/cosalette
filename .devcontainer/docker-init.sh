@@ -12,8 +12,8 @@
 # clients connect to localhost, never to the bridge gateway.
 set -eu
 
-: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
-export XDG_RUNTIME_DIR
+. /usr/local/share/docker-runtime.sh
+prepare_rootless_runtime
 log=/tmp/dockerd-rootless.log
 
 # devcontainer.json mounts the runtime directory as a tmpfs, so no state of a
@@ -24,7 +24,6 @@ if [ -e "${XDG_RUNTIME_DIR}/dockerd-rootless" ]; then
         "tmpfs (see devcontainer.json runArgs)" >&2
     exit 1
 fi
-mkdir -p "${XDG_RUNTIME_DIR}"
 
 nohup setsid dockerd-rootless.sh >"${log}" 2>&1 </dev/null &
 

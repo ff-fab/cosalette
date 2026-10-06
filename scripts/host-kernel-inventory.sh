@@ -4,7 +4,7 @@
 # Usage: bash scripts/host-kernel-inventory.sh
 #
 # The linux-libc-dev headers in the development image do not patch or expose
-# the kernel; the host kernel that runs the (privileged) devcontainer does.
+# the kernel; the devcontainer shares the host kernel.
 # This prints what .devcontainer/host-kernel-assessment.md records per host:
 # kernel release and build, architecture, the Kconfig state of each affected
 # subsystem (scripts/kernel-advisory-subsystems.tsv), loaded modules, device

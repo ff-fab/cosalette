@@ -46,13 +46,13 @@ the GPU, filesystem, network, architecture and other subsystem checks required f
 advisory. The [host kernel assessment](host-kernel-assessment.md) (cos-dam4) records
 that review for the workstation and CI hosts.
 
-Docker-in-Docker currently needs privileged mode for its mount/cgroup startup. Disabling
-the flag without a working replacement breaks the documented workflow. Issue cos-2jj7
-tracks a validated restricted/rootless or reviewed remote builder; see the
-[restricted builder evaluation](restricted-builder-evaluation.md). Mounting a Docker
-socket is not a substitute for a privilege assessment because it grants control of that
-daemon. The security owner issue cos-nxu6 is reopened and depends on both follow-ups; it
-must remain open after this PR merges.
+Privileged Docker-in-Docker has been replaced by a rootless daemon inside an
+unprivileged devcontainer (cos-2jj7); see the
+[restricted builder evaluation](restricted-builder-evaluation.md) for validation and
+remaining restrictions. Host-kernel applicability remains tracked by cos-dam4. Mounting
+a Docker socket is not a substitute for a privilege assessment because it grants control
+of that daemon. The security owner issue cos-nxu6 is reopened and depends on both
+follow-ups; it must remain open after this PR merges.
 
 ## Evidence and validation
 

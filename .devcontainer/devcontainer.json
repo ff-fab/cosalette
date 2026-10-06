@@ -215,12 +215,12 @@
     "--security-opt=apparmor=unconfined",
     "--security-opt=systempaths=unconfined",
     "--device=/dev/net/tun",
-    "--tmpfs=/run/user/1000:uid=1000,gid=1000,mode=0700"
+    "--tmpfs=/run/user:mode=0755"
   ],
 
   "containerEnv": {
-    "XDG_RUNTIME_DIR": "/run/user/1000",
-    "DOCKER_HOST": "unix:///run/user/1000/docker.sock",
+    "XDG_RUNTIME_DIR": "/run/user/vscode",
+    "DOCKER_HOST": "unix:///run/user/vscode/docker.sock",
     // Ports published by the rootless daemon are bound on this container's
     // loopback. Without these, testcontainers detects Docker-in-Docker and
     // connects to the bridge gateway, which is only reachable inside

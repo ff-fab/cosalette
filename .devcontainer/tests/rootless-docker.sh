@@ -16,8 +16,10 @@ cleanup() {
 trap cleanup EXIT
 
 # A privileged container has the full capability bounding set.
+source "$(dirname "${BASH_SOURCE[0]}")/capabilities.sh"
+full_mask="$(full_capability_mask "$(cat /proc/sys/kernel/cap_last_cap)")"
 bounding="$(awk '/^CapBnd:/ {print $2}' /proc/self/status)"
-if [ "${bounding}" = "000001ffffffffff" ] || [ "${bounding}" = "000003ffffffffff" ]; then
+if [ "${bounding}" = "${full_mask}" ]; then
     echo "devcontainer runs privileged (CapBnd=${bounding})" >&2
     exit 1
 fi

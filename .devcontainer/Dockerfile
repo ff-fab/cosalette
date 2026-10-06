@@ -148,6 +148,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
 # container start instead of being wired as a container entrypoint — simpler and
 # works identically in VS Code, Codespaces, and CI (devcontainers/ci).
 COPY --chmod=0755 docker-init.sh /usr/local/share/docker-init.sh
+COPY --chmod=0755 docker-runtime.sh /usr/local/share/docker-runtime.sh
 
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task

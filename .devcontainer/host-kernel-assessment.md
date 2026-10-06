@@ -29,10 +29,10 @@ configuration only.
 | Maintainer workstation     | `6.18.33.2-microsoft-standard-WSL2` | x86_64 | Microsoft WSL2 kernel on upstream 6.18.33       |
 | GitHub runner ubuntu-24.04 | `6.17.0-1022-azure`                 | x86_64 | Ubuntu `linux-azure-6.17`, image 20260927.320.1 |
 
-Only these two hosts run the privileged devcontainer. The macOS and Windows runners in
-`rust-wheels.yml` build wheels without a Linux container. Other developers' hosts are
-not inventoried. Before such a host runs the devcontainer, its owner runs the inventory
-script and adds a column here; until then it is **open** (owner: cos-nxu6).
+These are the two inventoried Linux hosts for the devcontainer. The macOS and Windows
+runners in `rust-wheels.yml` build wheels without a Linux container. Other developers'
+hosts are not inventoried. Before such a host runs the devcontainer, its owner runs the
+inventory script and adds a column here; until then it is **open** (owner: cos-nxu6).
 
 ### Maintainer workstation (WSL2)
 
@@ -50,9 +50,11 @@ script and adds a column here; until then it is **open** (owner: cos-nxu6).
 ### GitHub runner (ubuntu-24.04)
 
 Each job runs on a fresh VM that is deleted afterwards, and the job user has
-passwordless sudo. Code in a job, including the privileged devcontainer, already has
-root on that VM, so a kernel bug grants it nothing more. GitHub patches the runner
-kernel. Verdict for all 51 advisories: **not applicable** as a privilege boundary.
+passwordless sudo. The runner job can control the VM through its host-side steps, so the
+earlier 51-advisory assessment is **not applicable** as a privilege boundary for that
+trusted job. This does not give processes inside the unprivileged devcontainer direct
+host-root access; their reachability still needs assessment. GitHub patches the runner
+kernel.
 
 The CRITICAL advisory CVE-2026-43185 is also vendor-fixed: Ubuntu lists
 `linux-azure-6.17` as fixed in `6.17.0-1021.21~24.04.1`
@@ -62,9 +64,9 @@ claimed for them.
 
 ## Privileged Docker-in-Docker exposure
 
-When recorded, `devcontainer.json` set `privileged: true`, and the `vscode` user has
-passwordless sudo. Together they gave any process in the devcontainer root on the host
-kernel: all capabilities, every device (including the VM's block devices and
+Before this change, `devcontainer.json` set `privileged: true`, and the `vscode` user
+had passwordless sudo. Together they gave any process in the devcontainer root on the
+host kernel: all capabilities, every device (including the VM's block devices and
 `/dev/kvm`), module loading and mounts. On the workstation, the host is the WSL2 VM,
 which also mounts the Windows user's files. No kernel advisory added a container escape:
 escape needed no exploit.
@@ -81,59 +83,59 @@ not built, has no device or is mitigated by a setting), **open** (affected and u
 mitigation and owner given). Every open entry is owned by cos-nxu6 and is rechecked on
 each WSL kernel update (`wsl --update`).
 
-| #   | Advisory       | Subsystem            | Kconfig on host       | Verdict | Evidence                                                                                 |
-| --- | -------------- | -------------------- | --------------------- | ------- | ---------------------------------------------------------------------------------------- |
-| 8   | CVE-2026-43185 | ksmbd SMB Direct     | SMB_SERVER=n          | fixed   | Fixed in 6.18.16; ksmbd is not built either                                              |
-| 9   | CVE-2013-7445  | DRM/GEM              | DRM=y                 | n/a     | No `/dev/dri` node; the GPU is reached through `/dev/dxg`                                |
-| 10  | CVE-2019-19449 | F2FS                 | F2FS_FS=m             | open    | Needs a crafted F2FS image to be mounted (root only). Do not mount untrusted images      |
-| 11  | CVE-2019-19814 | F2FS                 | F2FS_FS=m             | open    | As #10                                                                                   |
-| 12  | CVE-2021-3847  | OverlayFS            | OVERLAY_FS=y          | open    | Local escalation, no upstream fix. No extra exposure while privileged (cos-2jj7)         |
-| 13  | CVE-2021-3864  | SUID core dumps      | COREDUMP=y            | n/a     | `fs.suid_dumpable=0`: SUID processes write no core dumps                                 |
-| 14  | CVE-2024-21803 | Bluetooth            | BT=m                  | fixed   | Affects kernels before 6.8 only                                                          |
-| 15  | CVE-2024-58015 | ath12k               | ATH12K=n              | fixed   | Fixed in 6.14; driver not built                                                          |
-| 16  | CVE-2025-38137 | PCI power control    | PCI_PWRCTRL=n         | fixed   | Fixed in 6.16; not built                                                                 |
-| 17  | CVE-2025-38187 | nouveau              | DRM_NOUVEAU=m         | fixed   | Fixed in 6.16                                                                            |
-| 18  | CVE-2025-38204 | JFS                  | JFS_FS=n              | fixed   | Fixed in 6.16; not built                                                                 |
-| 19  | CVE-2025-38421 | AMD PMF              | AMD_PMF=n             | fixed   | Fixed in 6.16; not built                                                                 |
-| 20  | CVE-2025-38636 | runtime verification | RV=n                  | fixed   | Fixed in 6.17; not built                                                                 |
-| 21  | CVE-2025-39859 | OCP PTP clock        | PTP_1588_CLOCK_OCP=n  | fixed   | Fixed in 6.17; not built                                                                 |
-| 22  | CVE-2025-39862 | mt76 Wi-Fi           | MT76_CORE=n           | fixed   | Fixed in 6.17; not built                                                                 |
-| 23  | CVE-2025-39958 | s390 IOMMU           | S390=n                | fixed   | Fixed in 6.17; x86_64                                                                    |
-| 24  | CVE-2025-40025 | F2FS                 | F2FS_FS=m             | fixed   | Fixed in 6.18                                                                            |
-| 25  | CVE-2025-68174 | AMD KFD              | HSA_AMD=n             | fixed   | Fixed in 6.18; not built                                                                 |
-| 26  | CVE-2025-68735 | Panthor GPU          | DRM_PANTHOR=n         | fixed   | Fixed in 6.18.2; not built                                                               |
-| 31  | CVE-2026-23102 | arm64 SVE signals    | ARM64=n               | fixed   | Fixed in 6.18.8; x86_64                                                                  |
-| 32  | CVE-2026-23208 | USB audio            | SND_USB_AUDIO=m       | fixed   | Fixed in 6.18.10                                                                         |
-| 33  | CVE-2026-23327 | CXL mailbox          | CXL_BUS=n             | n/a     | Fixed only in 6.18.34; CXL is not built                                                  |
-| 34  | CVE-2026-31493 | EFA RDMA             | INFINIBAND_EFA=n      | fixed   | Fixed in 6.18.21; not built                                                              |
-| 35  | CVE-2026-31536 | ksmbd SMB Direct     | SMB_SERVER=n          | fixed   | Fixed in 6.18.11; not built                                                              |
-| 36  | CVE-2026-31568 | s390 secure memory   | S390=n                | fixed   | Fixed in 6.18.21; x86_64                                                                 |
-| 37  | CVE-2026-43263 | Wave5 codec          | VIDEO_WAVE_VPU=n      | fixed   | Fixed in 6.18.16; not built                                                              |
-| 38  | CVE-2026-46130 | dm-verity FEC        | DM_VERITY_FEC=y       | open    | Fixed in 6.18.42. Needs a dm-verity target with FEC (root only). None are set up         |
-| 39  | CVE-2026-46181 | mlx4 RDMA            | MLX4_INFINIBAND=m     | fixed   | Fixed in 6.18.30                                                                         |
-| 40  | CVE-2026-46279 | allocation tags      | MEM_ALLOC_PROFILING=n | fixed   | Fixed in 6.18.27; not built                                                              |
-| 41  | CVE-2026-52991 | PSI                  | PSI=y                 | fixed   | Fixed in 6.18.33                                                                         |
-| 42  | CVE-2026-53000 | netfilter NAT        | NF_NAT=y              | fixed   | Fixed in 6.18.33                                                                         |
-| 43  | CVE-2026-53091 | core network device  | NET=y                 | open    | Fixed in 7.0.10, no 6.18 backport listed. Wait for a WSL kernel with the fix             |
-| 44  | CVE-2026-53109 | powerpc page tables  | PPC=n                 | fixed   | Fixed in 6.18.33; x86_64                                                                 |
-| 45  | CVE-2026-53118 | vDPA                 | VDPA=n                | fixed   | Fixed in 6.18.33; not built                                                              |
-| 46  | CVE-2026-53277 | arm64 KVM            | ARM64=n               | n/a     | Fixed only in 6.18.36; arm64 code, host is x86_64                                        |
-| 47  | CVE-2026-53330 | AMD display          | DRM_AMD_DC=y          | n/a     | Fixed only in 6.18.36; no AMD GPU in the VM, amdgpu not loaded                           |
-| 48  | CVE-2026-63879 | amdgpu HMM           | DRM_AMDGPU=m          | n/a     | No 6.18 fix; no AMD GPU in the VM, amdgpu not loaded                                     |
-| 49  | CVE-2026-64283 | KVM guest_memfd      | KVM_GUEST_MEMFD=y     | open    | Fixed in 7.1.4 only. `/dev/kvm` is reachable from the privileged container; unused       |
-| 50  | CVE-2026-68409 | mac80211             | MAC80211=m            | n/a     | Fixed only in 6.18.42; no wireless device in the VM, mac80211 not loaded                 |
-| 51  | CVE-2026-68426 | IPsec device offload | XFRM_OFFLOAD=y        | open    | Fixed in 6.18.42. Needs an offloaded IPsec state (root only). None are configured        |
-| 52  | CVE-2026-68470 | mac80211             | MAC80211=m            | n/a     | No 6.18 fix; no wireless device in the VM, mac80211 not loaded                           |
-| 53  | CVE-2026-72042 | IPMI                 | IPMI_HANDLER=m        | n/a     | Fixed only in 6.18.40; no BMC, no `/dev/ipmi0`, module not loaded                        |
-| 54  | CVE-2026-72098 | dm-verity FEC        | DM_VERITY_FEC=y       | open    | As #38                                                                                   |
-| 55  | CVE-2026-72463 | IPsec input          | XFRM=y                | open    | 6.18.23–6.18.53 affected. Needs IPsec states (root only). None are configured            |
-| 56  | CVE-2026-74269 | bnxt XDP             | BNXT=m                | n/a     | Fixed only in 6.18.53; no Broadcom NIC in the VM                                         |
-| 57  | CVE-2026-74520 | IOMMU page faults    | IOMMU_IOPF=y          | n/a     | Fixed only in 6.18.44; the VM has no IOMMU groups                                        |
-| 58  | CVE-2026-74752 | SCTP auth            | IP_SCTP=m             | open    | No 6.18 fix. Module autoloads on `socket()`; remote trigger needs an SCTP listener. None |
-| 59  | CVE-2026-89631 | SMB client           | CIFS=m                | open    | Fixed in 6.18.51. Needs an SMB mount (root only) of a hostile server. Mount none         |
-| 60  | CVE-2026-89633 | SMB1 client          | CIFS=m                | open    | As #59, and only for SMB1 mounts                                                         |
-| 61  | CVE-2026-89638 | SMB client           | CIFS=m                | open    | As #59                                                                                   |
-| 62  | CVE-2026-89675 | NFS server           | NFSD=m                | n/a     | Fixed only in 6.18.51; no NFS server runs, nfsd not loaded                               |
+| #   | Advisory       | Subsystem            | Kconfig on host       | Verdict | Evidence                                                                                                |
+| --- | -------------- | -------------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| 8   | CVE-2026-43185 | ksmbd SMB Direct     | SMB_SERVER=n          | fixed   | Fixed in 6.18.16; ksmbd is not built either                                                             |
+| 9   | CVE-2013-7445  | DRM/GEM              | DRM=y                 | n/a     | No `/dev/dri` node; the GPU is reached through `/dev/dxg`                                               |
+| 10  | CVE-2019-19449 | F2FS                 | F2FS_FS=m             | open    | Needs a crafted F2FS image to be mounted (root only). Do not mount untrusted images                     |
+| 11  | CVE-2019-19814 | F2FS                 | F2FS_FS=m             | open    | As #10                                                                                                  |
+| 12  | CVE-2021-3847  | OverlayFS            | OVERLAY_FS=y          | open    | Local escalation, no upstream fix. Reachable from rootless user namespaces; remains open after cos-2jj7 |
+| 13  | CVE-2021-3864  | SUID core dumps      | COREDUMP=y            | n/a     | `fs.suid_dumpable=0`: SUID processes write no core dumps                                                |
+| 14  | CVE-2024-21803 | Bluetooth            | BT=m                  | fixed   | Affects kernels before 6.8 only                                                                         |
+| 15  | CVE-2024-58015 | ath12k               | ATH12K=n              | fixed   | Fixed in 6.14; driver not built                                                                         |
+| 16  | CVE-2025-38137 | PCI power control    | PCI_PWRCTRL=n         | fixed   | Fixed in 6.16; not built                                                                                |
+| 17  | CVE-2025-38187 | nouveau              | DRM_NOUVEAU=m         | fixed   | Fixed in 6.16                                                                                           |
+| 18  | CVE-2025-38204 | JFS                  | JFS_FS=n              | fixed   | Fixed in 6.16; not built                                                                                |
+| 19  | CVE-2025-38421 | AMD PMF              | AMD_PMF=n             | fixed   | Fixed in 6.16; not built                                                                                |
+| 20  | CVE-2025-38636 | runtime verification | RV=n                  | fixed   | Fixed in 6.17; not built                                                                                |
+| 21  | CVE-2025-39859 | OCP PTP clock        | PTP_1588_CLOCK_OCP=n  | fixed   | Fixed in 6.17; not built                                                                                |
+| 22  | CVE-2025-39862 | mt76 Wi-Fi           | MT76_CORE=n           | fixed   | Fixed in 6.17; not built                                                                                |
+| 23  | CVE-2025-39958 | s390 IOMMU           | S390=n                | fixed   | Fixed in 6.17; x86_64                                                                                   |
+| 24  | CVE-2025-40025 | F2FS                 | F2FS_FS=m             | fixed   | Fixed in 6.18                                                                                           |
+| 25  | CVE-2025-68174 | AMD KFD              | HSA_AMD=n             | fixed   | Fixed in 6.18; not built                                                                                |
+| 26  | CVE-2025-68735 | Panthor GPU          | DRM_PANTHOR=n         | fixed   | Fixed in 6.18.2; not built                                                                              |
+| 31  | CVE-2026-23102 | arm64 SVE signals    | ARM64=n               | fixed   | Fixed in 6.18.8; x86_64                                                                                 |
+| 32  | CVE-2026-23208 | USB audio            | SND_USB_AUDIO=m       | fixed   | Fixed in 6.18.10                                                                                        |
+| 33  | CVE-2026-23327 | CXL mailbox          | CXL_BUS=n             | n/a     | Fixed only in 6.18.34; CXL is not built                                                                 |
+| 34  | CVE-2026-31493 | EFA RDMA             | INFINIBAND_EFA=n      | fixed   | Fixed in 6.18.21; not built                                                                             |
+| 35  | CVE-2026-31536 | ksmbd SMB Direct     | SMB_SERVER=n          | fixed   | Fixed in 6.18.11; not built                                                                             |
+| 36  | CVE-2026-31568 | s390 secure memory   | S390=n                | fixed   | Fixed in 6.18.21; x86_64                                                                                |
+| 37  | CVE-2026-43263 | Wave5 codec          | VIDEO_WAVE_VPU=n      | fixed   | Fixed in 6.18.16; not built                                                                             |
+| 38  | CVE-2026-46130 | dm-verity FEC        | DM_VERITY_FEC=y       | open    | Fixed in 6.18.42. Needs a dm-verity target with FEC (root only). None are set up                        |
+| 39  | CVE-2026-46181 | mlx4 RDMA            | MLX4_INFINIBAND=m     | fixed   | Fixed in 6.18.30                                                                                        |
+| 40  | CVE-2026-46279 | allocation tags      | MEM_ALLOC_PROFILING=n | fixed   | Fixed in 6.18.27; not built                                                                             |
+| 41  | CVE-2026-52991 | PSI                  | PSI=y                 | fixed   | Fixed in 6.18.33                                                                                        |
+| 42  | CVE-2026-53000 | netfilter NAT        | NF_NAT=y              | fixed   | Fixed in 6.18.33                                                                                        |
+| 43  | CVE-2026-53091 | core network device  | NET=y                 | open    | Fixed in 7.0.10, no 6.18 backport listed. Wait for a WSL kernel with the fix                            |
+| 44  | CVE-2026-53109 | powerpc page tables  | PPC=n                 | fixed   | Fixed in 6.18.33; x86_64                                                                                |
+| 45  | CVE-2026-53118 | vDPA                 | VDPA=n                | fixed   | Fixed in 6.18.33; not built                                                                             |
+| 46  | CVE-2026-53277 | arm64 KVM            | ARM64=n               | n/a     | Fixed only in 6.18.36; arm64 code, host is x86_64                                                       |
+| 47  | CVE-2026-53330 | AMD display          | DRM_AMD_DC=y          | n/a     | Fixed only in 6.18.36; no AMD GPU in the VM, amdgpu not loaded                                          |
+| 48  | CVE-2026-63879 | amdgpu HMM           | DRM_AMDGPU=m          | n/a     | No 6.18 fix; no AMD GPU in the VM, amdgpu not loaded                                                    |
+| 49  | CVE-2026-64283 | KVM guest_memfd      | KVM_GUEST_MEMFD=y     | open    | Fixed in 7.1.4 only. Host has `/dev/kvm`; it is not passed to the unprivileged devcontainer             |
+| 50  | CVE-2026-68409 | mac80211             | MAC80211=m            | n/a     | Fixed only in 6.18.42; no wireless device in the VM, mac80211 not loaded                                |
+| 51  | CVE-2026-68426 | IPsec device offload | XFRM_OFFLOAD=y        | open    | Fixed in 6.18.42. Needs an offloaded IPsec state (root only). None are configured                       |
+| 52  | CVE-2026-68470 | mac80211             | MAC80211=m            | n/a     | No 6.18 fix; no wireless device in the VM, mac80211 not loaded                                          |
+| 53  | CVE-2026-72042 | IPMI                 | IPMI_HANDLER=m        | n/a     | Fixed only in 6.18.40; no BMC, no `/dev/ipmi0`, module not loaded                                       |
+| 54  | CVE-2026-72098 | dm-verity FEC        | DM_VERITY_FEC=y       | open    | As #38                                                                                                  |
+| 55  | CVE-2026-72463 | IPsec input          | XFRM=y                | open    | 6.18.23–6.18.53 affected. Needs IPsec states (root only). None are configured                           |
+| 56  | CVE-2026-74269 | bnxt XDP             | BNXT=m                | n/a     | Fixed only in 6.18.53; no Broadcom NIC in the VM                                                        |
+| 57  | CVE-2026-74520 | IOMMU page faults    | IOMMU_IOPF=y          | n/a     | Fixed only in 6.18.44; the VM has no IOMMU groups                                                       |
+| 58  | CVE-2026-74752 | SCTP auth            | IP_SCTP=m             | open    | No 6.18 fix. Module autoloads on `socket()`; remote trigger needs an SCTP listener. None                |
+| 59  | CVE-2026-89631 | SMB client           | CIFS=m                | open    | Fixed in 6.18.51. Needs an SMB mount (root only) of a hostile server. Mount none                        |
+| 60  | CVE-2026-89633 | SMB1 client          | CIFS=m                | open    | As #59, and only for SMB1 mounts                                                                        |
+| 61  | CVE-2026-89638 | SMB client           | CIFS=m                | open    | As #59                                                                                                  |
+| 62  | CVE-2026-89675 | NFS server           | NFSD=m                | n/a     | Fixed only in 6.18.51; no NFS server runs, nfsd not loaded                                              |
 
 Totals: 26 fixed, 12 not applicable, 13 open.
 
@@ -153,3 +155,19 @@ Reachability from the unprivileged devcontainer (cos-2jj7):
   the header baseline entries expire on 27 October 2026.
 - Add a column for every further host that runs the devcontainer.
 - Prioritise the five entries still reachable from the unprivileged devcontainer.
+
+## Renewal advisory: CVE-2026-89972
+
+PR 501 adds a 52nd header advisory, CVE-2026-89972, to the acceptance baseline. Its
+recorded attribution is the NVMe host driver; the inventory now checks `BLK_DEV_NVME`
+and `NVME_CORE`. The earlier 51-advisory verdicts above do not cover this additional
+row. Neither inventoried host has a verified NVMe Kconfig, loaded-module/device
+inventory and vendor fix status for this advisory in this record. Their verdict is
+**open / unknown**, not fixed or not applicable.
+
+The authoritative record to verify is
+[the CVE record](https://cveawg.mitre.org/api/cve/CVE-2026-89972). No fixed version or
+host non-applicability is claimed pending that verification. The unprivileged
+devcontainer passes no NVMe block devices, but device absence alone does not establish
+that every affected driver path is unreachable. cos-dam4 and owner cos-nxu6 remain open
+for both host assessments and the 27 October baseline recheck.

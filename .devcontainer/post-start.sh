@@ -7,10 +7,13 @@ cd /workspace
 # VS Code may inject a Docker credential helper whose IPC bridge is broken.
 bash .devcontainer/clean-docker-credential-helpers.sh
 
-# Start the rootless Docker daemon as this user (no sudo, no privileged mode).
+# Prepare a private runtime directory using the remapped developer UID/GID.
+# The daemon itself runs as this user, without privileged mode.
 # Runs only when the rootless tooling is installed and the daemon is not
 # already reachable.
 if command -v dockerd-rootless.sh >/dev/null 2>&1; then
+    source /usr/local/share/docker-runtime.sh
+    prepare_rootless_runtime
     if ! docker info >/dev/null 2>&1; then
         echo "🐳 Starting rootless Docker daemon..."
         /usr/local/share/docker-init.sh

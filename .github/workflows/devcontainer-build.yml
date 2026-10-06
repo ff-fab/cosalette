@@ -61,8 +61,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test Docker credential helper cleanup
-        run: bash .devcontainer/tests/credential-helpers.sh
+      - name: Test devcontainer startup helpers
+        run: |
+          bash .devcontainer/tests/credential-helpers.sh
+          bash .devcontainer/tests/rootless-runtime.sh
 
       - name: Test image scan policy
         run: bash scripts/tests/image-scan-policy.sh

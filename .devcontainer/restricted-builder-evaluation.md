@@ -47,12 +47,15 @@ user's files. Escape needed no kernel exploit.
 - `--device=/dev/net/tun` for slirp4netns.
 - A named volume at `/home/vscode/.local/share/docker` (the rootless data root), because
   overlayfs on the container's own overlay root fails with `EINVAL`.
-- `XDG_RUNTIME_DIR` and `DOCKER_HOST` pointing at `/run/user/1000`.
-- `--tmpfs=/run/user/1000:uid=1000,gid=1000,mode=0700` for that runtime directory. The
-  daemon leaves its sockets and state there owned by subordinate IDs, which `vscode`
-  cannot remove, so a restarted container could not clean it up. The tmpfs starts empty
-  on every container start; `docker-init.sh` fails with a clear message if it finds
-  state of a previous daemon.
+- `XDG_RUNTIME_DIR=/run/user/vscode` and
+  `DOCKER_HOST=unix:///run/user/vscode/docker.sock` use a stable user-named path.
+- `--tmpfs=/run/user:mode=0755` supplies a root-owned parent. Startup creates its
+  private `vscode` subdirectory with mode 0700 and the actual `id -u`/`id -g`,
+  preserving Dev Containers host UID remapping. It also corrects the named data-volume
+  root ownership copied from the image. The daemon leaves its sockets and state there
+  owned by subordinate IDs, which `vscode` cannot remove, so a restarted container could
+  not clean it up. The tmpfs starts empty on every container start; `docker-init.sh`
+  fails with a clear message if it finds state of a previous daemon.
 - `TESTCONTAINERS_HOST_OVERRIDE=localhost` and
   `TESTCONTAINERS_CONNECTION_MODE=docker_host`. testcontainers otherwise detects
   Docker-in-Docker and connects to the bridge gateway, which rootless mode keeps in its

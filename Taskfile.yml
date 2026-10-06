@@ -218,9 +218,10 @@ tasks:
       - bash scripts/qa-task.sh test
 
   test:devcontainer:
-    desc: Test devcontainer startup credential-helper cleanup
+    desc: Test devcontainer startup helpers and rootless UID/capability regressions
     cmds:
       - bash .devcontainer/tests/credential-helpers.sh
+      - bash .devcontainer/tests/rootless-runtime.sh
 
   test:security:docker:policy:
     desc: Test the devcontainer image scan acceptance gate
