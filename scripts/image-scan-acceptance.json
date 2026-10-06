@@ -10,7 +10,7 @@
     "kernel_headers": {
       "owner": "cos-nxu6",
       "expires": "2026-10-27",
-      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. The 51 changed-version pairs are individually reviewed in .devcontainer/security-review-2026-10-05.md; CVE-2026-89972 is additionally reviewed in .devcontainer/security-review-2026-10-05-renewal.md. Evidence and remediation are in .devcontainer/security-remediation.md. Host applicability and privileged Docker-in-Docker remain open in cos-dam4 and cos-2jj7; cos-nxu6 remains their owner. This does not claim the host kernel is patched."
+      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. The 51 changed-version pairs are individually reviewed in .devcontainer/security-review-2026-10-05.md; CVE-2026-89972 is additionally reviewed in .devcontainer/security-review-2026-10-05-renewal.md. Evidence and remediation are in .devcontainer/security-remediation.md. Privileged Docker-in-Docker has been replaced by rootless Docker (cos-2jj7). Host applicability, including CVE-2026-89972, remains open in cos-dam4; cos-nxu6 remains the owner. This does not claim the host kernel is patched."
     },
     "libxml2_pending": {
       "owner": "cos-nxu6",

@@ -20,7 +20,8 @@ assert not list(Path("/usr/local/py-utils").rglob("pip/_vendor/vendor.txt"))
 assert not Path("/usr/local/py-utils/venvs/pipenv").exists()
 assert not Path("/usr/local/py-utils/venvs/virtualenv").exists()
 '
-for package in python3.13 libpython3.13-minimal libpython3.13-stdlib python3-urllib3; do
+for package in python3.13 libpython3.13-minimal libpython3.13-stdlib python3-urllib3 \
+    docker-ce-rootless-extras systemd systemd-sysv libpam-systemd libsystemd-shared; do
     status="$(dpkg-query -W -f='${db:Status-Status}' "${package}" 2>/dev/null || true)"
     if [ "${status}" = installed ]; then
         echo "Unexpected retained vulnerable distro package: ${package}" >&2

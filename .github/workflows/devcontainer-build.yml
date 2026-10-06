@@ -21,6 +21,8 @@ on:
       - 'scripts/image-scan-baseline.tsv'
       - 'scripts/tests/image-scan-policy.sh'
       - 'scripts/qa-task.sh'
+      - 'scripts/host-kernel-inventory.sh'
+      - 'scripts/kernel-advisory-subsystems.tsv'
   push:
     branches: [main]
     paths:
@@ -58,11 +60,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Test Docker credential helper cleanup
-        run: bash .devcontainer/tests/credential-helpers.sh
+      - name: Test devcontainer startup helpers
+        run: |
+          bash .devcontainer/tests/credential-helpers.sh
+          bash .devcontainer/tests/rootless-runtime.sh
 
       - name: Test image scan policy
         run: bash scripts/tests/image-scan-policy.sh
+
+      # The devcontainer shares the runner kernel; record it for the
+      # host assessment (.devcontainer/host-kernel-assessment.md).
+      - name: Record runner kernel inventory
+        run: bash scripts/host-kernel-inventory.sh
 
       - name: Build devcontainer without publishing
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
@@ -71,7 +80,9 @@ jobs:
         with:
           imageName: cosalette-devcontainer-pr-validation
           push: never
-          runCmd: bash .devcontainer/tests/security-toolchain.sh
+          runCmd: |
+            bash .devcontainer/tests/security-toolchain.sh
+            bash .devcontainer/tests/rootless-docker.sh
 
       - name: Scan locally built image with Trivy
         env:
