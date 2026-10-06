@@ -3,9 +3,11 @@
 #
 # Usage: bash scripts/bundle-health-probe.sh [TARGET]
 #
-# Builds crates/cosalette-health for TARGET (default: the host), stages the
-# binary as packages/data/scripts/cosalette-health[.exe], and edits
-# pyproject.toml so the wheel ships it as its only cosalette-health:
+# Builds crates/cosalette-health for TARGET (default: the host) with
+# cargo-auditable, which embeds the crate dependency list in the binary so
+# syft/grype can report it from the wheel (ADR-017), stages the binary as
+# packages/data/scripts/cosalette-health[.exe], and edits pyproject.toml so
+# the wheel ships it as its only cosalette-health:
 #   - adds `data = "packages/data"` under [tool.maturin] (wheel .data/scripts),
 #   - removes the Python fallback console script of the same name, which
 #     installers would otherwise write over the binary.
@@ -23,7 +25,11 @@ if [[ -n "$target" ]]; then
   target_args=(--target "$target")
 fi
 
-cargo build --locked --profile probe -p cosalette-health ${target_args[@]+"${target_args[@]}"}
+if ! cargo auditable --version >/dev/null 2>&1; then
+  echo "bundle-health-probe: cargo-auditable is required (cargo install cargo-auditable --locked)" >&2
+  exit 1
+fi
+cargo auditable build --locked --profile probe -p cosalette-health ${target_args[@]+"${target_args[@]}"}
 
 exe=""
 if [[ "$target" == *windows* || ( -z "$target" && "${OS:-}" == "Windows_NT" ) ]]; then
