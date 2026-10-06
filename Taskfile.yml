@@ -547,6 +547,11 @@ tasks:
       - bash scripts/wheel-sbom.sh dist/*.whl dist/cosalette.cdx.json
       - echo "SBOM written to dist/cosalette.cdx.json"
 
+  test:sbom:
+    desc: Test wheel SBOM acceptance and rejection paths
+    cmds:
+      - bash scripts/tests/wheel-sbom.sh
+
   # ===========================================================================
   # PR Helpers
   # ===========================================================================
