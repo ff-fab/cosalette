@@ -110,7 +110,8 @@ jobs:
           manylinux: ${{ matrix.manylinux || 'auto' }}
           before-script-linux: >-
             export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH" &&
-            cargo install cargo-auditable --version ${{ env.CARGO_AUDITABLE_VERSION }} --locked &&
+            cargo install cargo-auditable --target "$(rustc -vV | sed -n 's/^host: //p')"
+            --version ${{ env.CARGO_AUDITABLE_VERSION }} --locked &&
             bash scripts/bundle-health-probe.sh ${{ matrix.target }}
 
       - name: Check bundled probe
