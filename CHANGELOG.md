@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.2](https://github.com/ff-fab/cosalette/compare/v0.11.1...v0.11.2) (2026-10-08)
+
+
+### Features
+
+* **health:** restart_on_stale covers streams; staleness docs ([#507](https://github.com/ff-fab/cosalette/issues/507)) ([e5200a1](https://github.com/ff-fab/cosalette/commit/e5200a1fd6826034760983669f94243d5c06a72a))
+
+
+### Bug Fixes
+
+* **devcontainer:** stop setting XDG_RUNTIME_DIR in containerEnv ([#506](https://github.com/ff-fab/cosalette/issues/506)) ([1cc2788](https://github.com/ff-fab/cosalette/commit/1cc2788a00bf4b0769b39f26ba2a936e826161d0))
+
 ## [0.11.1](https://github.com/ff-fab/cosalette/compare/v0.11.0...v0.11.1) (2026-10-06)
 
 
