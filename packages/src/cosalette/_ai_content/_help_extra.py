@@ -1197,7 +1197,8 @@ Stream Freshness and Feeds (ADR-081 amendment):
   when both exist.
   feeds= is rejected on root streams. Root stream freshness appears in the
   heartbeat and health file and counts for exit_after_stale=, without an
-  availability topic. restart_on_stale does not restart stream adapters.
+  availability topic. With App(restart_on_stale=True), a stale stream
+  restarts the restartable adapters it depends on, like stale telemetry.
   ```python
   @app.stream("feed", stale_after=120, feeds=["radon"])
   async def feed(stream: cosalette.Stream[Reading]):

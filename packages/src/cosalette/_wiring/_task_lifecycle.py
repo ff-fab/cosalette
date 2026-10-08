@@ -28,7 +28,12 @@ from cosalette._runners._periodic import _PeriodicRegistration, run_periodic
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterable,
+        Sequence,
+    )
     from pathlib import Path
 
     from cosalette._errors import ErrorPublisher
@@ -160,32 +165,43 @@ def _stale_too_long(
 def stale_restart_callback(
     restart_on_stale: bool,
     health_check_runner: HealthCheckRunner | None,
-    telemetry_adapter_device_map: dict[type, list[DeviceInfo]] | None,
+    stale_adapter_device_map: dict[type, list[DeviceInfo]] | None,
+    stream_names: Iterable[str] = (),
 ) -> Callable[[list[str]], Awaitable[None]] | None:
     """Return the ``restart_on_stale`` action, or ``None`` when off (ADR-084).
 
-    The action requests one restart per adapter that a newly stale entity
-    depends on; the runner skips adapters that are not restartable.
+    *stale_adapter_device_map* maps adapters to the telemetry entities and
+    streams that can go stale; *stream_names* tells streams apart in the
+    restart reason.  The action requests one restart per adapter that a
+    newly stale entity depends on; the runner skips adapters that are not
+    restartable.  A stale entity without an adapter is logged at DEBUG.
     """
     if not restart_on_stale:
         return None
-    if health_check_runner is None or not telemetry_adapter_device_map:
+    if health_check_runner is None or not stale_adapter_device_map:
         logger.warning(
             "restart_on_stale has no effect: it needs health_check_interval "
             "and a health-checkable adapter"
         )
         return None
     runner = health_check_runner
-    device_map = telemetry_adapter_device_map
+    device_map = stale_adapter_device_map
+    streams = frozenset(stream_names)
+    mapped = {info.name for infos in device_map.values() for info in infos}
 
     async def _restart(names: list[str]) -> None:
         stale = set(names)
         for adapter_type, infos in device_map.items():
             entity = next((i.name for i in infos if i.name in stale), None)
             if entity is not None:
-                await runner.request_restart(
-                    adapter_type, f"stale telemetry {entity!r}"
-                )
+                kind = "stream" if entity in streams else "telemetry"
+                await runner.request_restart(adapter_type, f"stale {kind} {entity!r}")
+        for name in sorted(stale - mapped):
+            logger.debug(
+                "restart_on_stale: stale entity %r depends on no adapter; "
+                "nothing to restart",
+                name,
+            )
 
     return _restart
 

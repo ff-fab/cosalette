@@ -439,6 +439,48 @@ class TestStaleRestartCallback:
         # Assert
         runner.request_restart.assert_awaited_once_with(_PortA, "stale telemetry 'a'")
 
+    async def test_reason_names_a_stream_as_stream(self) -> None:
+        # Arrange
+        runner = AsyncMock(spec=HealthCheckRunner)
+        callback = stale_restart_callback(
+            True,
+            runner,
+            {_PortA: [DeviceInfo("feed", False)], _PortB: [DeviceInfo("t", False)]},
+            stream_names=["feed"],
+        )
+        assert callback is not None
+
+        # Act
+        await callback(["feed", "t"])
+
+        # Assert
+        assert runner.request_restart.await_args_list == [
+            ((_PortA, "stale stream 'feed'"),),
+            ((_PortB, "stale telemetry 't'"),),
+        ]
+
+    async def test_stale_entity_without_adapter_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unmatched stale name is logged, never dropped silently.
+
+        Technique: Error Guessing.
+        """
+        # Arrange
+        runner = AsyncMock(spec=HealthCheckRunner)
+        callback = stale_restart_callback(
+            True, runner, {_PortA: [DeviceInfo("a", False)]}
+        )
+        assert callback is not None
+
+        # Act
+        with caplog.at_level(logging.DEBUG, logger="cosalette._wiring"):
+            await callback(["orphan"])
+
+        # Assert
+        runner.request_restart.assert_not_awaited()
+        assert "stale entity 'orphan' depends on no adapter" in caplog.text
+
 
 class TestRestartOnStaleParameter:
     def test_default_is_false(self) -> None:

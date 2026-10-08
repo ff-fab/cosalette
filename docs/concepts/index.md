@@ -131,6 +131,14 @@ design patterns, and architectural decisions that shape the framework.
 
     [:octicons-arrow-right-24: Health & Availability](health-reporting.md)
 
+-   :material-timer-sand-empty:{ .lg .middle .card-icon-right } **Staleness**
+
+    ---
+
+    Which entities go stale and why, the `stale_after` bound, and the `exit_after_stale` and `restart_on_stale` responses.
+
+    [:octicons-arrow-right-24: Staleness](staleness.md)
+
 -   :material-database-outline:{ .lg .middle .card-icon-right } **Persistence**
 
     ---

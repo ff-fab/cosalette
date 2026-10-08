@@ -599,6 +599,14 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.11.2": [
+        "App(restart_on_stale=True) now covers streams (ADR-084 amendment): "
+        "a stream with stale_after= that goes stale restarts the restartable "
+        "adapters it depends on, with the telemetry rules (skips "
+        "restart_after_failures, counts toward max_restarts, once per stale "
+        "episode). Streams without stale_after= never trigger it (see: "
+        "cosalette ai help health).",
+    ],
     "0.11.1": [
         "Health guidance is MQTT-first (ADR-083 amendment): alert on the "
         "{prefix}/status heartbeat + LWT and device availability/stale, and "

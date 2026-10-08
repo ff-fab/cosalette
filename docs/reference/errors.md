@@ -502,7 +502,9 @@ CLI exits with code 4 (`EXIT_TASK_FAILURE`). See
 |---|---|
 | `App.run()` | `Telemetry {entity!r} stale for {stale_for:.0f}s` |
 
-Raised after a graceful shutdown when a telemetry entity has been stale for
+Raised after a graceful shutdown when a telemetry entity or a stream with
+`stale_after=` has been
+[stale](../concepts/staleness.md) for
 `App(exit_after_stale=...)` seconds ([ADR-083](../adr/ADR-083-opt-in-health-file-and-a-health-cli-probe-for-container-liveness.md)). The framework logs the
 decision at CRITICAL first. Attributes: `entity` and `stale_for`. The CLI exits
 with code 5 (`EXIT_STALE`), so a process supervisor with a restart policy

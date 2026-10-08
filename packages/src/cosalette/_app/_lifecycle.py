@@ -457,8 +457,14 @@ class _LifecycleMixin:
                     adapter_device_map = _wiring.build_adapter_device_map(
                         [*self._all_registrations, *self._streams], resolved_adapters
                     )
-                    telemetry_adapter_device_map = _wiring.build_adapter_device_map(
-                        self._telemetry, resolved_adapters
+                    # Only telemetry and streams with stale_after can go stale.
+                    stale_adapter_device_map = _wiring.build_adapter_device_map(
+                        [
+                            reg
+                            for reg in (*self._telemetry, *self._streams)
+                            if reg.stale_after is not None
+                        ],
+                        resolved_adapters,
                     )
 
                     health_check_runner = None
@@ -527,7 +533,7 @@ class _LifecycleMixin:
                             health_check_runner=health_check_runner,
                             restart_cooldown=self._restart_cooldown,
                             adapter_device_map=adapter_device_map,
-                            telemetry_adapter_device_map=telemetry_adapter_device_map,
+                            stale_adapter_device_map=stale_adapter_device_map,
                             resolved_clock=resolved_clock,
                             restartable_adapters=entered_restartable,
                             trigger_slots=trigger_config.slots,

@@ -613,8 +613,9 @@ Health Check Behavior:
     failed restart. A context manager wins when an adapter has both
   • Adapters with neither are never restarted (WARNING at startup, one
     WARNING per unhealthy episode); restartable = False opts out (INFO)
-  • App(restart_on_stale=True): a telemetry entity going stale (ADR-080)
-    restarts every restartable adapter it depends on, skipping the failure
+  • App(restart_on_stale=True): a telemetry entity, or a stream with
+    stale_after=, going stale (ADR-080) restarts every restartable adapter
+    it depends on, skipping the failure
     threshold but counting toward max_restarts; once per stale episode.
     Covers health_check() passing while reads time out. Needs
     health_check_interval
@@ -668,12 +669,12 @@ Container Liveness (ADR-083) — MQTT first, probe opt-in:
   • Root streams count for the health file and exit_after_stale too; their
     heartbeat-only availability means no MQTT availability topic, not an
     exemption from liveness checks. Streams require an explicit stale_after=
-    bound; restart_on_stale restarts telemetry adapters only
+    bound; with it, restart_on_stale restarts stream adapters too
   • With restart_on_stale, exit_after_stale must outlast the in-place
     recovery, both counted from the stale transition:
     exit_after_stale > check_interval (min(heartbeat_interval, 60 s,
     smallest stale_after)) + restart_cooldown + reset()/re-entry + health
-    check + first successful cycle of the recreated telemetry. One restart
+    check + first successful cycle of the recreated entity. One restart
     per stale episode. Rule of thumb: >= 2 x (60 s + restart_cooldown +
     longest telemetry interval)
 

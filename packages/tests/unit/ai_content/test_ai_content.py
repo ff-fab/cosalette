@@ -465,9 +465,16 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.11.1")
+        content = get_whats_new_content("0.11.2")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_11_2_describes_stream_restart_on_stale(self):
+        """The 0.11.2 entry says restart_on_stale now covers streams (ADR-084)."""
+        content = get_whats_new_content("0.11.1")
+
+        assert "### 0.11.2" in content
+        assert "restart_on_stale=True) now covers streams" in content
 
     def test_get_whats_new_content_0_11_0_describes_terminal_failure_offline(self):
         """The 0.11.0 entry explains offline on retry=0 / non-retryable failures."""

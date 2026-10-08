@@ -218,8 +218,8 @@ async def ble_feed(stream: Stream[Advertisement], ctx: cosalette.DeviceContext):
 
 - **`stale_after=`** (seconds, or a `(Settings) -> float` callable) is opt-in;
   nothing is derived. Every yielded item counts as a success. A stale stream
-  also counts for `exit_after_stale=` and the health file, which raise and
-  report `StaleTelemetryError` as for telemetry.
+  counts for the health file, `exit_after_stale=` and `restart_on_stale=` as
+  telemetry does; see [Staleness](staleness.md).
 - **`feeds=[...]`** names devices or telemetry entities that depend on the
   stream. While the stream is offline for any reason, each one is held
   `"offline"` under the `stream:{name}` source; its own sources stay

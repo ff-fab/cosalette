@@ -206,7 +206,7 @@ async def read_sensor(ctx: cosalette.DeviceContext) -> dict[str, object]:
 !!! tip "Tolerating temporary failures"
     `retry=` tolerates transient failures *within* a cycle. To tolerate a period
     without fresh data, disable the failure mark with `unavailable_on=None` and
-    choose an explicit [freshness](#freshness-stale_after) duration, such as
+    choose an explicit [freshness](../concepts/staleness.md) duration, such as
     `stale_after=180`. The entity goes `"offline"` after 180 seconds without a
     fresh cycle. This is elapsed-time tolerance, not a consecutive-failure count:
     handler execution, timeout, retries and backoff add to each post-cycle
@@ -234,61 +234,24 @@ telemetry task that has died, a poll that hangs without a `timeout`, an `init=`
 that keeps failing, or an error that `unavailable_on` deliberately ignores.  The
 reading then sits in Home Assistant as if it were current.
 
-ADR-080 adds a freshness watchdog.  Every named telemetry entity records when it
-last completed a **fresh cycle** — a successful poll, including one whose value a
-`PublishStrategy` suppressed as unchanged.  Once the last fresh cycle is older
-than `stale_after`, the entity publishes retained `"offline"` and logs one
-WARNING; the next fresh cycle publishes `"online"` again.
+The freshness watchdog closes that gap (ADR-080).  A named telemetry entity
+with no fresh cycle for its `stale_after` bound publishes retained `"offline"`,
+and the next fresh cycle publishes `"online"` again.  The bound is derived from
+the schedule unless you set it; streams opt in with `@app.stream(...,
+stale_after=...)`.
 
 ```python title="Freshness — explicit bound"
 @app.telemetry("radon", interval=300, stale_after=1800)  # offline after 30 min
 async def read_radon(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 ```
 
-| `stale_after=` | Meaning |
-|----------------|---------|
-| omitted (named entity) | Derived: `2 × period + timeout × (retry + 1) + allowance × retry` |
-| omitted (root entity) | Disabled — root entities opt in explicitly (as for `unavailable_on`) |
-| `float` | Explicit bound in seconds |
-| callable / `SettingRef` | Resolved from settings at startup |
-| callable with a dict `name=` callable | Called with each device's config, like `timeout=` |
-| `None` | Disabled for this entity |
-
-*period* is the `interval`, or the longest gap between a cron `schedule`'s next
-fire times; a disabled `timeout` counts as `0`.  The per-retry *allowance* is the
-backoff's `max_delay`, including its maximum positive jitter, but never less
-than 60 s. Built-in constructor caps are before jitter; their read-only
-`max_delay` properties include the +20% bound. The default backoff therefore
-allows 72 s per retry. The bound is deterministic, independent of sampled jitter. For
-`interval=300, retry=2` and the default timeout (one interval), the bound is
-`600 + 300 × 3 + 144 = 1644` s; for `interval=60` with no retries it is 180 s.
-
-With `timeout=None`, handler execution has no finite upper bound. The derived
-default budgets intervals and backoff sleeps but cannot guarantee completion
-of an arbitrarily slow handler; set an explicit `stale_after` for the freshness
-window your application needs.
-
 The freshness mark is a separate availability source: clearing it never brings
 an entity online while a failure mark (`unavailable_on`, `ctx.mark_unavailable()`)
 still holds it offline, and vice versa.
 
-The `{prefix}/status` heartbeat reports a stale entity as `"stale"` (it outranks
-`"error"`) and adds freshness fields to every telemetry entry:
-
-```json
-"radon": {"status": "stale", "last_success_at": "2026-10-02T08:15:00+00:00", "consecutive_failures": 7, "last_error": "BleakError", "failing_since": "2026-10-02T08:20:00+00:00"}
-```
-
-`last_success_at` is `null` until the first fresh cycle; `last_error` and
-`failing_since` are `null` while the entity is not failing (ADR-082).  A poll that could not
-publish because the broker was down does not count as a failure.
-
-!!! tip "Custom backoff strategies"
-    A built-in backoff with a cap above 60 s widens the derived bound
-    automatically — `ExponentialBackoff(max_delay=300)` with `retry=3` allows
-    1080 s for the backoff sleeps.  A custom `BackoffStrategy` is credited with
-    60 s per retry unless it exposes a finite numeric `max_delay` attribute
-    including any jitter; otherwise set `stale_after=` explicitly.
+[Staleness](../concepts/staleness.md) describes which entities can go stale,
+how the bound is derived, the heartbeat and health file signals, and the
+`exit_after_stale` and `restart_on_stale` responses.
 
 ---
 
