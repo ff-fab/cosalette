@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.11.1](https://github.com/ff-fab/cosalette/compare/v0.11.0...v0.11.1) (2026-10-06)
+
+
+### Features
+
+* **discovery:** opt-in instance identity; armv7 musl wheels; watchdog teardown test ([#503](https://github.com/ff-fab/cosalette/issues/503)) ([1882bd6](https://github.com/ff-fab/cosalette/commit/1882bd6dbb4163dcdda4db70cdbab9ba70587b60))
+* **health:** native cosalette-health probe shipped in platform wheels ([#498](https://github.com/ff-fab/cosalette/issues/498)) ([e528141](https://github.com/ff-fab/cosalette/commit/e5281416b557d83c440b8d0a181cfa2ad2d9aae8))
+* **health:** opt-in event-loop stall watchdog with exit code 6 ([#500](https://github.com/ff-fab/cosalette/issues/500)) ([5dfaa03](https://github.com/ff-fab/cosalette/commit/5dfaa038b3540be9d8645c5971ff7b66e1b84d78))
+
+
+### Bug Fixes
+
+* **health:** exit 1 on probe usage errors and drop always-healthy healthcheck docs ([#495](https://github.com/ff-fab/cosalette/issues/495)) ([ecb7c4f](https://github.com/ff-fab/cosalette/commit/ecb7c4f92695dbb873346dcb5caf6a140b31238a))
+
+
+### Performance Improvements
+
+* lazy cosalette exports and MQTT-first liveness guidance ([#497](https://github.com/ff-fab/cosalette/issues/497)) ([2f01859](https://github.com/ff-fab/cosalette/commit/2f01859b803e0f29bf26b9e695babe7cac1b4fd8))
+* reduce discovery imports and harden devcontainer ([314fb48](https://github.com/ff-fab/cosalette/commit/314fb48c33b34c4eca468d8cf1905c3ca1c4c032))
+* runtime memory footprint (Typer-free run, lazy subsystems, rich-free help, discovery without [schema]) ([#502](https://github.com/ff-fab/cosalette/issues/502)) ([8b13378](https://github.com/ff-fab/cosalette/commit/8b133782133e8bd32cfaee9cd7b8702884815763))
+
 ## [0.11.0](https://github.com/ff-fab/cosalette/compare/v0.10.6...v0.11.0) (2026-10-03)
 
 
