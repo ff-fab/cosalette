@@ -17,6 +17,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
 
 import pytest
@@ -75,6 +76,8 @@ def _app(
     restart_on_stale: bool = True,
     restart_cooldown: float = 1.0,
     max_restarts: int = 3,
+    name: str | None = "radio",
+    heartbeat_interval: float = 60.0,
 ) -> App:
     app = App(
         name=PREFIX,
@@ -84,10 +87,11 @@ def _app(
         restart_cooldown=restart_cooldown,
         max_restarts=max_restarts,
         restart_on_stale=restart_on_stale,
+        heartbeat_interval=heartbeat_interval,
     )
     app.adapter(StreamablePort[_Frame], lambda: port)
 
-    @app.stream("radio", stale_after=stale_after)
+    @app.stream(name, stale_after=stale_after)
     async def radio(stream: Stream[_Frame]) -> AsyncIterator[None]:
         async for _ in stream:
             yield
@@ -105,7 +109,7 @@ async def _start(app: App) -> tuple[AppHarness, asyncio.Task[None]]:
         run_streams=True,
     )
     task = asyncio.create_task(harness.run())
-    await harness.wait_for_publish_count(f"{PREFIX}/radio/availability", 1)
+    await harness.wait_for_publish_count(f"{PREFIX}/status", 1)
     return harness, task
 
 
@@ -121,6 +125,65 @@ async def _stop(harness: AppHarness, task: asyncio.Task[None]) -> None:
 
 class TestStaleStreamRestartsItsAdapter:
     """A stale stream with stale_after= restarts its StreamablePort."""
+
+    async def test_root_stream_restarts_without_publishing_availability(self) -> None:
+        """Technique: State Transition Testing and Equivalence Partitioning."""
+        # Arrange
+        port = _QuietRadio()
+        harness, task = await _start(_app(port, name=None, heartbeat_interval=1.0))
+
+        # Act: observe staleness and recovery before shutdown.
+        await _advance(harness, 60.0)
+        stale = json.loads(harness.messages_for(f"{PREFIX}/status")[-1][0])
+        port.push()
+        await harness.advance_time(1.0)
+        recovered = json.loads(harness.messages_for(f"{PREFIX}/status")[-1][0])
+        await _stop(harness, task)
+
+        # Assert
+        assert (port.resets, port.opens) == (1, 2)
+        assert stale["devices"]["radio"]["status"] == "stale"
+        assert recovered["devices"]["radio"]["status"] == "ok"
+        assert harness.messages_for(f"{PREFIX}/availability") == []
+        assert harness.messages_for(f"{PREFIX}/radio/availability") == []
+
+    async def test_stale_stream_restarts_its_injected_adapter_too(self) -> None:
+        """Technique: State Transition Testing and Condition Coverage."""
+        # Arrange: the stream has both a source and an injected dependency.
+        port = _QuietRadio()
+        auxiliary = _QuietRadio()
+        app = App(
+            name=PREFIX,
+            store=None,
+            health_check_interval=10.0,
+            restart_cooldown=1.0,
+            restart_on_stale=True,
+        )
+        app.adapter(StreamablePort[_Frame], lambda: port)
+        app.adapter(_QuietRadio, lambda: auxiliary)
+        handled: list[_Frame] = []
+
+        @app.stream("radio", stale_after=20.0)
+        async def radio(
+            stream: Stream[_Frame], dependency: _QuietRadio
+        ) -> AsyncIterator[None]:
+            assert await dependency.health_check() is True
+            async for frame in stream:
+                handled.append(frame)
+                yield
+
+        harness, task = await _start(app)
+
+        # Act
+        await _advance(harness, 60.0)
+        port.push()
+        await harness.advance_time(0.0)
+        await _stop(harness, task)
+
+        # Assert: both restarts recreate the stream and it delivers data again.
+        assert (port.resets, auxiliary.resets) == (1, 1)
+        assert port.opens == 3
+        assert len(handled) == 1
 
     @pytest.mark.parametrize(
         ("stale_after", "restart_on_stale", "expected_resets"),

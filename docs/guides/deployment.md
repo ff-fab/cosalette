@@ -288,11 +288,13 @@ acts on it.
 | ----- | ---- | ------------ |
 | `{prefix}/status` | The app is alive: a retained JSON heartbeat every `heartbeat_interval` (60 s by default), with a per-device `status` | The app |
 | `{prefix}/status` = `"offline"` | The app stopped or lost its connection | The app on a clean shutdown; the broker (LWT) on a crash, hang or network loss |
-| `{prefix}/{device}/availability` | Each entity's data is fresh: `"online"` / `"offline"` (root entities use `{prefix}/availability`) | The app |
+| `{prefix}/{device}/availability` | Each entity's data is fresh: `"online"` / `"offline"` (root telemetry uses `{prefix}/availability`; root streams have no availability topic) | The app |
 
 A telemetry entity, or a stream with `stale_after=`, that delivers no fresh data
 for its `stale_after` bound goes `"offline"` on its availability topic and
-reports `stale` in the heartbeat ([Staleness](../concepts/staleness.md)).
+reports `stale` in the heartbeat. Root streams report staleness only in the
+heartbeat and optional health file, without changing MQTT availability
+([Staleness](../concepts/staleness.md)).
 Alert on:
 
 - `{prefix}/status` staying `"offline"`, or no heartbeat arriving for about three

@@ -112,9 +112,11 @@ following, once per stale episode:
 The `freshness` source is independent of the other availability sources.
 Clearing it never brings an entity online while a failure mark
 (`unavailable_on`, `ctx.mark_unavailable()`), a failed adapter health check or a
-stream's `feeds=` still holds it offline, and the reverse. A root entity has no
-availability topic of its own, so it shows staleness only in the heartbeat and
-the health file. Telemetry heartbeat entries also carry `last_success_at`
+stream's `feeds=` still holds it offline, and the reverse. Root telemetry with
+an explicit `stale_after=` publishes freshness transitions to the app-wide
+`{prefix}/availability` topic. Root streams are heartbeat-only: their staleness
+appears in the heartbeat and health file without an MQTT availability publish.
+Telemetry heartbeat entries also carry `last_success_at`
 ([Payloads](../reference/payloads.md)).
 
 A stream's `feeds=` entities follow it: while the stream is stale, each fed
@@ -150,9 +152,12 @@ app = App("airthings2mqtt", health_check_interval=60.0, restart_on_stale=True)
 - It waits for a running health check round, so the two paths never restart the
   same adapter at once.
 - It needs the health check runner: `health_check_interval` must be set and the
-  adapter must be `HealthCheckable` and restartable. Otherwise the app logs a
-  WARNING at startup and the option has no effect. A stale entity that depends
-  on no such adapter is logged at DEBUG and nothing is restarted.
+  adapter must be `HealthCheckable` and restartable. A missing runner or empty
+  stale-adapter map produces a startup WARNING that the option has no effect.
+  An adapter without a restart protocol produces a startup WARNING, while
+  `restartable = False` opts out with INFO. When a runner exists, requests for
+  unknown or non-restartable adapters are ignored at DEBUG. A stale entity
+  absent from the adapter map is also logged at DEBUG; nothing is restarted.
 
 The restart mechanics — `reset()`, re-entering the context manager, cooldown
 and budget — are described under

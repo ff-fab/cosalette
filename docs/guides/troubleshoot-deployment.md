@@ -66,7 +66,7 @@ Diagnose and fix common problems with containerised cosalette applications.
     | `1` | Configuration error | Check env vars — missing required field, invalid value |
     | `3` | Runtime error | Check logs with `docker logs myapp` for the root cause |
     | `4` | Task failure (ADR-081) | A device, telemetry, periodic or stream task kept failing. Search the logs for the `CRITICAL` line from `cosalette._supervisor` — it names the task and carries the traceback |
-    | `5` | Stale telemetry (ADR-083) | A telemetry entity or stream stayed [stale](../concepts/staleness.md) for `exit_after_stale` seconds. The `CRITICAL` log line names it; check the device and the adapter behind it |
+    | `5` | Stale entity (ADR-083) | A telemetry entity or stream stayed [stale](../concepts/staleness.md) for `exit_after_stale` seconds. The `CRITICAL` log line names it; check the device and the adapter behind it |
     | `6` | Event loop stalled (ADR-088) | The loop did not run for `COSALETTE_LOOP_STALL_TIMEOUT` seconds. Below the `CRITICAL cosalette: event loop stalled` line, stderr has every thread's stack; the one running `asyncio` (not the `cosalette-stall` watcher thread) shows the blocking call. Move it off the loop (`asyncio.to_thread`) or raise the timeout. A loop stuck in C code that holds the GIL exits with `1` instead, after twice the timeout: stderr starts with `Timeout (H:MM:SS)!` (for example `Timeout (0:10:00)!`) and has no `CRITICAL` line; read the stacks the same way |
     | `137` | OOM killed / SIGKILL | Increase memory limit or reduce footprint |
 
