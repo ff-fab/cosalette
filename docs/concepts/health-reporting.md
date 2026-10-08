@@ -108,12 +108,13 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
     when the device recovers. See [Error Handling](error-handling.md) for
     details on error deduplication.
 
-    A telemetry entity with no fresh cycle for its `stale_after` bound reports
-    `"stale"`, which outranks `"error"` (ADR-080). Telemetry entries also carry
+    A telemetry entity with no fresh cycle for its `stale_after` bound, or a
+    stream with `stale_after=` and no item for that long, reports `"stale"`,
+    which outranks `"error"` (ADR-080). Telemetry entries also carry
     `last_success_at` (ISO 8601 UTC, `null` before the first fresh cycle),
     `consecutive_failures`, and, while failing, `last_error` and
     `failing_since` (both `null` when healthy, ADR-082). See
-    [Transport Availability Signaling](../guides/transport-availability.md#freshness-stale_after).
+    [Staleness](staleness.md).
 
 ### HeartbeatPayload Fields
 
@@ -462,8 +463,9 @@ Streams are mapped too. A `Stream[T]` handler depends on the
 `StreamablePort[T]` adapter behind it, plus any adapter it injects directly. A
 failing check takes a named stream offline (a root stream shows it in its
 heartbeat status), and an adapter restart cancels the stream and re-creates it,
-which closes the port and opens it again. `restart_on_stale` still covers
-telemetry only.
+which closes the port and opens it again. A stream with `stale_after=` that
+goes stale requests the same restart under `restart_on_stale`
+([Staleness](staleness.md)).
 
 ### Failure Counting
 
@@ -597,47 +599,15 @@ class AirthingsClient:
 or a cache. When an adapter has both a context manager and `reset()`, the
 restart uses the context manager and never calls `reset()`.
 
-#### Restart on Stale Telemetry
+#### Restart on Stale
 
-A health check can pass while the adapter delivers no data, for example when a BLE
-client is connected but every read times out. The
-[freshness watchdog](../guides/transport-availability.md) then marks the telemetry
-entity `stale`, but the failure threshold never fires. With
-`App(restart_on_stale=True)`, the moment an entity goes stale requests a restart
-of every restartable adapter that entity depends on:
-
-```python
-app = App("airthings2mqtt", health_check_interval=60.0, restart_on_stale=True)
-```
-
-- The request skips `restart_after_failures` but counts toward `max_restarts`
-  and uses `restart_cooldown`. An adapter whose budget is spent is not
-  restarted.
-- It fires once per stale episode. The entity has to deliver fresh data and go
-  stale again before it requests another restart.
-- It waits for a running health check round, so the two paths never restart
-  the same adapter at once.
-- It needs the health check runner: `health_check_interval` must be set and the
-  adapter must be `HealthCheckable` and restartable. Otherwise the app logs a
-  WARNING at startup and the option has no effect.
-
-To restart the whole process instead, see `exit_after_stale` under
-[Supervised restart](../guides/deployment.md#supervised-restart).
-
-!!! warning "Combining with `exit_after_stale`"
-
-    `exit_after_stale` counts from the same stale transition. If it is shorter
-    than the in-place recovery, the app exits before the restart can help.
-    Keep
-    `exit_after_stale > check_interval + restart_time + first_cycle_time`,
-    where `check_interval = min(heartbeat_interval, 60 s, smallest stale_after)`
-    is the delay before the restart is requested, `restart_time` is
-    `restart_cooldown` plus `reset()` or re-entry and the health check that
-    follows, and `first_cycle_time` is the first successful cycle of the
-    recreated telemetry, which runs right away. A rule of thumb is
-    `exit_after_stale ≥ 2 × (60 s + restart_cooldown + the longest telemetry
-    interval)`. See the
-    [deployment guide](../guides/deployment.md#supervised-restart) for details.
+A health check can pass while the adapter delivers no data. With
+`App(restart_on_stale=True)`, a telemetry entity or a stream with
+`stale_after=` that goes stale also requests a restart of the restartable
+adapters it depends on. The request skips `restart_after_failures`, but it
+follows the restart sequence above and counts toward `max_restarts`. See
+[Staleness](staleness.md#restart-the-adapter-in-place-restart_on_stale) for
+when it fires and how it combines with `exit_after_stale`.
 
 #### Opting Out
 
@@ -676,6 +646,7 @@ transient failures to get a fresh restart budget without accumulating toward
 
 - [MQTT Topics](mqtt-topics.md) — complete topic map and retention rules
 - [Error Handling](error-handling.md) — structured error events (complementary to health)
+- [Staleness](staleness.md) — what goes stale and how the app responds
 - [Lifecycle](lifecycle.md) — when availability is published (Phases 2 and 4)
 - [Hexagonal Architecture](hexagonal.md) — ClockPort for monotonic uptime
 - [ADR-012 — Health and Availability Reporting](../adr/ADR-012-health-and-availability-reporting.md)

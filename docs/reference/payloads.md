@@ -139,8 +139,9 @@ Each entry in the `devices` map is a `DeviceStatus` object:
 | `last_error` | `str \| null` | Telemetry only: exception class name of the current failure streak, `null` while healthy (ADR-082). |
 | `failing_since` | `str \| null` | Telemetry only: ISO 8601 UTC time of the streak's first failure, `null` while healthy (ADR-082). |
 
-A telemetry entity with no fresh cycle for its `stale_after` bound reports
-`status: "stale"`, which outranks `"error"`.  Non-telemetry entries carry
+A telemetry entity with no fresh cycle for its `stale_after` bound, or a stream
+with `stale_after=` and no item for that long, reports `status: "stale"`, which
+outranks `"error"` ([Staleness](../concepts/staleness.md)).  Non-telemetry entries carry
 `status` only.
 
 Devices are added to tracking when `publish_device_available()` is called

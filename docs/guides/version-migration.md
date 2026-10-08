@@ -435,7 +435,7 @@ async def read_noisy(ctx: cosalette.DeviceContext) -> dict[str, float]: ...
 
 A custom `BackoffStrategy` without a `max_delay` attribute is credited with 60 s
 per retry; set `stale_after=` explicitly if it sleeps longer.  See
-[Transport Availability Signaling](transport-availability.md#freshness-stale_after).
+[Staleness](../concepts/staleness.md).
 
 ### Fix: offline availability survives an MQTT outage (v0.11.0+)
 
