@@ -171,3 +171,22 @@ host non-applicability is claimed pending that verification. The unprivileged
 devcontainer passes no NVMe block devices, but device absence alone does not establish
 that every affected driver path is unreachable. cos-dam4 and owner cos-nxu6 remain open
 for both host assessments and the 27 October baseline recheck.
+
+## Additional advisories reviewed on 8 October 2026
+
+The [8 October image review](security-review-2026-10-08.md) adds three header-only
+fingerprints without resolving host applicability. Each remains **open / unknown** for
+both the workstation and CI hosts under cos-dam4 and owner cos-nxu6:
+
+- **CVE-2026-89811:** collect `HSA_AMD`/`DRM_AMDGPU`, loaded-driver and GPU-device
+  evidence, and verify vendor fixes for the KFD MES TLB invalidation issue.
+- **CVE-2026-90111:** collect `IPV6`/`IPV6_MROUTE` and multicast-routing evidence,
+  including user-owned network namespaces, and verify vendor fixes for the route
+  use-after-free. Rootless execution alone does not close this exposure.
+- **CVE-2026-90315:** collect `PCI`/`HAVE_PCI_LEGACY`, architecture, lockdown and legacy
+  sysfs access evidence, and verify vendor fixes for the lockdown bypass.
+
+The inventory script now includes these subsystem checks. No previous host verdict or
+total above includes these three advisories. Recheck each before 27 October 2026;
+neither the header package exemption nor absence of host devices in the container proves
+the host kernel is patched.

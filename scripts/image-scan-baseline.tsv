@@ -227,7 +227,10 @@ debian	HIGH	CVE-2026-89631	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-89633	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-89638	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-89675	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-89811	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-89972	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-90111	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-90315	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-93990	libexpat1	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-93990	libexpat1-dev	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-9538	libperl5.40	5.40.1-6+deb13u1	-	debian_pending

@@ -5,7 +5,7 @@
 # The devcontainer is not privileged: dockerd-rootless.sh (rootlesskit) runs the
 # daemon in a user namespace mapped to vscode's subordinate IDs, with slirp4netns
 # networking. devcontainer.json supplies the security options this needs and
-# sets XDG_RUNTIME_DIR and DOCKER_HOST; see
+# sets DOCKER_HOST; docker-runtime.sh sets XDG_RUNTIME_DIR. See
 # .devcontainer/restricted-builder-evaluation.md.
 #
 # Published ports are bound on the devcontainer's loopback by rootlesskit, so

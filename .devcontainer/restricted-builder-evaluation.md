@@ -47,8 +47,11 @@ user's files. Escape needed no kernel exploit.
 - `--device=/dev/net/tun` for slirp4netns.
 - A named volume at `/home/vscode/.local/share/docker` (the rootless data root), because
   overlayfs on the container's own overlay root fails with `EINVAL`.
-- `XDG_RUNTIME_DIR=/run/user/vscode` and
-  `DOCKER_HOST=unix:///run/user/vscode/docker.sock` use a stable user-named path.
+- `DOCKER_HOST=unix:///run/user/vscode/docker.sock` (in `containerEnv`) and
+  `XDG_RUNTIME_DIR=/run/user/vscode` use a stable user-named path. `XDG_RUNTIME_DIR` is
+  set only by `docker-runtime.sh` for the daemon, not in `containerEnv`: VS Code Server
+  starts before `post-start.sh` creates the directory and puts its own sockets in
+  `$XDG_RUNTIME_DIR`, so a container-wide value breaks the VS Code connection.
 - `--tmpfs=/run/user:mode=0755` supplies a root-owned parent. Startup creates its
   private `vscode` subdirectory with mode 0700 and the actual `id -u`/`id -g`,
   preserving Dev Containers host UID remapping. It also corrects the named data-volume

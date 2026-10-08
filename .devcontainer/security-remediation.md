@@ -6,6 +6,10 @@ a historical scan snapshot; use the final image scan for current inventory. The
 [cos-yi5p renewal](security-review-2026-10-05-renewal.md) re-reviews the groups that
 expired on 11 October.
 
+The [8 October review](security-review-2026-10-08.md) individually reviews three
+additional header fingerprints from PR 506. Their acceptance expires on 27 October 2026;
+advisory-specific host applicability remains open under cos-dam4/cos-nxu6.
+
 ## Python installation ownership
 
 The pinned base image carries virtualenv 21.7.9 in both
