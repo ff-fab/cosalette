@@ -458,7 +458,8 @@ app-global entities; router-local matches take precedence when both exist.
 Root streams (`@app.stream()`) are heartbeat-only: they never publish availability
 or touch `{app}/availability`, and cannot declare `feeds=`. Their explicit
 `stale_after=` still affects the heartbeat, health file and `exit_after_stale=`.
-`restart_on_stale` does not restart stream adapters. Streams remain outside Home
+With `App(restart_on_stale=True)`, a stream that goes stale restarts the restartable
+adapters it depends on, the same as telemetry. Streams remain outside Home
 Assistant discovery.
 
 Both consumer targets wire availability automatically: Home Assistant gets dual-topic

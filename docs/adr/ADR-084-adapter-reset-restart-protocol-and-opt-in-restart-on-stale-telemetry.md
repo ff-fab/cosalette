@@ -9,7 +9,7 @@ tags: [lifecycle, health, telemetry]
 
 ## Status
 
-Accepted **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-08
 
 ## Context
 
@@ -98,4 +98,18 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Restart on stale cannot help an adapter without a health check, because the restart path lives in the health check runner
 - A slow entity whose stale_after is too tight can spend the restart budget on false alarms
 
-_2026-10-02_
+## Amendment (2026-10-08) — Additive
+
+**Rationale:** ADR-084 limited restart on stale to telemetry because only telemetry was in the stale-restart map. ADR-081 (2026-10-03 amendment) gave streams an opt-in stale_after= but kept them out of restart_on_stale, giving as the only reason that streams were not in the ADR-029 adapter map. cos-kg37 has since added streams to that map, so a stream bound to a StreamablePort[T] is health-checked and restarted like any other dependent, but a stale stream still could not request that restart and its name was dropped silently by the restart callback (cos-02wc). A radio or BLE stream whose port passes its health check while delivering nothing is the same failure ADR-084 was written for.
+
+### Additional Sub-Decision: Restart on stale covers streams that declare stale_after=
+
+With `restart_on_stale=True`, a stream that declares `stale_after=` and goes stale requests a restart of every restartable adapter it depends on (the `StreamablePort[T]` behind its `Stream[T]` parameter, or any other injected adapter), with the telemetry semantics unchanged: the request skips `restart_after_failures`, counts against `max_restarts`, honours `restart_exhausted` and `restart_cooldown`, is serialised with the health check loop, fires once per stale episode, and needs `health_check_interval` and a health-checkable adapter (otherwise the existing startup WARNING is logged). Root streams with `stale_after=` are included: their freshness is heartbeat-only, but their adapter can still be restarted. A stream without `stale_after=` never goes stale and so never requests a restart. The stale-restart map is built from the telemetry entities and streams that have a freshness bound, not from the full adapter map, so a command, device or periodic task that shares a name with a stale entity never pulls its own adapter into the restart. The restart reason names the archetype (`stale stream 'radio'` or `stale telemetry 'sensor'`). A stale entity that depends on no adapter is logged at DEBUG instead of being ignored silently. No other archetype gains a stale notion: commands, buttons, devices, periodic tasks, discovery, state and attributes are event-driven or have no success signal, so they cannot go stale.
+
+### Additional Positive Consequences
+
+- A stream whose port passes its health check while delivering nothing can recover in place, within the ADR-029 budget, the same as telemetry
+
+### Additional Negative Consequences
+
+- An app that already sets restart_on_stale=True and has a stream with stale_after= now restarts that stream's adapter when the stream goes stale; a quiet but healthy stream with a tight stale_after can spend the restart budget on false alarms

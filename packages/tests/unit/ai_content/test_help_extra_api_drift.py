@@ -173,7 +173,7 @@ class TestStreamHealthGuidance:
         assert (
             "Root streams count for the health file and exit_after_stale" in health_help
         )
-        assert "restart_on_stale restarts telemetry adapters only" in health_help
+        assert "restart_on_stale restarts stream adapters too" in health_help
         mqtt = MockMqttClient()
         clock = FakeClock()
         reporter = HealthReporter(mqtt, "app", "1", clock)

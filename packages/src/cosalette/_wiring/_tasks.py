@@ -239,7 +239,7 @@ async def run_lifespan_and_devices(
     adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
     resolved_clock: ClockPort | None = None,
     restartable_adapters: list[object] | None = None,
-    telemetry_adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
+    stale_adapter_device_map: dict[type, list[DeviceInfo]] | None = None,
     trigger_slots: dict[str, _TriggerSlot] | None = None,
     periodic: Sequence[_PeriodicRegistration] = (),
     stream_list: Sequence[_StreamRegistration] = (),
@@ -272,8 +272,9 @@ async def run_lifespan_and_devices(
     *health_file* turns on the opt-in health file, written from here on
     whether or not the broker is reachable; *exit_after_stale* ends the app
     once a telemetry entity or stream has been stale that long (ADR-083).
-    *restart_on_stale* restarts the adapters a newly stale entity depends
-    on through *health_check_runner* (ADR-084).
+    *restart_on_stale* restarts the adapters a newly stale telemetry entity
+    or stream depends on (*stale_adapter_device_map*) through
+    *health_check_runner* (ADR-084).
 
     *loop_stall_timeout* arms the loop-stall watchdog together with the
     health file, after the lifespan has started, and disarms it when
@@ -332,7 +333,8 @@ async def run_lifespan_and_devices(
             on_newly_stale=stale_restart_callback(
                 restart_on_stale,
                 health_check_runner,
-                telemetry_adapter_device_map,
+                stale_adapter_device_map,
+                stream_names=[s.name for s in stream_list],
             ),
         )
 

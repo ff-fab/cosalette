@@ -363,9 +363,10 @@ class App(
                 recreated telemetry.  Rule of thumb: at least
                 ``2 * (60 + restart_cooldown + longest telemetry interval)``.
                 See ADR-083.
-            restart_on_stale: When ``True``, a telemetry entity that goes
-                ``stale`` requests a restart of every restartable adapter
-                it depends on, without waiting for failed health checks.
+            restart_on_stale: When ``True``, a telemetry entity or a
+                stream with ``stale_after=`` that goes ``stale`` requests a
+                restart of every restartable adapter it depends on, without
+                waiting for failed health checks.
                 Each request counts against *max_restarts* and fires once
                 per stale episode.  Needs *health_check_interval*.
                 Defaults to False.  See ADR-084.

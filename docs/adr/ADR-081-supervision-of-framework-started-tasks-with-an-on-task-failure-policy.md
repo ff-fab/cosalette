@@ -9,7 +9,7 @@ tags: [lifecycle, health, error-handling, telemetry, devices]
 
 ## Status
 
-Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-02 | Amended **Date:** 2026-10-03 | Amended **Date:** 2026-10-08
 
 ## Context
 
@@ -298,3 +298,8 @@ A root stream (`@app.stream()` without a name) never publishes an availability t
 
 !!! note "Editorial note (2026-10-03)"
     Correction to point (4) of the 2026-10-03 named-stream amendment's rationale: availability is not auto-wired for every archetype. It is owned by devices, telemetry, commands and named streams. Root streams are heartbeat-only and publish no availability topic. Sub-entities created with `ctx.sub_entity()` publish their own topic outside the health reporter and are not in the generated schema (ADR-086).
+
+## Amendment (2026-10-08) — Minor
+
+!!! note "Editorial note (2026-10-08)"
+    Correction to the 2026-10-03 sub-decision "Opt-in stale_after= for streams" and the 2026-10-03 minor amendment: `restart_on_stale` now applies to streams with `stale_after=` (cos-02wc). The stale-restart map is built from telemetry entities and streams that have a freshness bound, so a stale stream requests a restart of the restartable adapters it depends on with the telemetry semantics. See the 2026-10-08 amendment of ADR-084.
