@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
-        Collection,
         Iterable,
         Sequence,
     )
@@ -167,7 +166,7 @@ def stale_restart_callback(
     restart_on_stale: bool,
     health_check_runner: HealthCheckRunner | None,
     stale_adapter_device_map: dict[type, list[DeviceInfo]] | None,
-    stream_names: Collection[str] = (),
+    stream_names: Iterable[str] = (),
 ) -> Callable[[list[str]], Awaitable[None]] | None:
     """Return the ``restart_on_stale`` action, or ``None`` when off (ADR-084).
 

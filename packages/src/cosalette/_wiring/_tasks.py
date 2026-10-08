@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import operator
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -334,7 +335,7 @@ async def run_lifespan_and_devices(
                 restart_on_stale,
                 health_check_runner,
                 stale_adapter_device_map,
-                stream_names=[s.name for s in stream_list],
+                stream_names=map(operator.attrgetter("name"), stream_list),
             ),
         )
 
