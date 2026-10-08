@@ -6,10 +6,11 @@ you need to get a development environment running and start making changes.
 ## Prerequisites
 
 - Python ≥ 3.14
-- Docker (for DevContainer development)
+- Docker Engine with the Buildx plugin (BuildKit) — see
+  [DevContainer host requirements](#devcontainer-host-requirements)
 - VS Code with DevContainers extension
 
-## Setup (2 minutes)
+## Setup
 
 ```bash
 # Clone the repository
@@ -24,6 +25,59 @@ code .
 ```
 
 That's it! You're ready to develop.
+
+The first build of the DevContainer image can take 30 minutes or more on a cold cache.
+Later starts reuse the local BuildKit cache. While the window shows "Opening Remote...",
+run **Dev Containers: Show Container Log** to follow the build. Do not reload the
+window: a reload cancels the build, and the next attempt resumes from the last completed
+layer.
+
+### DevContainer host requirements
+
+**Buildx (BuildKit) is required.** The Dockerfile uses `COPY --chmod`, which the legacy
+builder rejects. Without Buildx, the Dev Containers extension falls back to the legacy
+builder, rebuilds without cache, and fails after the long apt layer with
+`the --chmod option requires BuildKit`. Check on the host before opening the container:
+
+```bash
+docker buildx version   # must print a version, not "unknown command"
+```
+
+**Docker runs rootless inside the container**, so the container is not privileged.
+`devcontainer.json` starts it with:
+
+- `--security-opt=seccomp=unconfined`, `--security-opt=apparmor=unconfined` and
+  `--security-opt=systempaths=unconfined`, so rootlesskit can create a user namespace
+  and mount `/proc` in it
+- `--device=/dev/net/tun` for slirp4netns networking; the host must provide
+  `/dev/net/tun`
+- a tmpfs at `/run/user` for the daemon runtime directory
+
+The host engine must accept these options. CI validates them with Docker Engine on
+GitHub Actions runners (`.devcontainer/tests/rootless-docker.sh`). Engines that cannot
+pass a TUN device or disable seccomp and AppArmor for the container, such as rootless
+Podman or locked-down hosted environments, are not supported. The inner daemon keeps its
+data on the named volume `dind-rootless-docker-<id>`.
+
+#### WSL2: stale Docker Desktop plugin links
+
+With Docker Desktop's WSL integration enabled, the distribution gets symlinks into
+`/mnt/wsl/docker-desktop/cli-tools`: `/usr/local/lib/docker/cli-plugins/docker-*` and
+`/usr/bin/docker-compose`. If Docker Desktop stops or the integration is turned off,
+that mount becomes unreadable and the links break. The Docker CLI looks in
+`/usr/local/lib/docker/cli-plugins` before `/usr/libexec/docker/cli-plugins`, so a
+broken link hides a working `docker-buildx-plugin` package. `docker buildx version` then
+reports `unknown command` and `docker info` warns `fork/exec ... input/output error`.
+
+Fix it in one of two ways:
+
+- If you use Docker Desktop: quit it, run `wsl --shutdown` from Windows, and start
+  Docker Desktop again.
+- If you use a Docker Engine installed in the distribution: disable the WSL integration
+  for the distribution in Docker Desktop, remove the broken links
+  (`sudo rm /usr/local/lib/docker/cli-plugins/docker-* /usr/bin/docker-compose` after
+  checking that each one points into `/mnt/wsl/docker-desktop`), and remove
+  `"credsStore": "desktop.exe"` from `~/.docker/config.json`.
 
 ### Docker credentials in the DevContainer
 

@@ -219,7 +219,11 @@
   ],
 
   "containerEnv": {
-    "XDG_RUNTIME_DIR": "/run/user/vscode",
+    // XDG_RUNTIME_DIR is deliberately not set here: VS Code Server starts
+    // before post-start.sh creates /run/user/vscode on the empty tmpfs, and it
+    // puts its own sockets in $XDG_RUNTIME_DIR, so the connection would fail.
+    // docker-runtime.sh sets and exports it for the rootless daemon; the docker
+    // CLI only needs DOCKER_HOST.
     "DOCKER_HOST": "unix:///run/user/vscode/docker.sock",
     // Ports published by the rootless daemon are bound on this container's
     // loopback. Without these, testcontainers detects Docker-in-Docker and
