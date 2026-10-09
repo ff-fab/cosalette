@@ -247,6 +247,21 @@ ENV TYPER_USE_RICH=0
 The lockfile is used as-is and nothing is re-resolved, so your dev environment keeps
 rich. The recipe works with the `ghcr.io/astral-sh/uv:0.6` image pinned above.
 
+If the image installs from an exported requirements file instead of `uv sync`, prune
+rich from the export and install with `--no-deps`:
+
+```dockerfile title="Dockerfile (export variant)"
+RUN uv venv \
+    && uv export --frozen --no-dev --no-emit-project --prune rich \
+        -o requirements.txt \
+    && uv pip install --no-deps -r requirements.txt
+```
+
+`--prune rich` drops rich and the three packages only it needs. `--no-deps` is
+required: without it, uv resolves the dependencies of the listed packages again,
+finds that typer requires rich and installs all four. Install the project itself
+with `--no-deps` as well.
+
 - **Plain output.** Help and usage errors of the CLIs cosalette builds (the app CLI,
   its `schema` group and the `cosalette` command) fall back to plain output when rich
   is missing, with the same exit codes.
