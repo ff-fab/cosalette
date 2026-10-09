@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import functools
 import importlib.metadata
+import re
 from pathlib import Path
-
-from packaging.version import InvalidVersion, Version
 
 # Available topics for help — must stay in sync with get_help_content() branches
 AVAILABLE_TOPICS = [
@@ -906,6 +905,30 @@ def get_prime_content() -> str:
    cosalette ai help discovery      — Runtime Home Assistant MQTT discovery"""
 
 
+_VERSION_RE = re.compile(r"v?(\d+(?:\.\d+)*)(?:[-_.]?((?:a|b|rc|dev)\d*))?", re.I)
+
+
+def _version_key(text: str) -> tuple[tuple[int, ...], bool] | None:
+    """Return a sort key for a release version, or ``None`` when invalid.
+
+    Accepts ``X.Y.Z`` with an optional ``v`` prefix and an optional
+    ``a``/``b``/``rc``/``dev`` suffix.  Only the release segment is compared
+    numerically (``0.10.0 > 0.9.6``), trailing zeros are ignored, and a
+    pre-release sorts just before its release (``0.11.0rc1 < 0.11.0``).
+    Post-release and local suffixes are rejected.
+    """
+    match = _VERSION_RE.fullmatch(text.strip())
+    if match is None:
+        return None
+    try:
+        release = tuple(int(part) for part in match[1].split("."))
+    except ValueError:
+        return None  # A component exceeds the interpreter's integer digit limit.
+    while len(release) > 1 and release[-1] == 0:
+        release = release[:-1]
+    return release, match[2] is None
+
+
 def get_whats_new_content(from_version: str) -> str:
     """Generate What's New section for versions after from_version.
 
@@ -915,20 +938,16 @@ def get_whats_new_content(from_version: str) -> str:
     Returns:
         Formatted what's new content, or empty string if invalid/no new features
     """
-    try:
-        base_version = Version(from_version)
-    except Exception:
+    base_key = _version_key(from_version)
+    if base_key is None:
         return ""  # Invalid version format
 
     # Find all versions newer than from_version
     newer_versions = []
     for version_str in VERSION_FEATURES:
-        try:
-            version = Version(version_str)
-            if version > base_version:
-                newer_versions.append((version, version_str))
-        except InvalidVersion:
-            continue  # Skip invalid versions
+        key = _version_key(version_str)
+        if key is not None and key > base_key:
+            newer_versions.append((key, version_str))
 
     if not newer_versions:
         return ""  # No newer versions found

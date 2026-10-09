@@ -3,11 +3,13 @@
 Test Techniques Used:
 - Specification-based Testing: Verifying type contracts and defaults
 - Equivalence Partitioning: Valid/invalid enforcement modes
-- Error Guessing: Edge cases in violation formatting
+- Error Guessing: Edge cases in violation formatting; a missing [schema]
+  extra reported as a bad schema path (cos-c1jb.1)
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +20,7 @@ from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
     SchemaRegistry,
+    _loader,
 )
 from cosalette._schema._enforcement import (
     SchemaViolation,
@@ -387,6 +390,51 @@ class TestLoadAndValidateSchema:
                 path="/nonexistent/schema.yaml",
             )
         )
+        with pytest.raises(SchemaViolationError, match="SCHEMA__PATH"):
+            await load_and_validate_schema(frozenset(), settings, "testapp")
+
+
+class TestSchemaLoadFailureAtStartup:
+    """A schema that cannot load fails startup with an actionable message.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: missing ``[schema]`` extra vs. unparsable
+          schema file.
+        - Error Guessing: the install hint used to be swallowed into a
+          misleading ``check SCHEMA__PATH`` violation (cos-c1jb.1).
+    """
+
+    @pytest.mark.parametrize("missing_module", ["yaml", "jsonschema"])
+    async def test_missing_schema_extra_reports_install_hint(
+        self, schemas_dir: Path, monkeypatch: pytest.MonkeyPatch, missing_module: str
+    ) -> None:
+        """Either missing schema dependency names the extra and install hint."""
+        # Arrange
+        from cosalette.testing import AppHarness
+
+        monkeypatch.setitem(sys.modules, missing_module, None)
+        monkeypatch.setattr(_loader, "_schema_deps_checked", False)
+        schema = SchemaSettings(
+            enforcement="warn", path=str(schemas_dir / "enforcement_basic.yaml")
+        )
+        harness = AppHarness.create(name="vito2mqtt", schema=schema)
+        harness.trigger_shutdown()
+
+        # Act / Assert
+        with pytest.raises(
+            ImportError,
+            match=rf"missing: {missing_module}.*pip install cosalette\[schema\]",
+        ):
+            await harness.run()
+
+    async def test_unparsable_schema_reports_path_setting(self, tmp_path: Path) -> None:
+        """A file that is not YAML keeps the existing SCHEMA__PATH message."""
+        # Arrange
+        bad = tmp_path / "schema.yaml"
+        bad.write_text("asyncapi: [unclosed\n")
+        settings = Settings(schema=SchemaSettings(enforcement="warn", path=str(bad)))
+
+        # Act / Assert
         with pytest.raises(SchemaViolationError, match="SCHEMA__PATH"):
             await load_and_validate_schema(frozenset(), settings, "testapp")
 

@@ -6,6 +6,7 @@ metadata and full content for MCP tools to use.
 
 from __future__ import annotations
 
+import gzip
 import json
 import re
 from pathlib import Path
@@ -192,8 +193,18 @@ def generate_docs_index(
     print(f"✅ Regenerated docs index: {index_file}")
 
 
+def write_index(adrs: list[dict[str, Any]], output_file: Path) -> None:
+    """Write *adrs* as gzipped JSON, byte-identical for identical input.
+
+    ``mtime=0`` keeps the timestamp out of the gzip header, so regenerating
+    an unchanged index produces no git diff.
+    """
+    payload = json.dumps(adrs, indent=2, ensure_ascii=False) + "\n"
+    output_file.write_bytes(gzip.compress(payload.encode(), compresslevel=9, mtime=0))
+
+
 def generate_adr_index() -> None:
-    """Generate ADR index JSON file and regenerate docs/adr/index.md."""
+    """Generate the gzipped ADR index and regenerate docs/adr/index.md."""
     # Find workspace root
     script_path = Path(__file__)
     workspace_root = script_path.parent.parent
@@ -202,7 +213,7 @@ def generate_adr_index() -> None:
     output_dir = (
         workspace_root / "packages" / "src" / "cosalette" / "assets" / "guidance"
     )
-    output_file = output_dir / "adr-index.json"
+    output_file = output_dir / "adr-index.json.gz"
 
     if not docs_dir.exists():
         print(f"❌ ADR directory not found: {docs_dir}")
@@ -231,10 +242,8 @@ def generate_adr_index() -> None:
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write JSON index
-    with output_file.open("w", encoding="utf-8") as f:
-        json.dump(adrs, f, indent=2, ensure_ascii=False)
-        f.write("\n")  # ensure final newline (pre-commit compliance)
+    write_index(adrs, output_file)
+    (output_dir / "adr-index.json").unlink(missing_ok=True)  # pre-gzip index
 
     print(f"✅ Generated ADR index: {output_file}")
     print(f"📊 Indexed {len(adrs)} ADRs")

@@ -203,7 +203,7 @@ The renderer updates **both** status locations atomically — the frontmatter
 never drift. Any date/amendment tail on the Status line (e.g.
 `**Date:** 2026-08-31 | Amended **Date:** 2026-09-01`) is preserved; only the
 leading status word changes. `task adr:create` then re-renders the derived
-indexes (`docs/adr/index.md`, `adr-index.json`), which read the frontmatter
+indexes (`docs/adr/index.md`, `adr-index.json.gz`), which read the frontmatter
 status.
 
 Rules and guarantees:

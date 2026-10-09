@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
-from cosalette._app._inbound import _validate_inbound_topic
 from cosalette._injection import KNOWN_INJECTABLE_TYPES
 from cosalette._registration import (
     IntervalSpec,
@@ -17,6 +16,7 @@ from cosalette._registration import (
     _Unset,
     validate_mqtt_name,
 )
+from cosalette._registration._validation import _validate_inbound_topic
 from cosalette._retry import CircuitBreaker
 from cosalette._settings import Settings
 from cosalette._utils import _callable_qualname

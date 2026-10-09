@@ -125,7 +125,9 @@ async def load_and_validate_schema(
     down to nothing whenever ``mqtt.topic_prefix`` differs from the app name.
 
     Raises:
-        SchemaViolationError: In strict mode when violations exist.
+        SchemaViolationError: In strict mode when violations exist, or when
+            the schema file cannot be read or parsed.
+        ImportError: When the ``[schema]`` extra is not installed.
     """
     if settings.schema_.enforcement == "off":
         return None
@@ -139,6 +141,8 @@ async def load_and_validate_schema(
     source = FileSchemaSource(Path(settings.schema_.path))
     try:
         registry = await load_schema(source)
+    except ImportError:
+        raise  # The [schema] extra is missing; keep its install hint.
     except Exception:
         logger.debug("Schema load failed for %s", settings.schema_.path, exc_info=True)
         msg = "Failed to load schema — check SCHEMA__PATH configuration"

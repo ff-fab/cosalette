@@ -7,35 +7,29 @@ using the packaged ADR index.
 from __future__ import annotations
 
 import functools
+import gzip
 import json
 from pathlib import Path
 from typing import Any
 
 from cosalette._mcp._typing import ToolRegistrar, as_tool_registrar
 
+_ADR_INDEX = Path(__file__).parents[1] / "assets" / "guidance" / "adr-index.json.gz"
+
 
 @functools.lru_cache(maxsize=1)
 def _load_adr_index() -> tuple[dict[str, Any], ...]:
-    """Load the packaged ADR index (cached after first call).
+    """Load the packaged, gzipped ADR index (cached after first call).
 
-    Returns a tuple (immutable) so the cached value cannot be mutated.
+    Returns a tuple (immutable) so the cached value cannot be mutated, or an
+    empty tuple when the index is missing or unreadable.
     """
     try:
-        import cosalette
-
-        package_path = Path(cosalette.__file__).parent
-        index_file = package_path / "assets" / "guidance" / "adr-index.json"
-
-        if not index_file.exists():
-            return ()
-
-        with index_file.open(encoding="utf-8") as f:
+        with gzip.open(_ADR_INDEX, "rt", encoding="utf-8") as f:
             data: list[dict[str, Any]] = json.load(f)
-
-        return tuple(data)
-
     except Exception:
         return ()
+    return tuple(data)
 
 
 def _list_adrs_impl() -> str:

@@ -17,7 +17,7 @@ from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._injection import resolve_request_kwargs
-from cosalette._registration import (
+from cosalette._registration._model import (
     _UNSET,
     EnabledSpec,
     IntervalSpec,
@@ -124,6 +124,5 @@ async def _invoke_with_timeout(
 #: Public alias for :class:`_PeriodicRegistration`.
 #: Defined here rather than in ``_registration._model`` because
 #: ``_PeriodicRegistration`` is co-located with its runner in this module;
-#: re-exported from ``cosalette._registration`` and ``cosalette`` for
-#: consistent public API access.
+#: re-exported lazily from ``cosalette`` for public API access.
 PeriodicRegistration = _PeriodicRegistration

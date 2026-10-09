@@ -17,9 +17,9 @@ from collections.abc import AsyncIterator
 import pytest
 
 from cosalette._app import App
-from cosalette._app._inbound import _validate_inbound_topic
 from cosalette._mqtt._router import TopicRouter
 from cosalette._registration import _InboundRegistration
+from cosalette._registration._validation import _validate_inbound_topic
 from cosalette._schema import ChannelSchema, _device_name_from_archetype
 from cosalette._schema._acl import derive_acl_principals
 from cosalette._schema._consumer_gen import _is_consumer_visible

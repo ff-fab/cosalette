@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
@@ -16,22 +15,11 @@ from cosalette._registration import (
     _InboundRegistration,
     validate_mqtt_name,
 )
+from cosalette._registration._validation import _validate_inbound_topic
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name
 
 logger = logging.getLogger(__name__)
-
-_WILDCARD_RE = re.compile(r"[+#]")
-
-
-def _validate_inbound_topic(topic: str) -> None:
-    """Reject wildcard characters and empty topics."""
-    if not topic:
-        msg = "Inbound topic must not be empty"
-        raise ValueError(msg)
-    if _WILDCARD_RE.search(topic):
-        msg = f"Inbound topic must not contain wildcards (+/#), got {topic!r}"
-        raise ValueError(msg)
 
 
 class _InboundMixin:

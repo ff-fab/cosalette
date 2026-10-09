@@ -50,7 +50,6 @@ from cosalette._registration._validation import (
     validate_single_root,
     warn_if_mixing,
 )
-from cosalette._runners._periodic import PeriodicRegistration
 from cosalette._runners._trigger import (
     TriggerableSpec,
     TriggerRunSource,
@@ -103,7 +102,6 @@ __all__ = [
     # Public type aliases
     "CommandRegistration",
     "DeviceRegistration",
-    "PeriodicRegistration",
     "StreamRegistration",
     "TelemetryRegistration",
 ]

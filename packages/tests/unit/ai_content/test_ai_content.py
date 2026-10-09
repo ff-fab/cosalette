@@ -4,11 +4,16 @@ Test Techniques Used:
 - Specification-based Testing: API contracts for content functions
 - Equivalence Partitioning: valid/invalid topics, version retrieval
 - Error Guessing: missing asset files, import failures
+- Boundary Value Analysis: version ordering across digit-count and
+  pre-release boundaries (internal comparator replacing ``packaging``)
 """
 
 from __future__ import annotations
 
+import sys
+
 import pytest
+from packaging.version import Version
 
 from cosalette._ai_content import (
     AVAILABLE_TOPICS,
@@ -18,6 +23,7 @@ from cosalette._ai_content import (
     get_version,
     get_whats_new_content,
 )
+from cosalette._ai_content._meta import VERSION_FEATURES, _version_key
 
 
 class TestGetVersion:
@@ -579,3 +585,82 @@ class TestGetWhatsNewContent:
 
         assert "state_model" in content
         assert "payload_model" in content
+
+
+class TestVersionKey:
+    """The internal release comparator behind ``ai prime --upgrade-from``."""
+
+    def test_oversized_numeric_component_returns_empty_content(self) -> None:
+        """Integer conversion limits must not crash upgrade guidance."""
+        version = "9" * 5000 + ".0.0"
+
+        original_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(4300)
+            assert _version_key(version) is None
+            assert get_whats_new_content(version) == ""
+        finally:
+            sys.set_int_max_str_digits(original_limit)
+
+    @pytest.mark.parametrize(
+        ("newer", "older"),
+        [
+            ("0.10.0", "0.9.6"),  # numeric, not lexical
+            ("0.3.10", "0.3.9"),
+            ("1.0.0", "0.99.99"),
+            ("0.11.0", "0.11.0rc1"),  # pre-release sorts before its release
+            ("0.11.0rc1", "0.10.9"),
+            ("0.11.1.dev0", "0.11.0"),
+        ],
+    )
+    def test_version_key_orders_releases(self, newer: str, older: str) -> None:
+        """Technique: Boundary Value Analysis — digit-count and suffix edges."""
+        # Arrange / Act
+        newer_key, older_key = _version_key(newer), _version_key(older)
+
+        # Assert
+        assert newer_key is not None
+        assert older_key is not None
+        assert newer_key > older_key
+
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [("v0.2.1", "0.2.1"), ("V0.2.1", "0.2.1"), ("0.11", "0.11.0"), (" 1.0 ", "1")],
+    )
+    def test_version_key_treats_equivalent_spellings_as_equal(
+        self, left: str, right: str
+    ) -> None:
+        """Technique: Equivalence Partitioning — ``v`` prefix, trailing zeros."""
+        assert _version_key(left) == _version_key(right) is not None
+
+    @pytest.mark.parametrize(
+        "text",
+        ["", "invalid.version", "v", "1..2", "1.2.x", "0.11.0.post1", "0.11.0+local"],
+    )
+    def test_version_key_rejects_invalid_input(self, text: str) -> None:
+        """Technique: Equivalence Partitioning — invalid class returns ``None``."""
+        assert _version_key(text) is None
+
+    def test_version_key_matches_packaging_for_feature_keys(self) -> None:
+        """Technique: Specification-based — same order as PEP 440 for real keys."""
+        # Arrange
+        keys = {text: _version_key(text) for text in VERSION_FEATURES}
+        assert None not in keys.values()
+
+        # Act
+        ours = sorted(VERSION_FEATURES, key=lambda text: keys[text] or ((), False))
+
+        # Assert
+        assert ours == sorted(VERSION_FEATURES, key=Version)
+
+    @pytest.mark.parametrize("from_version", ["v0.11.1", "0.11.2rc1"])
+    def test_get_whats_new_content_accepts_prefix_and_pre_release(
+        self, from_version: str
+    ) -> None:
+        """Technique: Equivalence Partitioning — valid non-plain spellings."""
+        # Act
+        content = get_whats_new_content(from_version)
+
+        # Assert
+        assert "### 0.11.2" in content
+        assert "### 0.11.1\n" not in content
