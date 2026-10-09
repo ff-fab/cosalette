@@ -400,12 +400,11 @@ wheels = [
 
 [[package]]
 name = "cosalette"
-version = "0.11.0"
+version = "0.11.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },
     { name = "orjson" },
-    { name = "packaging" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "typer" },
@@ -471,7 +470,6 @@ requires-dist = [
     { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.26.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.2.0" },
     { name = "orjson", specifier = ">=3.12.0" },
-    { name = "packaging", specifier = ">=26.3" },
     { name = "pydantic", specifier = ">=2.12.5,<3" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "pyyaml", marker = "extra == 'config-yaml'", specifier = ">=6.0.3" },
