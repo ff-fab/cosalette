@@ -127,7 +127,8 @@ async def load_and_validate_schema(
     Raises:
         SchemaViolationError: In strict mode when violations exist, or when
             the schema file cannot be read or parsed.
-        ImportError: When the ``[schema]`` extra is not installed.
+        ImportError: When PyYAML is missing for a YAML schema, or jsonschema
+            is missing while ``x-cosalette-enforcement.on_publish`` is true.
     """
     if settings.schema_.enforcement == "off":
         return None
@@ -136,19 +137,30 @@ async def load_and_validate_schema(
         return None
 
     # Deferred: an app without enforcement never loads the schema loader.
-    from cosalette._schema._loader import FileSchemaSource, load_schema
+    from cosalette._schema._loader import (
+        FileSchemaSource,
+        load_schema,
+        require_optional,
+    )
 
     source = FileSchemaSource(Path(settings.schema_.path))
     try:
         registry = await load_schema(source)
     except ImportError:
-        raise  # The [schema] extra is missing; keep its install hint.
+        raise  # PyYAML is missing; keep its install hint.
     except Exception:
         logger.debug("Schema load failed for %s", settings.schema_.path, exc_info=True)
         msg = "Failed to load schema — check SCHEMA__PATH configuration"
         raise SchemaViolationError(
             [SchemaViolation(category="missing_channel", message=msg)]
         ) from None
+
+    # Only publish-time validation imports jsonschema; check it here, at
+    # startup before MQTT, rather than for every schema (cos-c1jb.2).
+    if registry.enforcement.on_publish:
+        require_optional(
+            "jsonschema", "Payload validation (x-cosalette-enforcement.on_publish)"
+        )
 
     # Network-first: filter to this app's slice
     if registry.enforcement.network_level:

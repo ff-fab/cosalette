@@ -330,7 +330,7 @@ class SchemaSettings(BaseModel):
     path: str | None = Field(
         default=None,
         description=(
-            "Path to AsyncAPI schema file. "
+            "Path to AsyncAPI schema file (YAML, or JSON when named *.json). "
             "When None, schema enforcement is disabled regardless of mode."
         ),
     )

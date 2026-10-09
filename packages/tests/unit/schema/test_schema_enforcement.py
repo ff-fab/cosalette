@@ -5,10 +5,13 @@ Test Techniques Used:
 - Equivalence Partitioning: Valid/invalid enforcement modes
 - Error Guessing: Edge cases in violation formatting; a missing [schema]
   extra reported as a bad schema path (cos-c1jb.1)
+- Decision Table: enforcement x path x on_publish x {yaml, jsonschema}
+  installed -> startup outcome (cos-c1jb.2, cos-c1jb.5)
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -20,7 +23,6 @@ from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
     SchemaRegistry,
-    _loader,
 )
 from cosalette._schema._enforcement import (
     SchemaViolation,
@@ -276,6 +278,36 @@ class TestValidateRegistrations:
         assert result == []
 
 
+def _write_schema(path: Path, *, on_publish: bool) -> Path:
+    """Write a one-channel ``vito2mqtt`` schema to *path* and return it.
+
+    The content is JSON, which is also valid YAML, so one document serves
+    both the ``.json`` and the ``.yaml`` branch of the loader.
+    """
+    doc = {
+        "asyncapi": "3.0.0",
+        "info": {"title": "vito2mqtt", "version": "0.2.0"},
+        "x-cosalette-enforcement": {"mode": "warn", "on_publish": on_publish},
+        "channels": {
+            "temperatureState": {
+                "address": "vito2mqtt/temperature/state",
+                "x-cosalette-archetype": "telemetry",
+                "messages": {
+                    "reading": {
+                        "payload": {
+                            "type": "object",
+                            "required": ["temperature"],
+                            "properties": {"temperature": {"type": "number"}},
+                        }
+                    }
+                },
+            }
+        },
+    }
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return path
+
+
 @pytest.fixture
 def schemas_dir() -> Path:
     return Path(__file__).parent.parent.parent / "fixtures" / "schemas"
@@ -404,19 +436,23 @@ class TestSchemaLoadFailureAtStartup:
           misleading ``check SCHEMA__PATH`` violation (cos-c1jb.1).
     """
 
-    @pytest.mark.parametrize("missing_module", ["yaml", "jsonschema"])
+    @pytest.mark.parametrize(
+        ("missing_module", "on_publish"), [("yaml", False), ("jsonschema", True)]
+    )
     async def test_missing_schema_extra_reports_install_hint(
-        self, schemas_dir: Path, monkeypatch: pytest.MonkeyPatch, missing_module: str
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        missing_module: str,
+        on_publish: bool,
     ) -> None:
-        """Either missing schema dependency names the extra and install hint."""
+        """A dependency the configuration needs names itself and the extra."""
         # Arrange
         from cosalette.testing import AppHarness
 
         monkeypatch.setitem(sys.modules, missing_module, None)
-        monkeypatch.setattr(_loader, "_schema_deps_checked", False)
-        schema = SchemaSettings(
-            enforcement="warn", path=str(schemas_dir / "enforcement_basic.yaml")
-        )
+        path = _write_schema(tmp_path / "schema.yaml", on_publish=on_publish)
+        schema = SchemaSettings(enforcement="warn", path=str(path))
         harness = AppHarness.create(name="vito2mqtt", schema=schema)
         harness.trigger_shutdown()
 
@@ -437,6 +473,105 @@ class TestSchemaLoadFailureAtStartup:
         # Act / Assert
         with pytest.raises(SchemaViolationError, match="SCHEMA__PATH"):
             await load_and_validate_schema(frozenset(), settings, "testapp")
+
+
+class TestOptionalDependenciesPerConfiguration:
+    """Startup requires only the optional dependencies the configuration uses.
+
+    PyYAML is needed only for a YAML schema file; jsonschema only when
+    ``x-cosalette-enforcement.on_publish`` is true (cos-c1jb.2). A ``.json``
+    schema file needs neither (cos-c1jb.5).
+
+    Test Techniques Used:
+        - Decision Table: enforcement x path x on_publish x installed
+          {yaml, jsonschema} -> starts or fails with the missing module's
+          install hint. Modules are blocked with ``sys.modules[name] = None``.
+    """
+
+    @pytest.mark.parametrize(
+        ("enforcement", "suffix", "on_publish", "blocked", "missing"),
+        [
+            ("off", ".yaml", True, ("yaml", "jsonschema"), None),
+            ("warn", None, True, ("yaml", "jsonschema"), None),
+            ("warn", ".yaml", False, ("jsonschema",), None),
+            ("strict", ".yaml", False, ("yaml",), "yaml"),
+            ("warn", ".yaml", True, ("jsonschema",), "jsonschema"),
+            ("warn", ".yaml", True, (), None),
+            ("warn", ".json", False, ("yaml", "jsonschema"), None),
+            ("strict", ".JSON", True, ("yaml", "jsonschema"), "jsonschema"),
+        ],
+        ids=[
+            "off-no-check",
+            "no-path-no-check",
+            "yaml-default-without-jsonschema-starts",
+            "yaml-without-pyyaml-fails",
+            "on-publish-without-jsonschema-fails",
+            "on-publish-with-jsonschema-starts",
+            "json-without-either-starts",
+            "json-on-publish-without-jsonschema-fails",
+        ],
+    )
+    async def test_startup_outcome(  # noqa: PLR0913 - one argument per table column
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        enforcement: Literal["off", "warn", "strict"],
+        suffix: str | None,
+        on_publish: bool,
+        blocked: tuple[str, ...],
+        missing: str | None,
+    ) -> None:
+        # Arrange
+        path = None
+        if suffix is not None:
+            path = _write_schema(tmp_path / f"schema{suffix}", on_publish=on_publish)
+        settings = Settings(
+            schema=SchemaSettings(
+                enforcement=enforcement, path=None if path is None else str(path)
+            )
+        )
+        for name in blocked:
+            monkeypatch.setitem(sys.modules, name, None)
+        registered = frozenset({"temperature"})
+
+        # Act / Assert
+        if missing is not None:
+            with pytest.raises(ImportError, match=rf"missing: {missing}\)"):
+                await load_and_validate_schema(registered, settings, "vito2mqtt")
+            return
+        result = await load_and_validate_schema(registered, settings, "vito2mqtt")
+        if enforcement == "off" or path is None:
+            assert result is None
+        else:
+            assert result is not None
+            assert result.enforcement.on_publish is on_publish
+
+    async def test_on_publish_with_jsonschema_validates_payloads(
+        self, tmp_path: Path
+    ) -> None:
+        """With jsonschema installed, on_publish still validates payloads.
+
+        Technique: Specification-based — the loaded registry drives the
+        publish-time validator, which rejects a payload missing a field.
+        """
+        # Arrange
+        from cosalette._schema._validator import PayloadValidator
+
+        path = _write_schema(tmp_path / "schema.json", on_publish=True)
+        settings = Settings(schema=SchemaSettings(enforcement="warn", path=str(path)))
+        registry = await load_and_validate_schema(
+            frozenset({"temperature"}), settings, "vito2mqtt"
+        )
+        assert registry is not None
+        validator = PayloadValidator(registry)
+
+        # Act
+        issues = validator.validate("vito2mqtt/temperature/state", {"temp": 1})
+
+        # Assert
+        assert [i.channel_name for i in issues] == ["temperatureState"]
+        valid = validator.validate("vito2mqtt/temperature/state", {"temperature": 1})
+        assert valid == []
 
 
 class TestNetworkFilterUsesIdentityNotPrefix:

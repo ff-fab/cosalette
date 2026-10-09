@@ -471,7 +471,7 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.11.2")
+        content = get_whats_new_content("0.11.3")
 
         assert content == ""
 

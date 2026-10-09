@@ -9,17 +9,20 @@ Test Techniques Used:
   (flat, oneOf, anyOf, allOf, nested, empty, collision)
 - Boundary Value Analysis: _extract_properties nested/array descent stops
   at one level
-- Decision Table: _ensure_schema_deps over {jsonschema, yaml} x
+- Decision Table: require_optional over {jsonschema, yaml} x
   {installed, missing}
+- Equivalence Partitioning: .json schema files parsed without PyYAML
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from cosalette._schema import HaEntitySpec, _loader
 from cosalette._schema._loader import (
@@ -130,15 +133,11 @@ channels:
         assert "must have 'tag' field" in str(exc_info.value)
 
 
-class TestEnsureSchemaDeps:
-    """_ensure_schema_deps checks presence of the [schema] extra.
+class TestRequireOptional:
+    """require_optional checks presence of one optional dependency.
 
     Technique: Decision Table — {jsonschema, yaml} x {installed, missing}.
     """
-
-    @pytest.fixture(autouse=True)
-    def _reset_checked(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(_loader, "_schema_deps_checked", False)
 
     def test_presence_check_does_not_import_dependencies(
         self, monkeypatch: pytest.MonkeyPatch
@@ -153,12 +152,12 @@ class TestEnsureSchemaDeps:
             monkeypatch.delitem(sys.modules, name, raising=False)
 
         # Act
-        _loader._ensure_schema_deps()
+        for name in ("jsonschema", "yaml"):
+            _loader.require_optional(name, "Feature")
 
         # Assert
         assert "jsonschema" not in sys.modules
         assert "yaml" not in sys.modules
-        assert _loader._schema_deps_checked is True
 
     @pytest.mark.parametrize("missing", ["jsonschema", "yaml"])
     def test_missing_dependency_raises_install_hint(
@@ -166,17 +165,74 @@ class TestEnsureSchemaDeps:
     ) -> None:
         """A missing dependency raises ImportError naming it and the extra."""
         # Arrange
-        real_find_spec = _loader.find_spec
-        monkeypatch.setattr(
-            _loader,
-            "find_spec",
-            lambda name: None if name == missing else real_find_spec(name),
-        )
+        monkeypatch.setitem(sys.modules, missing, None)
 
         # Act / Assert
-        with pytest.raises(ImportError, match=rf"missing: {missing}\).*\[schema\]"):
-            _loader._ensure_schema_deps()
-        assert _loader._schema_deps_checked is False
+        with pytest.raises(
+            ImportError, match=rf"^Feature requires .*missing: {missing}\).*\[schema\]"
+        ):
+            _loader.require_optional(missing, "Feature")
+
+
+class TestJsonSchemaFile:
+    """A ``*.json`` schema file is parsed with orjson, without PyYAML.
+
+    Test Techniques Used:
+        - Equivalence Partitioning: ``.json`` (any case) vs. other suffixes;
+          valid JSON, malformed JSON, non-object JSON.
+        - Round-trip Testing: a YAML fixture re-encoded as JSON loads to the
+          same registry.
+    """
+
+    @pytest.mark.parametrize("suffix", [".json", ".JSON"])
+    async def test_json_file_loads_without_pyyaml(
+        self,
+        schemas_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        suffix: str,
+    ) -> None:
+        # Arrange
+        expected = await load_schema(FileSchemaSource(schemas_dir / "valid_basic.yaml"))
+        doc = yaml.safe_load((schemas_dir / "valid_basic.yaml").read_text())
+        path = tmp_path / f"schema{suffix}"
+        path.write_text(json.dumps(doc))
+        monkeypatch.setitem(sys.modules, "yaml", None)
+
+        # Act
+        registry = await load_schema(FileSchemaSource(path))
+
+        # Assert
+        assert registry == expected
+
+    async def test_yaml_file_still_requires_pyyaml(
+        self, schemas_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Arrange
+        monkeypatch.setitem(sys.modules, "yaml", None)
+
+        # Act / Assert
+        with pytest.raises(ImportError, match=r"missing: yaml\)"):
+            await load_schema(FileSchemaSource(schemas_dir / "valid_basic.yaml"))
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            ("{not json", "Failed to parse JSON"),
+            ("[1, 2]", "must be a JSON mapping, got: list"),
+        ],
+        ids=["malformed", "array"],
+    )
+    async def test_invalid_json_raises_load_error(
+        self, tmp_path: Path, content: str, message: str
+    ) -> None:
+        # Arrange
+        path = tmp_path / "schema.json"
+        path.write_text(content)
+
+        # Act / Assert
+        with pytest.raises(SchemaLoadError, match=message):
+            await load_schema(FileSchemaSource(path))
 
 
 class TestLoadSchema:
