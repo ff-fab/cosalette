@@ -404,14 +404,15 @@ class TestSchemaLoadFailureAtStartup:
           misleading ``check SCHEMA__PATH`` violation (cos-c1jb.1).
     """
 
+    @pytest.mark.parametrize("missing_module", ["yaml", "jsonschema"])
     async def test_missing_schema_extra_reports_install_hint(
-        self, schemas_dir: Path, monkeypatch: pytest.MonkeyPatch
+        self, schemas_dir: Path, monkeypatch: pytest.MonkeyPatch, missing_module: str
     ) -> None:
-        """An install without PyYAML names the extra, not the path setting."""
+        """Either missing schema dependency names the extra and install hint."""
         # Arrange
         from cosalette.testing import AppHarness
 
-        monkeypatch.setitem(sys.modules, "yaml", None)
+        monkeypatch.setitem(sys.modules, missing_module, None)
         monkeypatch.setattr(_loader, "_schema_deps_checked", False)
         schema = SchemaSettings(
             enforcement="warn", path=str(schemas_dir / "enforcement_basic.yaml")
@@ -420,7 +421,10 @@ class TestSchemaLoadFailureAtStartup:
         harness.trigger_shutdown()
 
         # Act / Assert
-        with pytest.raises(ImportError, match=r"pip install cosalette\[schema\]"):
+        with pytest.raises(
+            ImportError,
+            match=rf"missing: {missing_module}.*pip install cosalette\[schema\]",
+        ):
             await harness.run()
 
     async def test_unparsable_schema_reports_path_setting(self, tmp_path: Path) -> None:

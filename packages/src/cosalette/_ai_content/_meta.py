@@ -920,7 +920,10 @@ def _version_key(text: str) -> tuple[tuple[int, ...], bool] | None:
     match = _VERSION_RE.fullmatch(text.strip())
     if match is None:
         return None
-    release = tuple(int(part) for part in match[1].split("."))
+    try:
+        release = tuple(int(part) for part in match[1].split("."))
+    except ValueError:
+        return None  # A component exceeds the interpreter's integer digit limit.
     while len(release) > 1 and release[-1] == 0:
         release = release[:-1]
     return release, match[2] is None

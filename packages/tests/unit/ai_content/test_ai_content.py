@@ -10,6 +10,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from packaging.version import Version
 
@@ -587,6 +589,18 @@ class TestGetWhatsNewContent:
 
 class TestVersionKey:
     """The internal release comparator behind ``ai prime --upgrade-from``."""
+
+    def test_oversized_numeric_component_returns_empty_content(self) -> None:
+        """Integer conversion limits must not crash upgrade guidance."""
+        version = "9" * 5000 + ".0.0"
+
+        original_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(4300)
+            assert _version_key(version) is None
+            assert get_whats_new_content(version) == ""
+        finally:
+            sys.set_int_max_str_digits(original_limit)
 
     @pytest.mark.parametrize(
         ("newer", "older"),
