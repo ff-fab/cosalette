@@ -166,7 +166,7 @@ Move typer to a `cosalette[cli]` extra so the default install has no rich.
 
 ## Amendment (2026-10-09) — Corrective
 
-**Rationale:** The first 2026-10-05 amendment tells apps to exclude rich with a uv `override-dependencies` entry (`rich; sys_platform == 'never'`). That advice is harmful: uv overrides apply to the whole resolution, including dev dependency groups, so the entry also strips rich from dev tools that need it (pip-audit, cyclonedx, fastmcp, cyclopts). The cosalette-apps size audit (FEP cli-without-rich, cos-6dro) found it in the containerize guide, this ADR and the 0.11.1 what's-new text.
+**Rationale:** The first 2026-10-05 amendment tells apps to exclude rich with a uv `override-dependencies` entry (`rich; sys_platform == 'never'`). uv overrides apply to the whole resolution, including dev dependency groups, so the entry also removes rich from dev tools that need it (pip-audit, cyclonedx, fastmcp, cyclopts).
 
 > **Justification for amendment (not supersession):** Only the downstream recipe changes. cosalette's code and its dependency on Typer stay as decided: the plain-help fallback (`_utils._typer_options()`) and the Typer-free run path are unchanged, and no app-facing API changes. The faulty advice lives in documentation, not in code, so superseding ADR-005 would split a still-valid record for one sentence of guidance.
 
@@ -183,10 +183,6 @@ uv sync --frozen --no-dev \
 The flags apply to both `uv sync` lines of a multi-stage Dockerfile. Nothing is re-resolved, so the lockfile and the dev groups keep rich. `uv pip check` (and `pip check`) then reports that typer requires rich; that is the accepted trade-off. Do not use `[tool.uv] override-dependencies` for this.
 
 The Typer instances cosalette builds need nothing else (`_utils._typer_options()` falls back to plain output). An app that creates its own `typer.Typer()` crashes on `--help` without rich (`from rich import box` in `typer.rich_utils`), because Typer checks only the `TYPER_USE_RICH` variable; such images set `ENV TYPER_USE_RICH=0`. Verified with typer 0.27.3 and uv 0.6.17. The variable is harmless for apps without their own Typer CLI.
-
-### Additional Sub-Decision: Keep Typer; a Click migration is deferred
-
-Rebuilding the CLI on Click (decision cos-6dro.3, 2026-10-09) is deferred and Typer stays the CLI framework. Typer vendors Click, so a Click CLI would save only about 0.7 MB beyond dropping rich, which the recipe above already does. The migration touches about 2.5k lines and 255 Typer references in seven modules, would supersede this ADR, and would not help apps that ship their own Typer CLI. Revisit when Typer becomes unmaintained or rich becomes impossible to skip, when an adopter measures a real problem with the remaining Typer overhead, or when a separate dev distribution is reconsidered.
 
 ### Additional Considered Options
 
