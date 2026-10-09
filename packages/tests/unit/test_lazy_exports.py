@@ -5,8 +5,9 @@ Test Techniques Used:
       defined in its source module; ``dir()`` lists the public API.
     - Error Guessing: unknown names raise the standard ``AttributeError``; the
       runtime export map drifting from the ``TYPE_CHECKING`` imports.
-    - Error Guessing: a name or private module accessed first in a fresh
-      interpreter hits no circular import (cos-qitr.1).
+    - Equivalence Partitioning + Error Guessing: every ``__all__`` name, public
+      facade module and known private entry point, accessed first in a fresh
+      interpreter, hits no circular import (cos-qitr.1, cos-qitr.2).
     - Equivalence Partitioning: a fresh interpreter importing the package or the
       liveness module (lightweight entry points) loads no heavy dependency.
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+import pkgutil
 import subprocess
 import sys
 from pathlib import Path
@@ -129,24 +131,47 @@ class TestImportCost:
         assert loaded.isdisjoint(forbidden)
 
 
+#: Public facade modules (``cosalette.di``, ``cosalette.testing``, ...).
+FACADES = sorted(
+    module.name
+    for module in pkgutil.iter_modules(cosalette.__path__)
+    if not module.name.startswith("_")
+)
+
+#: Private modules a cycle once broke when imported on their own (cos-qitr.1).
+PRIVATE_ENTRY_POINTS = (
+    "cosalette._router",
+    "cosalette._registration_views",
+    "cosalette._runners._periodic",
+)
+
+FIRST_ACCESS_STATEMENTS = [
+    *(f"import cosalette; cosalette.{name}" for name in cosalette.__all__),
+    *(f"import cosalette.{facade}" for facade in FACADES),
+    *(f"import {module}" for module in PRIVATE_ENTRY_POINTS),
+]
+
+
 class TestFirstAccess:
-    """A lazy name or private module works as the first thing a process touches."""
+    """Every public name, facade or known entry point works when touched first.
 
-    @pytest.mark.parametrize(
-        "statement",
-        [
-            "import cosalette; cosalette.Router()",
-            "import cosalette; cosalette.PeriodicRegistration",
-            "import cosalette._router",
-            "import cosalette._registration_views",
-            "import cosalette._runners._periodic",
-        ],
-    )
+    Only the first-touched name decides the import order, so one fresh
+    interpreter per statement covers every cycle; no pair matrix is needed.
+    """
+
+    def test_facades_are_discovered(self) -> None:
+        """Technique: Error Guessing — an empty discovery would test nothing."""
+        assert {"di", "mqtt", "testing"} <= set(FACADES)
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("statement", FIRST_ACCESS_STATEMENTS)
     def test_first_access_has_no_import_cycle(self, statement: str) -> None:
-        """Technique: Error Guessing — circular imports hidden by prior imports.
+        """Technique: Equivalence Partitioning + Error Guessing.
 
-        Touching ``cosalette.App`` first used to mask the cycles (cos-qitr.1),
-        so each statement runs in a fresh interpreter.
+        Each export is its own partition: what it imports first fixes the
+        module initialisation order. Touching ``cosalette.App`` first used to
+        mask the cycles (cos-qitr.1), so each statement runs in a fresh
+        interpreter.
         """
         # Act
         result = subprocess.run(
