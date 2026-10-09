@@ -608,6 +608,15 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "JSON schemas still need jsonschema when on_publish is true. A missing "
         "dependency still fails startup with a pip install cosalette[schema] "
         "hint (see: docs/guides/schema-enforcement.md).",
+        "Slim images (ADR-005 amendment): leave rich out with uv sync --frozen "
+        "--no-dev --no-install-package rich --no-install-package pygments "
+        "--no-install-package markdown-it-py --no-install-package mdurl, plus "
+        "ENV TYPER_USE_RICH=0 when the app has its own typer.Typer(). Do not "
+        "use [tool.uv] override-dependencies for rich: it also strips rich "
+        "from dev tools (see: docs/guides/containerize.md).",
+        "Docs: a 'Which Extra Do I Need?' table lists the optional extras per "
+        "feature; app.discovery() and .json schema files need none (see: "
+        "docs/guides/schema-enforcement.md).",
     ],
     "0.11.2": [
         "App(restart_on_stale=True) now covers streams (ADR-084 amendment): "
@@ -652,8 +661,8 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "discovery generator only when it uses them.",
         "app.discovery() no longer needs the cosalette[schema] extra (ADR-059 "
         "amendment). --help and CLI errors fall back to plain output when rich "
-        "or pygments is missing, so an image can drop them with a uv "
-        "override-dependencies entry (see: docs/guides/containerize.md).",
+        "or pygments is missing, so an image can leave them out (see: "
+        "docs/guides/containerize.md).",
     ],
     "0.11.0": [
         "Named stream health (ADR-081 amendment): @app.stream, @router.stream "

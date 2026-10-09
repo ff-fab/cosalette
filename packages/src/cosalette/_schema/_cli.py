@@ -425,21 +425,27 @@ def validate(
     # For network-level schemas, we need to get the title from the original document
     # since registry.app_name is set to None for network schemas
     if registry.enforcement.network_level and registry.app_name is None:
-        # Load the YAML again to get the title - this double-read is intentional
+        # Read the source again to get the title; this double-read is intentional
         # as the SchemaRegistry doesn't preserve the original title for network schemas
         # Title extraction only — not emission; use _dump_yaml for any YAML output.
-        try:
-            import yaml
-        except ImportError as exc:
-            typer.echo(
-                "Error: PyYAML is required for this command.\n\n"
-                "Hint: Install schema dependencies with: pip install cosalette[schema]",
-                err=True,
-            )
-            raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+        if path.suffix.lower() == ".json":
+            import orjson
 
-        yaml_content = path.read_text(encoding="utf-8")
-        doc = yaml.safe_load(yaml_content)
+            doc = orjson.loads(path.read_bytes())
+        else:
+            try:
+                import yaml
+            except ImportError as exc:
+                typer.echo(
+                    "Error: PyYAML is required for this command.\n\n"
+                    "Hint: Install schema dependencies with: "
+                    "pip install cosalette[schema]",
+                    err=True,
+                )
+                raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+
+            yaml_content = path.read_text(encoding="utf-8")
+            doc = yaml.safe_load(yaml_content)
         title = doc.get("info", {}).get("title", "(untitled)")
     else:
         title = registry.app_name or "(untitled)"
