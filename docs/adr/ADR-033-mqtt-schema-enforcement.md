@@ -9,7 +9,7 @@ tags: [mqtt, architecture, cli, dependencies, security]
 
 ## Status
 
-Accepted **Date:** 2026-04-09
+Accepted **Date:** 2026-04-09 | Amended **Date:** 2026-10-09
 
 ## Context
 
@@ -102,4 +102,49 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Conditional capability enforcement (tag-based rules) requires custom validation logic that AsyncAPI's native model cannot express — this must be implemented as cosalette-specific code on top of the parsed schema
 - Operators who enable schema enforcement must maintain the network schema in sync with their app fleet — a new operational artifact to keep current
 
-_2026-04-09_
+## Amendment (2026-10-09) — Additive
+
+**Rationale:** A downstream proposal (cosalette-apps FEP 'fep-schema-extra-runtime-split', cos-c1jb) asked to split cosalette[schema] because it costs about 5.6 MB (PyYAML, jsonschema, referencing, rpds-py, attrs, jsonschema-specifications). Review found the real cost driver is the startup check, not the extra: load_schema() demanded both PyYAML and jsonschema for every schema file, although jsonschema is only imported by PayloadValidator, which is built only when x-cosalette-enforcement.on_publish is true (default false). Option 2 of this ADR already noted that PyYAML is optional for a JSON schema, and orjson is a core dependency. This amendment records the precise dependency rule (cos-c1jb.2), accepts .json schema files without PyYAML (cos-c1jb.5), and records decision cos-c1jb.4 (2026-10-09) on the extras.
+
+### Additional Sub-Decision: Startup requires only the optional dependencies the configuration uses
+
+When enforcement is not `off` and `SCHEMA__PATH` is set, startup checks the optional dependencies, before MQTT connects, per configuration: PyYAML only for a YAML schema file (any name not ending in `.json`); jsonschema only when the loaded schema sets `x-cosalette-enforcement.on_publish: true`. Enforcement `off`, no path, and dict sources (runtime discovery, ADR-059) check nothing. A missing dependency raises `ImportError` naming the module and `pip install cosalette[schema]`. The check tests presence with `importlib.util.find_spec` and does not import the package. The `cosalette schema` CLI keeps requiring the `[schema]` extra.
+
+### Additional Sub-Decision: JSON schema files are parsed with orjson
+
+A schema file whose name ends in `.json` (case-insensitive) is parsed with orjson, already a core dependency, so YAML-free deployments can use a schema file. All other sources, including inline content, are still parsed as YAML with `yaml.safe_load`. The parsed document goes through the same validation, `$ref` resolution and registry building.
+
+### Additional Sub-Decision: The [schema] extra stays as is (decision cos-c1jb.4, 2026-10-09)
+
+Already decided in cos-c1jb.4 and recorded here, not reopened. Splitting `[schema]` into `schema-yaml` + `schema-validate` (FEP item 2) is **deferred**: extras are permanent public API, and `schema-yaml` would equal `config-yaml` (both `pyyaml>=6.0.3`). After the precise dependency check, users can install `pyyaml`/`jsonschema` or `[config-yaml]` directly. If revisited, add a neutral `yaml` extra (keep `config-yaml` as an alias) plus `schema-validate`, not `schema-yaml`; the revisit trigger is adopter demand after the precise check and the 'which extra do I need' docs table (cos-c1jb.3). Vendoring or switching to a lighter validator such as fastjsonschema (FEP item 4) is **rejected**: Draft-7 subset correctness, `$ref` handling, regex DoS surface, and fastjsonschema's `exec`-based code generation are not worth about 2 MB that only opt-in publish validation users pay.
+
+### Additional Considered Options
+
+**Split extras: schema-yaml + schema-validate (deferred, cos-c1jb.4)**
+
+Replace or complement `[schema]` with `schema-yaml` (PyYAML) and `schema-validate` (jsonschema), with `schema` as their union.
+
+- *Advantages:* Each extra installs exactly what one feature needs
+- *Disadvantages:* Extras are permanent public API; `schema-yaml` duplicates `config-yaml` (both `pyyaml>=6.0.3`); Adds nothing once the startup check is precise: users can already install the single package they need
+
+**Vendored or lighter payload validator (rejected, cos-c1jb.4)**
+
+Vendor a minimal Draft-7 validator or switch to fastjsonschema to drop jsonschema and its transitives.
+
+- *Advantages:* Saves about 2 MB for apps with publish-time validation
+- *Disadvantages:* Draft-7 subset correctness and `$ref` handling become our problem; Regex DoS surface in a security-relevant component; fastjsonschema generates and `exec`s code
+
+**JSON schema files via orjson (accepted, cos-c1jb.5)**
+
+Parse `*.json` schema files with orjson, a core dependency, instead of PyYAML.
+
+- *Advantages:* Schema enforcement without PyYAML; No new dependency
+- *Disadvantages:* Format is chosen by file suffix; JSON content in a `.yaml` file still goes through PyYAML
+
+### Additional Positive Consequences
+
+- A YAML schema with the default on_publish=false starts without jsonschema, and a .json schema starts without PyYAML or jsonschema, which removes about 3 to 5.6 MB from slim images.
+
+### Additional Negative Consequences
+
+- Which packages an app needs now depends on its configuration (file suffix, on_publish), so the docs must explain it (cos-c1jb.3).
