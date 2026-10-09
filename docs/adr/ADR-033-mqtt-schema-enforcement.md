@@ -143,7 +143,7 @@ Parse `*.json` schema files with orjson, a core dependency, instead of PyYAML.
 
 ### Additional Positive Consequences
 
-- A YAML schema with the default on_publish=false starts without jsonschema, and a .json schema starts without PyYAML or jsonschema, which removes about 3 to 5.6 MB from slim images.
+- A YAML schema with the default on_publish=false starts without jsonschema, and a .json schema never needs PyYAML. A .json schema starts without either optional dependency only when on_publish=false; when on_publish=true it still needs jsonschema. This removes about 3 to 5.6 MB from slim images when publish-time validation is disabled.
 
 ### Additional Negative Consequences
 

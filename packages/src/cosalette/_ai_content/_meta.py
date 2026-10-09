@@ -603,7 +603,9 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "configuration uses (ADR-033 amendment): a YAML schema file needs "
         "PyYAML, and jsonschema is required only when "
         "x-cosalette-enforcement.on_publish is true (default false). A schema "
-        "file named *.json is parsed with orjson and needs neither. A missing "
+        "file named *.json is parsed with orjson and never needs PyYAML; it "
+        "needs neither optional dependency only when on_publish is false. "
+        "JSON schemas still need jsonschema when on_publish is true. A missing "
         "dependency still fails startup with a pip install cosalette[schema] "
         "hint (see: docs/guides/schema-enforcement.md).",
     ],

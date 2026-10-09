@@ -480,7 +480,8 @@ class TestOptionalDependenciesPerConfiguration:
 
     PyYAML is needed only for a YAML schema file; jsonschema only when
     ``x-cosalette-enforcement.on_publish`` is true (cos-c1jb.2). A ``.json``
-    schema file needs neither (cos-c1jb.5).
+    schema file never needs PyYAML and needs neither optional dependency only
+    when ``on_publish`` is false; it still needs jsonschema when true (cos-c1jb.5).
 
     Test Techniques Used:
         - Decision Table: enforcement x path x on_publish x installed
