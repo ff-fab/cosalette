@@ -5,6 +5,8 @@ Test Techniques Used:
       defined in its source module; ``dir()`` lists the public API.
     - Error Guessing: unknown names raise the standard ``AttributeError``; the
       runtime export map drifting from the ``TYPE_CHECKING`` imports.
+    - Error Guessing: a name or private module accessed first in a fresh
+      interpreter hits no circular import (cos-qitr.1).
     - Equivalence Partitioning: a fresh interpreter importing the package or the
       liveness module (lightweight entry points) loads no heavy dependency.
 
@@ -125,6 +127,37 @@ class TestImportCost:
         # Assert
         loaded = set(result.stdout.split())
         assert loaded.isdisjoint(forbidden)
+
+
+class TestFirstAccess:
+    """A lazy name or private module works as the first thing a process touches."""
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "import cosalette; cosalette.Router()",
+            "import cosalette; cosalette.PeriodicRegistration",
+            "import cosalette._router",
+            "import cosalette._registration_views",
+            "import cosalette._runners._periodic",
+        ],
+    )
+    def test_first_access_has_no_import_cycle(self, statement: str) -> None:
+        """Technique: Error Guessing — circular imports hidden by prior imports.
+
+        Touching ``cosalette.App`` first used to mask the cycles (cos-qitr.1),
+        so each statement runs in a fresh interpreter.
+        """
+        # Act
+        result = subprocess.run(
+            [sys.executable, "-c", statement],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # Assert
+        assert result.returncode == 0, result.stderr
 
 
 #: Subsystems a telemetry-only app never needs at run time (cos-8jxg.5).

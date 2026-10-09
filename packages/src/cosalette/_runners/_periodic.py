@@ -17,7 +17,7 @@ from typing import Any
 
 from cosalette._clock import ClockPort
 from cosalette._injection import resolve_request_kwargs
-from cosalette._registration import (
+from cosalette._registration._model import (
     _UNSET,
     EnabledSpec,
     IntervalSpec,

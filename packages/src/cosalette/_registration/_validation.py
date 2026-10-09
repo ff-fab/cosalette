@@ -7,6 +7,7 @@ during registration.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
 
 from cosalette._registration._model import (
@@ -52,6 +53,19 @@ def validate_mqtt_name(name: str) -> None:
     if control:
         chars = ", ".join(repr(c) for c in dict.fromkeys(control))
         msg = f"Name {name!r} contains control characters: {chars}"
+        raise ValueError(msg)
+
+
+_WILDCARD_RE = re.compile(r"[+#]")
+
+
+def _validate_inbound_topic(topic: str) -> None:
+    """Reject wildcard characters and empty topics."""
+    if not topic:
+        msg = "Inbound topic must not be empty"
+        raise ValueError(msg)
+    if _WILDCARD_RE.search(topic):
+        msg = f"Inbound topic must not contain wildcards (+/#), got {topic!r}"
         raise ValueError(msg)
 
 
