@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.3](https://github.com/ff-fab/cosalette/compare/v0.11.2...v0.11.3) (2026-10-09)
+
+
+### Features
+
+* **schema:** require only the optional deps the config uses; load .json schemas ([#512](https://github.com/ff-fab/cosalette/issues/512)) ([5594e1d](https://github.com/ff-fab/cosalette/commit/5594e1d72683ddd4bba6a9610136aaf6c6019839))
+
+
+### Bug Fixes
+
+* Router import cycle, schema install hint, drop packaging, gzip ADR index ([#509](https://github.com/ff-fab/cosalette/issues/509)) ([5d08712](https://github.com/ff-fab/cosalette/commit/5d087127ef01f5a0fbfd44861c3146669dfe395d))
+
 ## [0.11.2](https://github.com/ff-fab/cosalette/compare/v0.11.1...v0.11.2) (2026-10-08)
 
 
