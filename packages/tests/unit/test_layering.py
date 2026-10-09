@@ -1,8 +1,9 @@
 """Unit tests for import layering — lower layers never import ``cosalette._app``.
 
-``_wiring``, ``_registration`` and ``_runners`` sit below the ``App`` façade. An
-import of ``cosalette._app`` from them created the first-access import cycles of
-cos-qitr.1, so this static guard keeps the edge from coming back (cos-qitr.3).
+``_wiring``, ``_registration``, ``_runners`` and ``_router`` sit below the ``App``
+façade. An import of ``cosalette._app`` from the first three created the
+first-access import cycles of cos-qitr.1, and ``_router`` must not load the App
+it is composed into, so this static guard keeps the edge out (cos-qitr.3).
 
 Test Techniques Used:
 - Error Guessing: a runtime import of ``cosalette._app`` reintroduced in a
@@ -24,7 +25,7 @@ import cosalette
 pytestmark = pytest.mark.unit
 
 SRC = Path(cosalette.__file__).parent
-LOWER_LAYERS = ("_wiring", "_registration", "_runners")
+LOWER_LAYERS = ("_wiring", "_registration", "_runners", "_router")
 FORBIDDEN = "cosalette._app"
 
 #: Lazy re-export name -> source module, e.g. ``App`` -> ``cosalette._app``.
@@ -91,7 +92,7 @@ def _module_and_package(path: Path) -> tuple[str, str]:
 
 
 class TestLowerLayersDoNotImportApp:
-    """``_wiring``, ``_registration`` and ``_runners`` stay below ``_app``."""
+    """Every lower layer stays below ``_app``."""
 
     def test_lower_layer_files_are_found(self) -> None:
         """Technique: Error Guessing — an empty scan would guard nothing."""

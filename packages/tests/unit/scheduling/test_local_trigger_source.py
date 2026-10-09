@@ -587,21 +587,21 @@ class TestValidateTriggerableDirectCalls:
 
     def test_validate_triggerable_mqtt_rejects_none_name(self) -> None:
         """validate_triggerable raises for MQTT source when name is None."""
-        from cosalette._app._telemetry_validators import validate_triggerable
+        from cosalette._registration._telemetry_validators import validate_triggerable
 
         with pytest.raises(ValueError, match="named device"):
             validate_triggerable("mqtt", None)
 
     def test_validate_triggerable_both_rejects_none_name(self) -> None:
         """validate_triggerable raises for 'both' source when name is None."""
-        from cosalette._app._telemetry_validators import validate_triggerable
+        from cosalette._registration._telemetry_validators import validate_triggerable
 
         with pytest.raises(ValueError, match="named device"):
             validate_triggerable("both", None)
 
     def test_validate_triggerable_local_allows_none_name(self) -> None:
         """validate_triggerable allows 'local' when name is None (no MQTT topic)."""
-        from cosalette._app._telemetry_validators import validate_triggerable
+        from cosalette._registration._telemetry_validators import validate_triggerable
 
         result = validate_triggerable("local", None)
         assert result == "local"
@@ -619,7 +619,7 @@ class TestValidateTriggerableDirectCalls:
         self, source: cosalette.TriggerSource, is_root: bool, expect_error: bool
     ) -> None:
         """is_root=True blocks MQTT sources but allows local."""
-        from cosalette._app._telemetry_validators import validate_triggerable
+        from cosalette._registration._telemetry_validators import validate_triggerable
 
         if expect_error:
             with pytest.raises(ValueError):

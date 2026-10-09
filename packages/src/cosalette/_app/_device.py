@@ -7,15 +7,12 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._app._device_validators import validate_device_triggerable
-from cosalette._app._telemetry_validators import validate_unavailable_on
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _UNSET,
     DiscoverableSpec,
     EnabledSpec,
     NameSpec,
-    _build_op_reg,
     _CommandRegistration,
     _DeviceRegistration,
     _StreamRegistration,
@@ -24,33 +21,13 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._registration._decorators import _build_device_reg, _resolve_name_spec
+from cosalette._registration._device_validators import validate_device_triggerable
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._runners._trigger import TriggerableSpec
-from cosalette._utils import _callable_name, _callable_qualname
+from cosalette._utils import _callable_name
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_name_spec(
-    name: str | Callable[..., Any] | None,
-    func: Callable[..., Any],
-) -> tuple[str, Callable[..., Any] | None]:
-    """Return (resolved_name, name_spec) from a raw name argument."""
-    if callable(name):
-        return _callable_qualname(func), name
-    return name or _callable_name(func), None
-
-
-def _build_device_reg(
-    name: str,
-    func: Callable[..., Any],
-    plan: list[tuple[str, type]],
-    init: Callable[..., Any] | None,
-    init_plan: list[tuple[str, type]] | None,
-    **kw: Any,
-) -> _DeviceRegistration:
-    validate_unavailable_on(kw.get("unavailable_on", _UNSET))
-    return _build_op_reg(_DeviceRegistration, name, func, plan, init, init_plan, **kw)
 
 
 class _DeviceMixin:

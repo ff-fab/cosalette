@@ -5,14 +5,16 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Callable, Sequence
 
-from cosalette._app._helpers import _check_no_port_in_signature
-from cosalette._app._stream import validate_stream_health
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
     TimeoutSpec,
     _StreamRegistration,
     validate_stream_signature,
+)
+from cosalette._registration._decorators import (
+    _check_no_port_in_signature,
+    validate_stream_health,
 )
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname

@@ -109,6 +109,8 @@ class TestImportCost:
             ("import cosalette._health._liveness", HEAVY_MODULES),
             # The cosalette-health fallback probe is stdlib-only (ADR-087).
             ("import cosalette._health._probe", HEAVY_MODULES | {"orjson"}),
+            # A Router-only module never loads the App it is composed into.
+            ("import cosalette; cosalette.Router()", {"cosalette._app"}),
         ],
     )
     def test_import_does_not_load_heavy_modules(

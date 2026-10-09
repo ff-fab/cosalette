@@ -7,9 +7,6 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._app._device import _build_device_reg
-from cosalette._app._device import _resolve_name_spec as _resolve_device_name_spec
-from cosalette._app._device_validators import validate_device_triggerable
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _UNSET,
@@ -24,6 +21,13 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._registration._decorators import (
+    _build_device_reg,
+)
+from cosalette._registration._decorators import (
+    _resolve_name_spec as _resolve_device_name_spec,
+)
+from cosalette._registration._device_validators import validate_device_triggerable
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._runners._trigger import TriggerableSpec, TriggerSource
 

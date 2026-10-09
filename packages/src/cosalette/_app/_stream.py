@@ -7,8 +7,6 @@ from abc import abstractmethod
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from cosalette._app._helpers import _check_no_port_in_signature
-from cosalette._app._telemetry_validators import validate_timeout
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     EnabledSpec,
@@ -17,57 +15,15 @@ from cosalette._registration import (
     validate_mqtt_name,
     validate_stream_signature,
 )
+from cosalette._registration._decorators import (
+    _check_no_port_in_signature,
+    validate_stream_health,
+)
 from cosalette._runners._stream_types import BackpressurePolicy
 from cosalette._utils import _callable_name, _callable_qualname
 from cosalette._wiring._adapter_lifecycle import _AdapterEntry
 
 logger = logging.getLogger(__name__)
-
-
-def validate_stream_health(
-    name: str,
-    *,
-    stale_after: TimeoutSpec | None,
-    feeds: Sequence[str],
-    is_root: bool,
-) -> tuple[str, ...]:
-    """Validate a stream's ``stale_after=`` and ``feeds=`` at decoration time.
-
-    Checks what is knowable before bootstrap: a concrete ``stale_after``
-    must be a finite positive number, ``feeds`` must be a sequence of
-    names (a bare ``str`` is rejected — it is itself a sequence), and a
-    root stream may not declare ``feeds``.  Whether the fed names exist
-    is checked at bootstrap, after every registration is known.
-
-    Args:
-        name: Resolved stream name, for error messages.
-        stale_after: The ``stale_after=`` value.
-        feeds: The ``feeds=`` value.
-        is_root: Whether the stream is unnamed (root).
-
-    Returns:
-        *feeds* normalised to a tuple.
-
-    Raises:
-        ValueError: On an invalid ``stale_after`` or ``feeds`` value.
-        TypeError: If *feeds* is a ``str``.
-    """
-    validate_timeout(stale_after, "stale_after")
-    if isinstance(feeds, str):
-        msg = (
-            f"Stream {name!r}: feeds= must be a sequence of entity names, "
-            f"not a str; use feeds=[{feeds!r}]"
-        )
-        raise TypeError(msg)
-    fed = tuple(feeds)
-    if fed and is_root:
-        msg = (
-            f"Root stream {name!r} cannot declare feeds=: a root stream has no "
-            "availability topic of its own, so it cannot drive the availability "
-            "of other entities. Give the stream a name."
-        )
-        raise ValueError(msg)
-    return fed
 
 
 class _StreamMixin:
