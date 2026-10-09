@@ -255,12 +255,15 @@ RUN uv venv \
     && uv export --frozen --no-dev --no-emit-project --prune rich \
         -o requirements.txt \
     && uv pip install --no-deps -r requirements.txt
+
+COPY . .
+RUN uv pip install --no-deps .
 ```
 
 `--prune rich` drops rich and the three packages only it needs. `--no-deps` is
 required: without it, uv resolves the dependencies of the listed packages again,
-finds that typer requires rich and installs all four. Install the project itself
-with `--no-deps` as well.
+finds that typer requires rich and installs all four. The example installs the
+project itself with `--no-deps` after copying its source.
 
 - **Plain output.** Help and usage errors of the CLIs cosalette builds (the app CLI,
   its `schema` group and the `cosalette` command) fall back to plain output when rich
