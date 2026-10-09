@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, get_args, get_origin
+from typing import TYPE_CHECKING
 
 from cosalette._mqtt import MqttLifecycle, MqttPort
-from cosalette._registration import validate_mqtt_name
-from cosalette._runners._stream_types import StreamablePort
 from cosalette._schema import SchemaRegistry
-from cosalette._utils import _callable_qualname
 
 if TYPE_CHECKING:
     from cosalette._schema._validator import ValidatingMqttPort
@@ -118,41 +114,3 @@ async def _start_mqtt_and_publish_schema_status(
             prefix,
             connect_aware=False,
         )
-
-
-def _validate_periodic_early(
-    name: str,
-    registered_names: frozenset[str] | set[str],
-    interval: object,
-) -> None:
-    """Validate name uniqueness and interval positivity at decoration time."""
-    validate_mqtt_name(name)
-    if name in registered_names:
-        msg = f"Name '{name}' is already registered"
-        raise ValueError(msg)
-    if isinstance(interval, (int, float)) and interval <= 0:
-        msg = f"Periodic interval for '{name}' must be positive, got {interval}"
-        raise ValueError(msg)
-
-
-def _check_no_port_in_signature(
-    func: Callable[..., Any], hints: dict[str, Any], item_type: type
-) -> None:
-    """Raise TypeError if func declares a port parameter for item_type directly."""
-    for _, ann in hints.items():
-        origin = get_origin(ann)
-        if origin is StreamablePort:
-            port_ann_args = get_args(ann)
-            if port_ann_args and port_ann_args[0] == item_type:
-                item_type_name = getattr(item_type, "__name__", repr(item_type))
-                msg = (
-                    f"Function {_callable_qualname(func)!r} declares both "
-                    f"Stream[{item_type_name}] and"
-                    f" StreamablePort[{item_type_name}]. "
-                    "The framework owns the stream-source lifecycle "
-                    "(open, start_scan, stop_scan, close) — "
-                    "remove the port parameter. "
-                    "To access the adapter for non-lifecycle operations, "
-                    "inject its concrete type instead."
-                )
-                raise TypeError(msg)

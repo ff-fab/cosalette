@@ -7,7 +7,6 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any
 
-from cosalette._app._command import _build_command_reg, _resolve_name_spec
 from cosalette._injection import build_injection_plan, detect_raw_mqtt_params
 from cosalette._registration import (
     _UNSET,
@@ -23,6 +22,7 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
 )
+from cosalette._registration._decorators import _build_command_reg, _resolve_name_spec
 from cosalette._runners._stream_types import BackpressurePolicy
 
 

@@ -8,7 +8,6 @@ from abc import abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
-from cosalette._app._helpers import _validate_periodic_early
 from cosalette._injection import build_injection_plan
 from cosalette._registration import (
     _UNSET,
@@ -18,6 +17,7 @@ from cosalette._registration import (
     _Unset,
     _validate_init,
 )
+from cosalette._registration._decorators import _validate_periodic_early
 from cosalette._runners._periodic import _PeriodicRegistration
 from cosalette._utils import _callable_name
 

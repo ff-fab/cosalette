@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cosalette._app._telemetry_validators import validate_min_interval
+from cosalette._registration._telemetry_validators import validate_min_interval
 from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._trigger import (
     TriggerableSpec,
@@ -65,7 +65,7 @@ def validate_device_triggerable(
             than ``"local"``, when ``triggerable=`` and the
             :class:`DeviceTrigger` parameter disagree, or for an
             invalid ``min_interval=`` (see
-            :func:`~cosalette._app._telemetry_validators.validate_min_interval`).
+            :func:`~cosalette._registration._telemetry_validators.validate_min_interval`).
     """
     source = normalize_trigger_source(triggerable)
     wants_handle = plan_declares_device_trigger(plan)

@@ -6,22 +6,6 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
-from cosalette._app._telemetry_validators import (
-    has_interval,
-    parse_schedule,
-    prepare_schedule_spec,
-    resolve_retry_defaults,
-    resolve_telemetry_name_spec,
-    validate_group_name,
-    validate_imperative_schedule,
-    validate_interval_schedule,
-    validate_min_interval,
-    validate_retry_args,
-    validate_schedule_spec_combinations,
-    validate_timeout,
-    validate_triggerable,
-    validate_unavailable_on,
-)
 from cosalette._injection import build_injection_plan
 from cosalette._persistence._persist import PersistPolicy
 from cosalette._registration import (
@@ -41,6 +25,22 @@ from cosalette._registration import (
     _validate_init,
     check_device_name,
     warn_on_state_model_conflict,
+)
+from cosalette._registration._telemetry_validators import (
+    has_interval,
+    parse_schedule,
+    prepare_schedule_spec,
+    resolve_retry_defaults,
+    resolve_telemetry_name_spec,
+    validate_group_name,
+    validate_imperative_schedule,
+    validate_interval_schedule,
+    validate_min_interval,
+    validate_retry_args,
+    validate_schedule_spec_combinations,
+    validate_timeout,
+    validate_triggerable,
+    validate_unavailable_on,
 )
 from cosalette._retry import BackoffStrategy, CircuitBreaker
 from cosalette._runners._trigger import normalize_trigger_source

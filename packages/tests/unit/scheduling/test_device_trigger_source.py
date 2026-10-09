@@ -44,13 +44,13 @@ from cosalette import (
     Router,
     UnknownEntityError,
 )
-from cosalette._app._device_validators import (
-    plan_declares_device_trigger,
-    validate_device_triggerable,
-)
 from cosalette._errors import ErrorPublisher
 from cosalette._health import HealthReporter
 from cosalette._registration import _DeviceRegistration
+from cosalette._registration._device_validators import (
+    plan_declares_device_trigger,
+    validate_device_triggerable,
+)
 from cosalette._runners._telemetry_types import _TriggerSlot
 from cosalette._wiring import TriggerConfig, start_device_tasks_for_names
 from cosalette.testing import AppHarness, FakeClock, make_settings
