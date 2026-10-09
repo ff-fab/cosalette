@@ -9,7 +9,7 @@ tags: [telemetry, devices, scheduling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-09-01 | Amended **Date:** 2026-09-01
+Accepted **Date:** 2026-09-01 | Amended **Date:** 2026-09-01 | Amended **Date:** 2026-10-09
 
 ## Context
 
@@ -218,3 +218,8 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-09-01)"
     **Known gap, not addressed here.** `Router.device` still has no `triggerable=` parameter (an ADR-065 omission), so a device registered through a `Router` cannot declare a trigger source and therefore cannot use `min_interval=` either. Tracked separately; out of scope for cos-kkvc.
+
+## Amendment (2026-10-09) — Minor
+
+!!! note "Editorial note (2026-10-09)"
+    **Module path update (cos-qitr.3).** `validate_min_interval` and the other telemetry registration validators moved, unchanged, from `packages/src/cosalette/_app/_telemetry_validators.py` to `packages/src/cosalette/_registration/_telemetry_validators.py`, and the device validator moved to `packages/src/cosalette/_registration/_device_validators.py`. This lets `Router` use them without importing `cosalette._app`. The 2026-09-01 note on validation placement now refers to the new path; its behaviour, messages and ordering still hold.
