@@ -20,26 +20,39 @@ Schema enforcement fills that gap using **AsyncAPI 3.0.0** documents annotated w
 - **Zero friction when unused.** The default enforcement mode is `off` — no new
   dependencies, no new topics, no broker configuration.
 
-!!! note "Prerequisites"
+## Which Extra Do I Need?
 
-    Install the `schema` optional extra for the CLI and all schema features:
+cosalette keeps optional features behind extras so a container image installs only
+what the app uses. This table is the reference for every extra; most apps need none
+of them at runtime.
 
-    ```bash
-    pip install cosalette[schema]
-    ```
+| Feature | Needs | Install |
+| ------- | ----- | ------- |
+| Runtime discovery (`app.discovery()`) | nothing | — |
+| Schema enforcement with a `.json` schema file, `on_publish` false | nothing | — |
+| Schema enforcement with a YAML schema file | PyYAML | `cosalette[schema]` or `cosalette[config-yaml]` |
+| Publish-time payload validation (`on_publish: true`) | jsonschema | `cosalette[schema]` |
+| `cosalette schema` / `<app> schema` CLI commands | PyYAML, jsonschema | `cosalette[schema]` |
+| YAML settings file (`config_file=`, `--config-file`) | PyYAML | `cosalette[config-yaml]` |
+| MCP server for AI agents | fastmcp, jinja2, mcp | `cosalette[mcp]` |
 
-    This pulls in `pyyaml` and `jsonschema`. At startup the app checks only what its
-    configuration uses: a YAML schema file needs `pyyaml`, and `jsonschema` is needed
-    only when `x-cosalette-enforcement.on_publish` is `true` (default `false`). A
-    schema file whose name ends in `.json` is parsed with `orjson`, a core dependency,
-    so it never needs `pyyaml` and needs neither optional dependency when
-    `on_publish` is false. JSON schemas still need `jsonschema` when `on_publish`
-    is true. A missing dependency fails startup, before MQTT connects, with
-    an install hint (ADR-033 amendment). The `cosalette schema` CLI commands need the
-    extra.
+Runtime discovery builds its payloads from the app's in-memory AsyncAPI document
+(ADR-059), so it never reads a schema file. At startup, schema enforcement checks
+only what its configuration uses (ADR-033 amendment): a YAML schema file needs
+PyYAML, and jsonschema is needed only when `x-cosalette-enforcement.on_publish` is
+`true` (default `false`). A schema file whose name ends in `.json` is parsed with
+`orjson`, a core dependency, so it never needs PyYAML; it still needs jsonschema
+when `on_publish` is true. A missing dependency fails startup, before MQTT connects,
+with an install hint. A YAML schema with `on_publish: true` needs both packages, so
+install `cosalette[schema]`:
 
-    Runtime discovery (`app.discovery()`) does not need the extra: it builds payloads
-    from the app's in-memory AsyncAPI document (ADR-059).
+```bash
+pip install cosalette[schema]
+```
+
+TOML and JSON settings files need no extra (see
+[Configuration — Supported Formats](configuration.md#supported-formats)). For the
+MCP server, see [MCP Server](mcp-server.md).
 
 ## Quick Start
 
