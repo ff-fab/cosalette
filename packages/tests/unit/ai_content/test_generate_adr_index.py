@@ -1,15 +1,20 @@
-"""Unit tests for scripts/generate_adr_index.py — ADR summary extraction.
+"""Unit tests for scripts/generate_adr_index.py — summaries and the index file.
 
 Test Techniques Used:
 - Equivalence Partitioning: plain prose vs. emphasised/quoted first sentences
 - Boundary Value Analysis: summary length at the truncation threshold
 - Error Guessing: a first sentence that opens a multi-sentence emphasised quote
   (the ADR-068 regression) must not leave unbalanced Markdown in the summary
+- Round-trip Testing: the gzipped index decodes to the written entries and is
+  byte-identical when regenerated from unchanged input
 """
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
+import json
+import time
 from pathlib import Path
 from types import ModuleType
 
@@ -91,3 +96,22 @@ def test_long_first_sentence_is_truncated_with_ellipsis(gen_index: ModuleType) -
     # Assert
     assert summary.endswith("...")
     assert len(summary) <= gen_index._MAX_SUMMARY_LEN + 3
+
+
+def test_write_index_is_deterministic_gzipped_json(
+    gen_index: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regenerating an unchanged index yields identical bytes (no git diff)."""
+    # Arrange
+    adrs = [{"id": "ADR-001", "title": "Ünïcode", "content": "x" * 100}]
+    first, second = tmp_path / "a.json.gz", tmp_path / "b.json.gz"
+
+    # Act
+    monkeypatch.setattr(time, "time", lambda: 1_000_000_000.0)
+    gen_index.write_index(adrs, first)
+    monkeypatch.setattr(time, "time", lambda: 2_000_000_000.0)  # a later run
+    gen_index.write_index(adrs, second)
+
+    # Assert
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(gzip.decompress(first.read_bytes())) == adrs

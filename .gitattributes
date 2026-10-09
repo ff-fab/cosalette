@@ -72,7 +72,7 @@ poetry.lock text eol=lf
 *.egg binary
 *.whl binary
 *.tar binary
-*.tar.gz binary
+*.gz binary
 *.zip binary
 *.7z binary
 *.rar binary

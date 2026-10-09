@@ -3,16 +3,17 @@
 Test Techniques Used:
 - Equivalence Partitioning: valid/invalid ADR IDs, search queries
 - State Transition Testing: ADR index cache states (empty, loaded, error)
-- Error Guessing: missing index file, malformed JSON, unknown ADR IDs
+- Error Guessing: missing index file, malformed JSON or gzip, unknown ADR IDs
 """
 
 from __future__ import annotations
 
 import asyncio
+import gzip
 import importlib.util
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -85,88 +86,77 @@ SAMPLE_ADR_INDEX = [
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")
 class TestAdrIndexLoading:
-    """Tests for ADR index loading functionality."""
+    """Tests for loading the gzipped ADR index."""
 
-    def test_load_adr_index_with_existing_file(self, monkeypatch):
-        """Test ADR index loading when file exists."""
-        # Mock the index file content
-        mock_file_content = json.dumps(SAMPLE_ADR_INDEX)
-        mock_file = mock_open(read_data=mock_file_content)
-
-        # Mock Path.exists to return True
-        def mock_exists(self):
-            return str(self).endswith("adr-index.json")
-
-        with (
-            patch.object(Path, "open", mock_file),
-            patch.object(Path, "exists", mock_exists),
-        ):
-            # Clear lru_cache first
-            _load_adr_index.cache_clear()
-
-            result = _load_adr_index()
-
-        assert list(result) == SAMPLE_ADR_INDEX
-        assert len(result) == 3
-        assert result[0]["id"] == "ADR-001"
-
-    def test_load_adr_index_with_missing_file(self, monkeypatch):
-        """Test ADR index loading when file is missing."""
-
-        # Mock Path.exists to return False
-        def mock_exists(self):
-            return False
-
-        with patch.object(Path, "exists", mock_exists):
-            # Clear lru_cache first
-            _load_adr_index.cache_clear()
-
-            result = _load_adr_index()
-
-        assert result == ()
-
-    def test_load_adr_index_caching(self, monkeypatch):
-        """Test that ADR index is cached after first load via lru_cache."""
-        mock_file_content = json.dumps(SAMPLE_ADR_INDEX)
-        mock_file = mock_open(read_data=mock_file_content)
-
-        def mock_exists(self):
-            return str(self).endswith("adr-index.json")
-
-        # Clear cache and load once
+    @pytest.fixture
+    def index_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> Iterator[Path]:
+        """Point the loader at a temporary index and reset its cache."""
+        path = tmp_path / "adr-index.json.gz"
+        monkeypatch.setattr("cosalette._mcp._adrs._ADR_INDEX", path)
+        _load_adr_index.cache_clear()
+        yield path
         _load_adr_index.cache_clear()
 
-        with (
-            patch.object(Path, "open", mock_file) as mocked_open,
-            patch.object(Path, "exists", mock_exists),
-        ):
-            first = _load_adr_index()
-            second = _load_adr_index()
+    def test_load_adr_index_with_existing_file(self, index_path: Path) -> None:
+        """A gzipped index round-trips to the original entries."""
+        # Arrange
+        index_path.write_bytes(gzip.compress(json.dumps(SAMPLE_ADR_INDEX).encode()))
 
-        # Should return same object (cached)
+        # Act
+        result = _load_adr_index()
+
+        # Assert
+        assert list(result) == SAMPLE_ADR_INDEX
+        assert result[0]["id"] == "ADR-001"
+
+    def test_load_adr_index_with_missing_file(self, index_path: Path) -> None:
+        """A missing index yields no ADRs instead of raising."""
+        assert _load_adr_index() == ()
+
+    def test_load_adr_index_caching(self, index_path: Path) -> None:
+        """The index is read once; later calls return the cached tuple."""
+        # Arrange
+        index_path.write_bytes(gzip.compress(json.dumps(SAMPLE_ADR_INDEX).encode()))
+        first = _load_adr_index()
+        index_path.unlink()
+
+        # Act
+        second = _load_adr_index()
+
+        # Assert
         assert first is second
-        # File should have been opened only once
-        mocked_open.assert_called_once()
 
-    def test_load_adr_index_handles_json_error(self, monkeypatch):
-        """Test graceful handling of JSON parsing errors."""
-        # Mock invalid JSON content
-        mock_file = mock_open(read_data="invalid json {")
+    @pytest.mark.parametrize(
+        "payload",
+        [gzip.compress(b"invalid json {"), b"not gzip at all", b""],
+        ids=["bad_json", "not_gzip", "empty"],
+    )
+    def test_load_adr_index_handles_corrupt_file(
+        self, index_path: Path, payload: bytes
+    ) -> None:
+        """Technique: Error Guessing — unreadable index degrades to no ADRs."""
+        # Arrange
+        index_path.write_bytes(payload)
 
-        def mock_exists(self):
-            return str(self).endswith("adr-index.json")
+        # Act / Assert
+        assert _load_adr_index() == ()
 
-        with (
-            patch.object(Path, "open", mock_file),
-            patch.object(Path, "exists", mock_exists),
-        ):
-            # Clear lru_cache first
-            _load_adr_index.cache_clear()
+    def test_packaged_index_is_gzipped_and_loads(self) -> None:
+        """Technique: Specification-based — the shipped asset is the .gz index."""
+        # Arrange
+        from cosalette._mcp import _adrs
 
-            result = _load_adr_index()
+        _load_adr_index.cache_clear()
 
-        # Should return empty tuple on error
-        assert result == ()
+        # Act
+        adrs = _load_adr_index()
+
+        # Assert
+        assert _adrs._ADR_INDEX.name == "adr-index.json.gz"
+        assert not _adrs._ADR_INDEX.with_suffix("").exists()
+        assert any(adr["id"] == "ADR-035" for adr in adrs)
 
 
 @pytest.mark.skipif(not FASTMCP_AVAILABLE, reason="fastmcp not installed")

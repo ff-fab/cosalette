@@ -434,6 +434,11 @@ tasks:
     desc: Create or amend an ADR from a validated JSON input file
     cmds:
       - uv run scripts/render_adr.py {{.CLI_ARGS}}
+      - task: adr:index
+
+  adr:index:
+    desc: Regenerate docs/adr/index.md and the packaged adr-index.json.gz
+    cmds:
       - uv run scripts/generate_adr_index.py
 
   # ===========================================================================
