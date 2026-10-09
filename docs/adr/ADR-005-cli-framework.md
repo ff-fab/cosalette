@@ -9,7 +9,7 @@ tags: [cli]
 
 ## Status
 
-Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-10-05
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-10-05 | Amended **Date:** 2026-10-09
 
 ## Context
 
@@ -163,3 +163,59 @@ Move typer to a `cosalette[cli]` extra so the default install has no rich.
 ### Additional Negative Consequences
 
 - A new run option must be added to both the Typer callback and `_cli_run.parse_run_args`; an option missing from the fast path still works but falls back to Typer, so the omission costs memory, not correctness.
+
+## Amendment (2026-10-09) — Corrective
+
+**Rationale:** The first 2026-10-05 amendment tells apps to exclude rich with a uv `override-dependencies` entry (`rich; sys_platform == 'never'`). That advice is harmful: uv overrides apply to the whole resolution, including dev dependency groups, so the entry also strips rich from dev tools that need it (pip-audit, cyclonedx, fastmcp, cyclopts). The cosalette-apps size audit (FEP cli-without-rich, cos-6dro) found it in the containerize guide, this ADR and the 0.11.1 what's-new text.
+
+> **Justification for amendment (not supersession):** Only the downstream recipe changes. cosalette's code and its dependency on Typer stay as decided: the plain-help fallback (`_utils._typer_options()`) and the Typer-free run path are unchanged, and no app-facing API changes. The faulty advice lives in documentation, not in code, so superseding ADR-005 would split a still-valid record for one sentence of guidance.
+
+### Additional Sub-Decision: Slim images skip rich at install time, not at resolution time
+
+This replaces the `override-dependencies` sentence of the first 2026-10-05 amendment. Apps that want an image without rich keep their lockfile unchanged and skip the four packages when they install into the image:
+
+```bash
+uv sync --frozen --no-dev \
+    --no-install-package rich --no-install-package pygments \
+    --no-install-package markdown-it-py --no-install-package mdurl
+```
+
+The flags apply to both `uv sync` lines of a multi-stage Dockerfile. Nothing is re-resolved, so the lockfile and the dev groups keep rich. `uv pip check` (and `pip check`) then reports that typer requires rich; that is the accepted trade-off. Do not use `[tool.uv] override-dependencies` for this.
+
+The Typer instances cosalette builds need nothing else (`_utils._typer_options()` falls back to plain output). An app that creates its own `typer.Typer()` crashes on `--help` without rich (`from rich import box` in `typer.rich_utils`), because Typer checks only the `TYPER_USE_RICH` variable; such images set `ENV TYPER_USE_RICH=0`. Verified with typer 0.27.3 and uv 0.6.17. The variable is harmless for apps without their own Typer CLI.
+
+### Additional Sub-Decision: Keep Typer; a Click migration is deferred
+
+Rebuilding the CLI on Click (decision cos-6dro.3, 2026-10-09) is deferred and Typer stays the CLI framework. Typer vendors Click, so a Click CLI would save only about 0.7 MB beyond dropping rich, which the recipe above already does. The migration touches about 2.5k lines and 255 Typer references in seven modules, would supersede this ADR, and would not help apps that ship their own Typer CLI. Revisit when Typer becomes unmaintained or rich becomes impossible to skip, when an adopter measures a real problem with the remaining Typer overhead, or when a separate dev distribution is reconsidered.
+
+### Additional Considered Options
+
+**uv override-dependencies entry for rich**
+
+`[tool.uv] override-dependencies = ["rich; sys_platform == 'never'"]` in the app's `pyproject.toml`, as the first 2026-10-05 amendment recommended.
+
+- *Advantages:* One line of configuration; every `uv sync` of the project leaves rich out
+- *Disadvantages:* Overrides apply to the whole lock, including dev groups, so dev tools that need rich (pip-audit, cyclonedx, fastmcp, cyclopts) lose it; Changes the lockfile for a concern that only the image build has
+
+**uv sync --no-install-package for rich and its dependencies (chosen)**
+
+Skip rich, pygments, markdown-it-py and mdurl at install time in the image build.
+
+- *Advantages:* Lockfile and dev groups unchanged; Confined to the Dockerfile
+- *Disadvantages:* `uv pip check` reports rich as missing; App-owned Typer CLIs also need `TYPER_USE_RICH=0`
+
+**typer-slim**
+
+Depend on typer-slim instead of typer. Re-checked on 2026-10-09: the latest release is 0.24.0, a shim that requires typer>=0.24.0 and therefore rich.
+
+- *Advantages:* Would be a drop-in rename if it were still rich-free
+- *Disadvantages:* Pulls typer and rich anyway, so nothing is saved
+
+### Additional Positive Consequences
+
+- Slim images drop rich, pygments, markdown-it-py and mdurl without changing the lockfile or breaking dev tools
+
+### Additional Negative Consequences
+
+- `uv pip check` in a slim image reports typer's missing rich requirement
+- Apps with their own Typer CLI must also set `TYPER_USE_RICH=0` in the image

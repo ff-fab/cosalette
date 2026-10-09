@@ -1773,6 +1773,10 @@ Basic Usage:
   (HA's own default); pass a different value only if your broker uses a
   non-default HA discovery prefix.
 
+  Needs no optional extra: payloads come from the app's in-memory AsyncAPI
+  document, so cosalette[schema] is not required (ADR-059). Which extra each
+  feature needs: docs/guides/schema-enforcement.md, "Which Extra Do I Need?".
+
 Enrichment Hook (the escape hatch):
   `consumer()` / `ha_discovery()` / `ha_entities()` cover most cases, but HA's
   MQTT discovery vocabulary is large and platform-specific. `enrich` is a

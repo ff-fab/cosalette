@@ -711,6 +711,10 @@ devices removed from config are cleared the same way ADR-048 already clears
 `cosalette schema openhab` remains the offline path for openHAB. See
 `cosalette ai help discovery`, ADR-059.
 
+`app.discovery()` needs no optional extra; do not add `cosalette[schema]` for it. Only
+a YAML schema file, `on_publish: true` validation and the `schema` CLI need
+`cosalette[schema]`; a YAML settings file needs `cosalette[config-yaml]`.
+
 ---
 
 Refresh this file: `cosalette ai init`
