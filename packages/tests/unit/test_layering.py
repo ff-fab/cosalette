@@ -34,20 +34,43 @@ EXPORT_ORIGIN = {
 }
 
 
-def _is_type_checking(test: ast.expr) -> bool:
-    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-    )
+def _import_bindings(tree: ast.AST, module: str, name: str | None = None) -> set[str]:
+    """Collect explicitly imported bindings; arbitrary look-alikes stay runtime."""
+    bindings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and name is None:
+            bindings.update(
+                alias.asname or alias.name
+                for alias in node.names
+                if alias.name == module
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module == module
+            and not node.level
+        ):
+            bindings.update(
+                alias.asname or alias.name for alias in node.names if alias.name == name
+            )
+    return bindings
 
 
-def _runtime_imports(node: ast.AST) -> Iterator[ast.Import | ast.ImportFrom]:
-    """Yield import nodes outside ``if TYPE_CHECKING:`` bodies."""
+def _runtime_nodes(
+    node: ast.AST, typing_modules: set[str], type_checking_names: set[str]
+) -> Iterator[ast.AST]:
+    """Yield nodes outside bodies guarded by an explicitly imported typing flag."""
     for child in ast.iter_child_nodes(node):
-        guarded = isinstance(child, ast.If) and _is_type_checking(child.test)
+        guarded = isinstance(child, ast.If) and (
+            isinstance(child.test, ast.Name)
+            and child.test.id in type_checking_names
+            or isinstance(child.test, ast.Attribute)
+            and isinstance(child.test.value, ast.Name)
+            and child.test.value.id in typing_modules
+            and child.test.attr == "TYPE_CHECKING"
+        )
         for stmt in child.orelse if guarded else [child]:
-            if isinstance(stmt, ast.Import | ast.ImportFrom):
-                yield stmt
-            yield from _runtime_imports(stmt)
+            yield stmt
+            yield from _runtime_nodes(stmt, typing_modules, type_checking_names)
 
 
 def _targets(node: ast.Import | ast.ImportFrom, package: str) -> Iterator[str]:
@@ -61,20 +84,40 @@ def _targets(node: ast.Import | ast.ImportFrom, package: str) -> Iterator[str]:
         base = f"{parent}.{base}" if base else parent
     yield base
     for alias in node.names:
+        if base == "cosalette" and alias.name == "*":
+            yield from EXPORT_ORIGIN.values()
+            continue
         target = f"{base}.{alias.name}"
         yield EXPORT_ORIGIN.get(alias.name, target) if base == "cosalette" else target
 
 
 def _violations(source: str, module: str, package: str) -> list[str]:
-    """Return one ``module:line`` entry per statement that loads ``_app``."""
-    return [
-        f"{module}:{node.lineno} imports {FORBIDDEN}"
-        for node in _runtime_imports(ast.parse(source))
+    """Return a ``module:line`` entry per import or access that loads ``_app``."""
+    tree = ast.parse(source)
+    root_names = _import_bindings(tree, "cosalette")
+    violations = []
+    for node in _runtime_nodes(
+        tree,
+        _import_bindings(tree, "typing"),
+        _import_bindings(tree, "typing", "TYPE_CHECKING"),
+    ):
+        targets = []
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            targets = list(_targets(node, package))
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in root_names
+        ):
+            targets = [EXPORT_ORIGIN.get(node.attr, f"cosalette.{node.attr}")]
+        else:
+            continue
         if any(
             target == FORBIDDEN or target.startswith(f"{FORBIDDEN}.")
-            for target in _targets(node, package)
-        )
-    ]
+            for target in targets
+        ):
+            violations.append(f"{module}:{node.lineno} imports {FORBIDDEN}")
+    return violations
 
 
 def _lower_layer_files() -> list[Path]:
@@ -126,9 +169,22 @@ class TestViolationDetection:
             "from cosalette._app._inbound import x",
             "from cosalette import _app",
             "from cosalette import App",
+            "from cosalette import *",
+            "from .. import *",
+            "import cosalette; cosalette.App()",
+            "import cosalette as cos; cos.App",
+            "import cosalette as cos\ndef f():\n    return cos.App()",
+            "import cosalette; cosalette._app.App",
+            "import config\nif config.TYPE_CHECKING:\n    from cosalette import App",
+            "if TYPE_CHECKING:\n    from cosalette import App",
             "from .._app import App",
             "def f():\n    from cosalette._app import App",
+            "from typing import TYPE_CHECKING\n"
             "if TYPE_CHECKING:\n    pass\nelse:\n    from cosalette._app import App",
+            "import typing as t\n"
+            "if t.TYPE_CHECKING:\n    pass\nelse:\n    from cosalette import *",
+            "import cosalette as cos\nfrom typing import TYPE_CHECKING as TC\n"
+            "if TC:\n    pass\nelse:\n    cos.App",
         ],
     )
     def test_forbidden_import_is_flagged(self, source: str) -> None:
@@ -142,8 +198,17 @@ class TestViolationDetection:
     @pytest.mark.parametrize(
         "source",
         [
+            "from typing import TYPE_CHECKING\n"
             "if TYPE_CHECKING:\n    from cosalette._app import App",
+            "import typing\n"
             "if typing.TYPE_CHECKING:\n    from cosalette._app import App",
+            "import typing as t\nif t.TYPE_CHECKING:\n    from cosalette import *",
+            "from typing import TYPE_CHECKING as TC\nif TC:\n    from .. import *",
+            "import cosalette\nfrom typing import TYPE_CHECKING as TC\n"
+            "if TC:\n    cosalette.App",
+            "import cosalette as cos; cos.Router()",
+            "import other as cos; cos.App()",
+            "from cosalette._router import *",
             "from cosalette._application import x",
             "from cosalette import Router",
             "from cosalette._registration._model import EnabledSpec",
