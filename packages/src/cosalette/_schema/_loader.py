@@ -1,6 +1,6 @@
 """Schema loading and parsing for AsyncAPI 3.0.0 + x-cosalette-* extensions.
 
-I/O module: loads AsyncAPI YAML, resolves $ref, validates extensions,
+I/O module: loads AsyncAPI YAML or JSON, resolves $ref, validates extensions,
 returns SchemaRegistry.
 
 See Also:
@@ -85,27 +85,25 @@ class InlineSchemaSource:
         return "<inline>"
 
 
-_schema_deps_checked = False
+def require_optional(module: str, feature: str) -> None:
+    """Raise an install hint when the optional *module* is not installed.
 
-
-def _ensure_schema_deps() -> None:
-    """Verify that optional schema dependencies are available.
-
-    Checks presence only, without importing: importing them would keep
-    about 70 modules resident.  Each is imported where it is used.
+    Checks presence only, without importing: importing jsonschema or yaml
+    would keep about 70 modules resident.  Each is imported where it is used.
     """
-    global _schema_deps_checked  # noqa: PLW0603
-    if _schema_deps_checked:
-        return
-    missing = [name for name in ("jsonschema", "yaml") if find_spec(name) is None]
-    if missing:
+    if find_spec(module) is None:
         msg = (
-            "Schema support requires optional dependencies "
-            f"(missing: {', '.join(missing)}). "
+            f"{feature} requires an optional dependency (missing: {module}). "
             "Install with: pip install cosalette[schema]"
         )
         raise ImportError(msg)
-    _schema_deps_checked = True
+
+
+def _is_json_source(source: SchemaSource) -> bool:
+    """A file source named ``*.json`` is parsed as JSON, not YAML."""
+    return (
+        isinstance(source, FileSchemaSource) and source.path.suffix.lower() == ".json"
+    )
 
 
 def _follow_pointer(root: dict[str, Any], pointer: str) -> Any:
@@ -161,34 +159,45 @@ def _resolve_refs(
     return doc
 
 
+async def _parse_text_source(source: SchemaSource) -> dict[str, Any]:
+    """Parse *source* as JSON (``*.json`` file) or YAML (anything else)."""
+    if _is_json_source(source):
+        import orjson
+
+        fmt, parse = "JSON", orjson.loads
+    else:
+        require_optional("yaml", "A YAML schema")
+        import yaml
+
+        fmt, parse = "YAML", yaml.safe_load
+    try:
+        doc = parse(await source.load())
+    except Exception as exc:
+        raise SchemaLoadError(
+            errors=[f"Failed to parse {fmt}: {exc}"],
+            source_description=source.description,
+        ) from exc
+    if not isinstance(doc, dict):
+        raise SchemaLoadError(
+            errors=[f"Schema must be a {fmt} mapping, got: {type(doc).__name__}"],
+            source_description=source.description,
+        )
+    return cast("dict[str, Any]", doc)
+
+
 async def load_schema(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
     """Load and parse AsyncAPI schema from source.
 
-    A dict source (runtime discovery, ADR-059) needs neither PyYAML nor
-    jsonschema, so only a text source requires the ``[schema]`` extra.
+    A dict source (runtime discovery, ADR-059) and a ``*.json`` file are
+    parsed without PyYAML; any other text source requires it.  jsonschema is
+    never needed here: only publish-time validation uses it.
     """
     if isinstance(source, dict):
         doc: dict[str, Any] = cast("dict[str, Any]", source)
         source_description = "<dict>"
     else:
-        _ensure_schema_deps()
-        import yaml
-
+        doc = await _parse_text_source(source)
         source_description = source.description
-        try:
-            content = await source.load()
-            doc = yaml.safe_load(content)
-        except Exception as exc:
-            raise SchemaLoadError(
-                errors=[f"Failed to parse YAML: {exc}"],
-                source_description=source_description,
-            ) from exc
-
-    if not isinstance(doc, dict):
-        raise SchemaLoadError(
-            errors=["Schema must be a YAML mapping, got: " + type(doc).__name__],
-            source_description=source_description,
-        )
 
     errors = []
 
@@ -277,7 +286,7 @@ def load_schema_sync(source: SchemaSource | dict[str, Any]) -> SchemaRegistry:
 
     Raises:
         SchemaLoadError: When the schema document is invalid.
-        ImportError: When optional ``[schema]`` dependencies are missing.
+        ImportError: When PyYAML is missing for a YAML schema.
         RuntimeError: When called from within a running event loop.
     """
     return asyncio.run(load_schema(source))

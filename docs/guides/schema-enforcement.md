@@ -22,15 +22,21 @@ Schema enforcement fills that gap using **AsyncAPI 3.0.0** documents annotated w
 
 !!! note "Prerequisites"
 
-    Schema features require the `schema` optional extra:
+    Install the `schema` optional extra for the CLI and all schema features:
 
     ```bash
     pip install cosalette[schema]
     ```
 
-    This pulls in `pyyaml` and `jsonschema`. Without it, `mode: off` is the only valid
-    enforcement mode and the CLI commands are still available for validation in CI
-    environments that have the dependencies installed.
+    This pulls in `pyyaml` and `jsonschema`. At startup the app checks only what its
+    configuration uses: a YAML schema file needs `pyyaml`, and `jsonschema` is needed
+    only when `x-cosalette-enforcement.on_publish` is `true` (default `false`). A
+    schema file whose name ends in `.json` is parsed with `orjson`, a core dependency,
+    so it never needs `pyyaml` and needs neither optional dependency when
+    `on_publish` is false. JSON schemas still need `jsonschema` when `on_publish`
+    is true. A missing dependency fails startup, before MQTT connects, with
+    an install hint (ADR-033 amendment). The `cosalette schema` CLI commands need the
+    extra.
 
     Runtime discovery (`app.discovery()`) does not need the extra: it builds payloads
     from the app's in-memory AsyncAPI document (ADR-059).

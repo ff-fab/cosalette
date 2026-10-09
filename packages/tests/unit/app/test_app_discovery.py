@@ -192,7 +192,6 @@ class TestBuildDiscoveryPayloads:
         calls ``app.discovery()`` (cos-8jxg.2).
         """
         # Arrange
-        monkeypatch.setattr("cosalette._schema._loader._schema_deps_checked", False)
         for name in ("jsonschema", "yaml"):
             monkeypatch.delitem(sys.modules, name, raising=False)
         app = _annotated_app()
@@ -215,7 +214,6 @@ class TestBuildDiscoveryPayloads:
         amendment).
         """
         # Arrange
-        monkeypatch.setattr("cosalette._schema._loader._schema_deps_checked", False)
         monkeypatch.setattr("cosalette._schema._loader.find_spec", lambda _name: None)
         app = _annotated_app()
 
