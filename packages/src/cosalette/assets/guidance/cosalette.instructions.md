@@ -712,8 +712,11 @@ devices removed from config are cleared the same way ADR-048 already clears
 `cosalette ai help discovery`, ADR-059.
 
 `app.discovery()` needs no optional extra; do not add `cosalette[schema]` for it. Only
-a YAML schema file, `on_publish: true` validation and the `schema` CLI need
-`cosalette[schema]`; a YAML settings file needs `cosalette[config-yaml]`.
+a YAML schema file, `on_publish: true` validation and `schema` CLI commands that read
+or write YAML need `cosalette[schema]`; a YAML settings file needs
+`cosalette[config-yaml]`. Without PyYAML, run
+`cosalette schema dump --app myapp.main:app --format json > schema.json` and feed
+`schema.json` to `schema openhab`, `acl`, `ha-discovery` or `validate`.
 
 ---
 

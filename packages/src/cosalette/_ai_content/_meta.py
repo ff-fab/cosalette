@@ -598,6 +598,23 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "count. An explicit json_attributes_topic in extra still wins (see: "
         "cosalette ai help consumer-overrides, ADR-075).",
     ],
+    "0.11.4": [
+        "cosalette schema dump --format yaml|json (default yaml, ADR-033 "
+        "amendment): --format json writes the same AsyncAPI document as JSON "
+        "without PyYAML, and every schema command reads a *.json schema, so "
+        "dump --format json > schema.json; schema openhab schema.json runs in a "
+        "plain cosalette install. NaN/Infinity are written as null; a non-string "
+        "document key exits with a config error. init and slice stay YAML-only "
+        "(see: docs/guides/schema-enforcement.md).",
+        "Behaviour change: missing-dependency messages are installer-neutral and "
+        "built from one helper. They name the package, then the extras that "
+        "contain it, then the JSON alternative where one exists, e.g. 'YAML "
+        "output requires pyyaml, which is not installed. Hint: add pyyaml (or "
+        "the cosalette[schema] or cosalette[config-yaml] extra) to your project "
+        "dependencies, or use --format json.' The hint is printed only for a "
+        "missing dependency, once. SettingsLoadError.missing_dependency now "
+        "takes (path, module).",
+    ],
     "0.11.3": [
         "Schema enforcement checks only the optional dependencies its "
         "configuration uses (ADR-033 amendment): a YAML schema file needs "

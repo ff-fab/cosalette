@@ -471,9 +471,17 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.11.3")
+        content = get_whats_new_content("0.11.4")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_11_4_describes_dump_json(self):
+        """The 0.11.4 entry covers dump --format json and the new hint wording."""
+        content = get_whats_new_content("0.11.3")
+
+        assert "### 0.11.4" in content
+        assert "schema dump --format yaml|json" in content
+        assert "installer-neutral" in content
 
     def test_get_whats_new_content_0_11_2_describes_stream_restart_on_stale(self):
         """The 0.11.2 entry says restart_on_stale now covers streams (ADR-084)."""

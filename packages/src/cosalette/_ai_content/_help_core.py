@@ -345,6 +345,10 @@ Topic Prefix vs App Identity (ADR-072):
     they read a dumped document with no App in hand
   • cosalette schema dump --topic-prefix PREFIX composes addresses without
     running configure hooks — for CI gates that cannot load settings
+  • cosalette schema dump --format json writes the document as JSON with no
+    PyYAML; acl / ha-discovery / openhab / validate read the *.json file:
+    dump --format json > schema.json; schema openhab schema.json
+    (NaN/Infinity become null; init and slice stay YAML-only)
   • Device names and HA object_id/unique_id are derived past the prefix, so
     changing the prefix never orphans existing Home Assistant entities
   • Several instances of one app on one broker: set a distinct
