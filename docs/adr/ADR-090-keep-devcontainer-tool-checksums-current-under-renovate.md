@@ -112,3 +112,19 @@ Every `*_VERSION` ARG in `.devcontainer/Dockerfile` carries a `# renovate:` comm
 
 !!! note "Editorial note (2026-10-10)"
     The original Decision point 3's reference to RootlessKit and cargo-deny as manual is superseded by the additive amendment below, which tracks both with Renovate.
+
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** The Decision says image-based updates keep the 7-day `minimumReleaseAge`. Renovate's docker datasource has release timestamps only for Docker Hub, and the default `minimumReleaseAgeBehaviour` is `timestamp-required`. Updates to images on other registries therefore stayed pending forever and never got a PR: the uv image (`ghcr.io/astral-sh/uv`), the base image `mcr.microsoft.com/devcontainers/python` including its digest refreshes, and the Trivy and Hadolint images in `scripts/qa-task.sh`. A Renovate 44.149.2 lookup dry run confirmed this, and so did the Dependency Dashboard: Trivy 0.75.0 was still pending more than 7 days after its release.
+
+### Additional Sub-Decision: Let docker releases without a timestamp through the release-age check
+
+A `renovate.json` rule sets `minimumReleaseAgeBehaviour: timestamp-optional` for `matchDatasources: ["docker"]`, next to the existing `deb` rule. It is scoped by datasource rather than by package name, so a new image from a registry without timestamps is not held back silently. Releases that have a timestamp still wait the full 7 days, so Docker Hub images (`dolthub/dolt`) keep the delay. A lookup dry run showed both effects: uv, Trivy and the base-image digest were proposed, while a dolt release less than 7 days old stayed pending. Docker updates remain reviewed and are never automerged.
+
+### Additional Positive Consequences
+
+- Base-image digest refreshes, which carry Debian security fixes, and uv, Trivy and Hadolint updates now get Renovate PRs on schedule instead of waiting for a manual sweep
+
+### Additional Negative Consequences
+
+- Images on ghcr.io and mcr.microsoft.com lose the 7-day release-age delay, so a release that is pulled or compromised soon after publication can reach a PR on the next scheduled run. Tag+digest pinning, human review, the DevContainer Build and the Trivy scan remain the gate
