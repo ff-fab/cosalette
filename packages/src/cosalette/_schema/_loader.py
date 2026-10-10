@@ -15,6 +15,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Protocol, cast, override, runtime_checkable
 
+from cosalette._dependency_hints import JSON_SCHEMA_ALTERNATIVE, missing_dependency
 from cosalette._schema import SchemaRegistry, _extract_device_names
 from cosalette._schema._loader_helpers import (
     _build_enforcement_config,
@@ -85,18 +86,16 @@ class InlineSchemaSource:
         return "<inline>"
 
 
-def require_optional(module: str, feature: str) -> None:
-    """Raise an install hint when the optional *module* is not installed.
+def require_optional(module: str, feature: str, alternative: str | None = None) -> None:
+    """Raise ImportError with a dependency hint when *module* is not installed.
 
     Checks presence only, without importing: importing jsonschema or yaml
     would keep about 70 modules resident.  Each is imported where it is used.
+    The message comes from :func:`cosalette._dependency_hints.missing_dependency`.
     """
     if find_spec(module) is None:
-        msg = (
-            f"{feature} requires an optional dependency (missing: {module}). "
-            "Install with: pip install cosalette[schema]"
-        )
-        raise ImportError(msg)
+        message, hint = missing_dependency(module, feature, alternative)
+        raise ImportError(f"{message}\n\n{hint}")
 
 
 def _is_json_source(source: SchemaSource) -> bool:
@@ -166,7 +165,7 @@ async def _parse_text_source(source: SchemaSource) -> dict[str, Any]:
 
         fmt, parse = "JSON", orjson.loads
     else:
-        require_optional("yaml", "A YAML schema")
+        require_optional("yaml", "A YAML schema", JSON_SCHEMA_ALTERNATIVE)
         import yaml
 
         fmt, parse = "YAML", yaml.safe_load

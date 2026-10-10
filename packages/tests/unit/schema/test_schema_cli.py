@@ -215,8 +215,12 @@ class TestValidateCommand:
 
         # Assert
         assert result.exit_code == EXIT_CONFIG_ERROR
-        assert "missing: yaml" in result.stderr
-        assert result.stderr.count("cosalette[schema]") == 1
+        assert result.stderr == (
+            "Error: A YAML schema requires pyyaml, which is not installed.\n\n"
+            "Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] "
+            "extra) to your project dependencies, or use a .json schema "
+            "(cosalette schema dump --format json).\n"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -3654,6 +3658,9 @@ class TestDumpGolden:
         assert result.stdout == expected
 
 
+_HA_YAML_WAY_OUT = ", or use --format json (the default)."
+
+
 def _hide_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``import yaml`` fail and ``find_spec('yaml')`` return None."""
     monkeypatch.setitem(sys.modules, "yaml", None)
@@ -3787,22 +3794,51 @@ class TestDumpFormat:
         assert result.exit_code == EXIT_CONFIG_ERROR
         assert "Unknown format: toml. Available: json, yaml" in result.stderr
 
-    def test_yaml_format_without_pyyaml_exits_config_error(
-        self, runner: CliRunner, mixed_app: App, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("args", "way_out"),
+        [
+            (["dump", "--app", "x:app"], ", or use --format json."),
+            (["dump", "--app", "x:app", "--format", "yaml"], ", or use --format json."),
+            (["init", "--app", "x:app"], "."),
+            (["ha-discovery", "{json}", "--format", "yaml"], _HA_YAML_WAY_OUT),
+        ],
+        ids=["dump-default", "dump-format-yaml", "init", "ha-discovery-yaml"],
+    )
+    def test_yaml_output_without_pyyaml_prints_hint(
+        self,
+        runner: CliRunner,
+        unicode_consumer_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        args: list[str],
+        way_out: str,
     ) -> None:
-        """--format yaml with PyYAML hidden exits EXIT_CONFIG_ERROR with a hint.
+        """YAML output with PyYAML hidden exits EXIT_CONFIG_ERROR with one hint.
+
+        The JSON alternative appears only where the command has one.
 
         Test Technique: Error Guessing — missing optional dependency.
         """
         # Arrange
         _hide_yaml(monkeypatch)
+        json_file = tmp_path / "schema.json"
+        dumped = _dump_stdout(runner, unicode_consumer_app, "--format", "json")
+        json_file.write_text(dumped.stdout)
+        args = [str(json_file) if arg == "{json}" else arg for arg in args]
 
         # Act
-        result = _dump_stdout(runner, mixed_app, "--format", "yaml")
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, args)
 
         # Assert
         assert result.exit_code == EXIT_CONFIG_ERROR
-        assert "PyYAML" in result.stderr or "pyyaml" in result.stderr
+        assert result.stderr == (
+            "Error: YAML output requires pyyaml, which is not installed.\n\n"
+            "Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] "
+            f"extra) to your project dependencies{way_out}\n"
+        )
 
     def test_non_str_key_exits_config_error(
         self, runner: CliRunner, mixed_app: App

@@ -77,15 +77,16 @@ class SettingsLoadError(Exception):
         )
 
     @classmethod
-    def missing_dependency(
-        cls, path: Path, package: str, extra: str
-    ) -> SettingsLoadError:
-        """Optional dependency required by the file format is not installed."""
-        return cls(
-            path=path,
-            message=f"{package} is required to read '{path}'.",
-            hint=f"Install with: pip install cosalette[{extra}]",
+    def missing_dependency(cls, path: Path, module: str) -> SettingsLoadError:
+        """Optional dependency (import name *module*) for the format is missing."""
+        from cosalette._dependency_hints import missing_dependency
+
+        message, hint = missing_dependency(
+            module,
+            f"The config file '{path}'",
+            "use a .toml or .json config file",
         )
+        return cls(path=path, message=message, hint=hint)
 
 
 # ---------------------------------------------------------------------------
@@ -106,9 +107,7 @@ def _parse_yaml(path: Path, text: str) -> Any:
     try:
         import yaml  # type: ignore[import-not-found]
     except ImportError as exc:
-        raise SettingsLoadError.missing_dependency(
-            path, "PyYAML", "config-yaml"
-        ) from exc
+        raise SettingsLoadError.missing_dependency(path, "yaml") from exc
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:

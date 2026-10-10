@@ -45,7 +45,7 @@ def _load_schema_or_exit(path: Path) -> SchemaRegistry:
     Note:
         On SchemaLoadError or ImportError, prints the error and exits with
         EXIT_CONFIG_ERROR.  A missing optional dependency raises ImportError
-        from ``require_optional``, whose message already carries the install
+        from ``require_optional``, whose message already carries the dependency
         hint, so no hint is appended here.
     """
     source = FileSchemaSource(path=path)

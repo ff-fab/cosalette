@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 import typer
 
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
+from cosalette._dependency_hints import missing_dependency
 from cosalette._schema._cli_helpers import (
     _import_app,
     _load_schema_or_exit,
@@ -50,27 +51,25 @@ schema_app = typer.Typer(
 # ---------------------------------------------------------------------------
 
 
-def _dump_yaml(data: object) -> str:
+def _dump_yaml(data: object, alternative: str | None = None) -> str:
     """Serialize *data* to YAML for schema-doc output, sans trailing newline.
 
     Single source of truth for the schema CLI's YAML emission contract, shared
     by every command that writes YAML (``slice``, ``dump --format yaml``,
-    ``init``, ``ha-discovery --format yaml``): block style, source key order preserved
-    (``sort_keys=False``), and non-ASCII emitted literally
+    ``init``, ``ha-discovery --format yaml``): block style, source key order
+    preserved (``sort_keys=False``), and non-ASCII emitted literally
     (``allow_unicode=True``) so unicode consumer metadata like ``°C`` / ``Bq/m³``
     stays readable in the generated (zensical) docs. Centralising this keeps the
     kwargs from drifting per call site — the drift that let the escaping bug hide.
 
-    Exits with a friendly hint when the optional PyYAML dependency is missing.
+    Exits with a dependency hint, offering *alternative* (a way to avoid
+    PyYAML) if given, when the optional PyYAML dependency is missing.
     """
     try:
         import yaml
     except ImportError as exc:
-        typer.echo(
-            "Error: PyYAML is required for this command.\n\n"
-            "Hint: Install schema dependencies with: pip install cosalette[schema]",
-            err=True,
-        )
+        message, hint = missing_dependency("yaml", "YAML output", alternative)
+        typer.echo(f"Error: {message}\n\n{hint}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
     return yaml.safe_dump(
@@ -99,7 +98,7 @@ def _dump_document(data: object, format_name: str) -> str:
     exits with EXIT_CONFIG_ERROR.
     """
     if format_name == "yaml":
-        return _dump_yaml(data)
+        return _dump_yaml(data, "use --format json")
     from cosalette._json import dumps_pretty
 
     try:
@@ -759,7 +758,7 @@ def ha_discovery(
         typer.echo(ha_discovery_to_json(payloads))
     else:
         data = [{"topic": p.topic, "config": p.config} for p in payloads]
-        typer.echo(_dump_yaml(data))
+        typer.echo(_dump_yaml(data, "use --format json (the default)"))
 
     _fail_on_silent_consumer_channels(registry, target="Home Assistant")
 

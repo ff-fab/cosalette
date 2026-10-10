@@ -185,8 +185,14 @@ class TestYamlSource:
             _ProbeSettings(_config_file=cfg)
 
         err = exc_info.value
-        assert "PyYAML" in str(err)
-        assert "pip install cosalette[config-yaml]" in (err.hint or "")
+        assert (
+            err.message
+            == f"The config file '{cfg}' requires pyyaml, which is not installed."
+        )
+        assert err.hint == (
+            "Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] "
+            "extra) to your project dependencies, or use a .toml or .json config file."
+        )
 
     def test_empty_yaml_document_is_treated_as_empty_dict(self, tmp_path: Path) -> None:
         """An empty YAML document (safe_load → None) does not raise.
@@ -385,10 +391,11 @@ class TestSettingsLoadErrorApi:
 
     def test_missing_dependency_has_hint(self, tmp_path: Path) -> None:
         p = tmp_path / "x.yaml"
-        err = SettingsLoadError.missing_dependency(p, "PyYAML", "config-yaml")
-        assert "PyYAML" in str(err)
+        err = SettingsLoadError.missing_dependency(p, "yaml")
+        assert str(err).startswith(f"The config file '{p}' requires pyyaml")
         assert err.hint is not None
-        assert "cosalette[config-yaml]" in err.hint
+        assert "cosalette[schema] or cosalette[config-yaml]" in err.hint
+        assert "pip" not in err.hint
         assert err.args == (err.message,)
 
     def test_str_with_hint_includes_hint(self, tmp_path: Path) -> None:
