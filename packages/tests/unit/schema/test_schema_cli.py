@@ -29,6 +29,7 @@ from typer.testing import CliRunner, Result
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
+from cosalette._json import dumps_pretty, loads
 from cosalette._runners._stream_types import Stream
 from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
@@ -3619,6 +3620,11 @@ class TestDumpGolden:
     """
 
     @pytest.mark.parametrize(
+        "format_args",
+        [[], ["--format", "yaml"], ["-f", "yaml"]],
+        ids=["default", "format-yaml", "f-yaml"],
+    )
+    @pytest.mark.parametrize(
         ("golden", "app_fixture", "with_config"), _GOLDEN_DUMP_CASES
     )
     def test_default_dump_matches_golden(
@@ -3629,8 +3635,9 @@ class TestDumpGolden:
         golden: str,
         app_fixture: str,
         with_config: bool,
+        format_args: list[str],
     ) -> None:
-        """Default dump output equals the committed golden YAML exactly.
+        """Default (and explicit YAML) dump output equals the golden YAML exactly.
 
         Test Technique: Golden / Snapshot Testing.
         """
@@ -3639,9 +3646,194 @@ class TestDumpGolden:
         args = _settings_args(config_file_settings, with_config=with_config)
 
         # Act
-        result = _dump_stdout(runner, app, *args)
+        result = _dump_stdout(runner, app, *args, *format_args)
 
         # Assert
         assert result.exit_code == EXIT_OK
         expected = (_DUMP_GOLDEN_DIR / f"{golden}.yaml").read_text(encoding="utf-8")
         assert result.stdout == expected
+
+
+def _hide_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``import yaml`` fail and ``find_spec('yaml')`` return None."""
+    monkeypatch.setitem(sys.modules, "yaml", None)
+
+
+class TestDumpFormat:
+    """``schema dump --format json`` and the shared format check (cos-eb8k.2).
+
+    Test Techniques Used:
+        - Round-trip Testing: JSON vs. YAML parse equality; JSON schema file
+          through openhab/acl/ha-discovery equals the YAML path
+        - Equivalence Partitioning: yaml / json / unknown format values
+        - Error Guessing: PyYAML hidden; non-str dict keys
+        - Specification-based Testing: init/slice keep YAML-only output
+    """
+
+    @pytest.mark.parametrize(
+        ("golden", "app_fixture", "with_config"), _GOLDEN_DUMP_CASES
+    )
+    def test_json_equals_yaml_without_pyyaml(
+        self,
+        runner: CliRunner,
+        request: pytest.FixtureRequest,
+        config_file_settings: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        golden: str,
+        app_fixture: str,
+        with_config: bool,
+    ) -> None:
+        """--format json works with PyYAML hidden and parses to the YAML data.
+
+        Test Technique: Round-trip Testing — key order and literal unicode too.
+        """
+        # Arrange
+        import yaml
+
+        expected = yaml.safe_load((_DUMP_GOLDEN_DIR / f"{golden}.yaml").read_text())
+        app = request.getfixturevalue(app_fixture)
+        args = _settings_args(config_file_settings, with_config=with_config)
+        _hide_yaml(monkeypatch)
+
+        # Act
+        result = _dump_stdout(runner, app, *args, "--format", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_OK, result.stderr
+        assert loads(result.stdout) == expected
+        # Same key order and literal non-ASCII as the YAML, 2-space indent.
+        assert result.stdout == dumps_pretty(expected) + "\n"
+        assert result.stdout.startswith('{\n  "asyncapi": "3.0.0",')
+
+    def test_json_keeps_unicode_literal(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Non-ASCII units are written literally, not as \\u escapes.
+
+        Test Technique: Error Guessing — the escaping bug fixed for YAML.
+        """
+        # Act
+        result = _dump_stdout(runner, unicode_consumer_app, "-f", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert '"°C"' in result.stdout
+        assert '"Bq/m³"' in result.stdout
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ["openhab", "--output", "things"],
+            ["openhab", "--output", "items"],
+            ["acl"],
+            ["ha-discovery"],
+            ["validate"],
+        ],
+        ids=["openhab-things", "openhab-items", "acl", "ha-discovery", "validate"],
+    )
+    def test_json_dump_pipeline_without_pyyaml(
+        self,
+        runner: CliRunner,
+        unicode_consumer_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        command: list[str],
+    ) -> None:
+        """dump --format json feeds every reader with PyYAML hidden.
+
+        Output equals the same reader run on the YAML dump with PyYAML present.
+
+        Test Technique: Round-trip Testing — YAML path vs. JSON path.
+        """
+        # Arrange
+        yaml_file = tmp_path / "schema.yaml"
+        yaml_file.write_text(_dump_stdout(runner, unicode_consumer_app).stdout)
+        name, *options = command
+        yaml_result = runner.invoke(schema_app, [name, str(yaml_file), *options])
+        _hide_yaml(monkeypatch)
+        dumped = _dump_stdout(runner, unicode_consumer_app, "--format", "json")
+        json_file = tmp_path / "schema.json"
+        json_file.write_text(dumped.stdout)
+
+        # Act
+        json_result = runner.invoke(schema_app, [name, str(json_file), *options])
+
+        # Assert
+        assert dumped.exit_code == EXIT_OK
+        assert yaml_result.exit_code == EXIT_OK
+        assert json_result.exit_code == EXIT_OK, json_result.stderr
+        assert json_result.stdout == yaml_result.stdout
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["dump", "--app", "dummy:app", "--format", "toml"],
+            ["ha-discovery", "unused.yaml", "--format", "toml"],
+        ],
+        ids=["dump", "ha-discovery"],
+    )
+    def test_unknown_format_lists_choices(
+        self, runner: CliRunner, mixed_app: App, args: list[str]
+    ) -> None:
+        """An unknown --format exits EXIT_CONFIG_ERROR and lists the choices.
+
+        Test Technique: Equivalence Partitioning — invalid format value.
+        """
+        # Act
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
+            result = runner.invoke(schema_app, args)
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Unknown format: toml. Available: json, yaml" in result.stderr
+
+    def test_yaml_format_without_pyyaml_exits_config_error(
+        self, runner: CliRunner, mixed_app: App, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--format yaml with PyYAML hidden exits EXIT_CONFIG_ERROR with a hint.
+
+        Test Technique: Error Guessing — missing optional dependency.
+        """
+        # Arrange
+        _hide_yaml(monkeypatch)
+
+        # Act
+        result = _dump_stdout(runner, mixed_app, "--format", "yaml")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "PyYAML" in result.stderr or "pyyaml" in result.stderr
+
+    def test_non_str_key_exits_config_error(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """A non-string dict key cannot be JSON; exit with a clear error.
+
+        Test Technique: Error Guessing — orjson rejects non-str keys.
+        """
+        # Arrange
+        doc = {"asyncapi": "3.0.0", "channels": {1: {}}}
+
+        # Act
+        with patch.object(mixed_app, "asyncapi", return_value=doc):
+            result = _dump_stdout(runner, mixed_app, "--format", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "cannot be written as JSON" in result.stderr
+        assert "--format yaml" in result.stderr
+
+    @pytest.mark.parametrize("command", ["init", "slice"])
+    def test_init_and_slice_have_no_format_option(
+        self, runner: CliRunner, command: str
+    ) -> None:
+        """init and slice stay YAML-only: --format is not an option.
+
+        Test Technique: Specification-based Testing — scope is dump only.
+        """
+        # Act
+        result = runner.invoke(schema_app, [command, "--format", "json"])
+
+        # Assert
+        assert result.exit_code == 2
+        assert "No such option" in result.stderr

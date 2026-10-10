@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from cosalette._app import App
     from cosalette._schema import SchemaRegistry
     from cosalette._schema._consumer_gen import SilenceReason
@@ -51,9 +53,9 @@ schema_app = typer.Typer(
 def _dump_yaml(data: object) -> str:
     """Serialize *data* to YAML for schema-doc output, sans trailing newline.
 
-    Single source of truth for the schema CLI's emission contract, shared by
-    every command that writes YAML (``slice``, ``dump``, ``init``,
-    ``ha-discovery``): block style, source key order preserved
+    Single source of truth for the schema CLI's YAML emission contract, shared
+    by every command that writes YAML (``slice``, ``dump --format yaml``,
+    ``init``, ``ha-discovery --format yaml``): block style, source key order preserved
     (``sort_keys=False``), and non-ASCII emitted literally
     (``allow_unicode=True``) so unicode consumer metadata like ``°C`` / ``Bq/m³``
     stays readable in the generated (zensical) docs. Centralising this keeps the
@@ -74,6 +76,40 @@ def _dump_yaml(data: object) -> str:
     return yaml.safe_dump(
         data, default_flow_style=False, sort_keys=False, allow_unicode=True
     ).rstrip("\n")
+
+
+def _check_format(format_name: str, choices: Iterable[str]) -> None:
+    """Exit with EXIT_CONFIG_ERROR, listing *choices*, on an unknown format."""
+    available = sorted(choices)
+    if format_name not in available:
+        typer.echo(
+            f"Unknown format: {format_name}. Available: {', '.join(available)}",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+
+def _dump_document(data: object, format_name: str) -> str:
+    """Serialize a schema document as YAML or JSON, sans trailing newline.
+
+    YAML goes through :func:`_dump_yaml`.  JSON goes through
+    :func:`cosalette._json.dumps_pretty` (ADR-021): 2-space indent, source key
+    order, literal non-ASCII, and no PyYAML import.  JSON has no NaN or
+    Infinity (orjson writes ``null``) and only string keys; a non-string key
+    exits with EXIT_CONFIG_ERROR.
+    """
+    if format_name == "yaml":
+        return _dump_yaml(data)
+    from cosalette._json import dumps_pretty
+
+    try:
+        return dumps_pretty(data)
+    except TypeError as exc:  # orjson.JSONEncodeError, e.g. a non-str dict key
+        typer.echo(
+            f"Error: The document cannot be written as JSON: {exc}. Use --format yaml.",
+            err=True,
+        )
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
 
 def _warn_unreachable_consumer_annotations(registry: SchemaRegistry) -> None:
@@ -592,8 +628,11 @@ def dump(
     env_file: _EnvFileOpt = None,
     config_file: _ConfigFileOpt = None,
     topic_prefix: _TopicPrefixOpt = None,
+    format_name: Annotated[
+        str, typer.Option("--format", "-f", help="Output format (yaml or json).")
+    ] = "yaml",
 ) -> None:
-    """Generate AsyncAPI YAML from app's registry.
+    """Generate an AsyncAPI document from app's registry.
 
     Imports the specified app, extracts its registrations via introspection,
     and converts them to a canonical AsyncAPI 3.0.0 document.
@@ -605,7 +644,11 @@ def dump(
     Channel addresses are composed from ``--topic-prefix`` when given,
     otherwise from the settings-derived prefix under ``--resolve-settings``,
     otherwise from the app name (ADR-072).
+
+    ``--format json`` writes the same document as JSON without PyYAML; every
+    schema command reads a ``*.json`` schema file.
     """
+    _check_format(format_name, ("json", "yaml"))
     app, resolved_prefix = _import_schema_app(
         app_spec,
         resolve_settings=resolve_settings,
@@ -617,8 +660,7 @@ def dump(
     # Build canonical AsyncAPI document
     asyncapi_dict = app.asyncapi(topic_prefix=resolved_prefix)
 
-    # Output as YAML
-    typer.echo(_dump_yaml(asyncapi_dict))
+    typer.echo(_dump_document(asyncapi_dict, format_name))
 
     raise typer.Exit(EXIT_OK)
 
@@ -675,13 +717,7 @@ def acl(
     """Generate broker ACL configuration from schema."""
     from cosalette._schema._acl import FORMATTERS, derive_acl_principals
 
-    if format_name not in FORMATTERS:
-        available = ", ".join(sorted(FORMATTERS))
-        typer.echo(
-            f"Unknown format: {format_name}. Available: {available}",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR)
+    _check_format(format_name, FORMATTERS)
 
     registry = _load_schema_or_exit(schema_path)
     principals = derive_acl_principals(registry)
@@ -706,9 +742,7 @@ def ha_discovery(
         ha_discovery_to_json,
     )
 
-    if format_name not in ("json", "yaml"):
-        typer.echo(f"Unknown format: {format_name}. Available: json, yaml", err=True)
-        raise typer.Exit(EXIT_CONFIG_ERROR)
+    _check_format(format_name, ("json", "yaml"))
 
     registry = _load_schema_or_exit(schema_path)
     _warn_unreachable_consumer_annotations(registry)
