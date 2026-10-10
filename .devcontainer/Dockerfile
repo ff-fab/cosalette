@@ -226,10 +226,10 @@ RUN set -eux; \
 # bd on Linux requires an external dolt binary; the embedded dolt in the bd binary
 # is macOS-only as of beads v1.0.0.
 # renovate: datasource=github-releases depName=dolthub/dolt
-ARG DOLT_VERSION=v2.4.1
+ARG DOLT_VERSION=v2.4.2
 # SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG DOLT_SHA256_AMD64=85edfe4d307cc75d336be5c30c7601d6eaddb209b08dddf104db32979a00bdc6
-ARG DOLT_SHA256_ARM64=4ec68affe22be060f008ff7135b33362a46befefc26a76df3258c82fbc9bd107
+ARG DOLT_SHA256_AMD64=5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e
+ARG DOLT_SHA256_ARM64=c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -245,7 +245,11 @@ RUN set -eux; \
     tar -xzf "${TARBALL}" -C /tmp; \
     install "/tmp/dolt-linux-${ARCH}/bin/dolt" /usr/local/bin/; \
     rm -rf "/tmp/dolt-linux-${ARCH}" "${TARBALL}"; \
-    dolt version
+    dolt version; \
+    # Silence the "you are on an old version of Dolt" warning for the vscode user
+    # (who runs bd/dolt); Renovate tracks DOLT_VERSION instead.
+    runuser -u vscode -- env HOME=/home/vscode \
+      dolt config --global --add versioncheck.disabled true
 
 # Install beads (bd) — git-backed issue tracker for AI agents.
 # Baked into the image so the VS Code extension (planet57.vscode-beads) can
