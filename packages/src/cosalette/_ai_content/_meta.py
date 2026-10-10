@@ -614,6 +614,18 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "dependencies, or use --format json.' The hint is printed only for a "
         "missing dependency, once. SettingsLoadError.missing_dependency now "
         "takes (path, module).",
+        "cosalette.schema.resolved_asyncapi(app, *, env_file=None, "
+        "config_file=None, topic_prefix=None) -> dict returns the document "
+        "schema dump --resolve-settings writes, without running the CLI "
+        "(ADR-051 amendment). The App is left unchanged: settings-derived "
+        "name=/topic= specs are expanded on copies, so app.asyncapi() still "
+        "describes the unresolved app; configure hooks still run. It raises "
+        "SettingsLoadError (missing env/config file), pydantic ValidationError "
+        "(invalid settings or topic_prefix) or the new "
+        "cosalette.schema.SchemaBuildError (duplicate names after expansion, "
+        "persist= without a store, an unexpanded name spec). The schema CLI "
+        "no longer mutates the imported App under --resolve-settings; its "
+        "output is unchanged (see: docs/guides/schema-enforcement.md).",
     ],
     "0.11.3": [
         "Schema enforcement checks only the optional dependencies its "

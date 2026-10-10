@@ -24,11 +24,17 @@ types passed to an ``App.discovery(enrich=...)`` callback (F23) — re-exported
 here so an app can type-annotate its enrichment hook without reaching into
 the private ``cosalette._schema`` package.
 
+:func:`resolved_asyncapi` returns an App's AsyncAPI document with its settings
+resolved, the document ``cosalette schema dump --resolve-settings`` writes, as a
+dict.  It leaves the App unchanged and raises :exc:`SchemaBuildError` when the
+registrations cannot be described.
+
 See Also:
     ADR-033 — MQTT schema enforcement.
     ADR-050 — Typed consumer() producer.
     ADR-056 — Typed ha_discovery()/openhab() producers and open passthrough.
     ADR-057 — Component-aware HA payload builders via composite entities.
+    ADR-051 — Settings-aware schema pipeline (``resolved_asyncapi``).
 """
 
 from __future__ import annotations
@@ -53,6 +59,7 @@ from cosalette._schema import (
     temperature,
 )
 from cosalette._schema._consumer_gen import HaEnrichHook
+from cosalette._schema._resolve import SchemaBuildError, resolved_asyncapi
 
 __all__ = [
     "ChannelSchema",
@@ -62,6 +69,7 @@ __all__ = [
     "HaEntityMeta",
     "OpenHabMeta",
     "PropertySchema",
+    "SchemaBuildError",
     "X_COSALETTE_CONSUMER",
     "X_COSALETTE_HA_DISCOVERY",
     "X_COSALETTE_OPENHAB",
@@ -72,5 +80,6 @@ __all__ = [
     "merge",
     "openhab",
     "percent",
+    "resolved_asyncapi",
     "temperature",
 ]

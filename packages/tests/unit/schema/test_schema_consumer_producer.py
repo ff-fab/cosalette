@@ -35,6 +35,7 @@ from cosalette._schema._loader_helpers import (
     _build_ha_entity_specs,
     _build_property_schema,
 )
+from cosalette._schema._resolve import SchemaBuildError, resolved_asyncapi
 from cosalette.schema import (
     X_COSALETTE_CONSUMER,
     X_COSALETTE_HA_DISCOVERY,
@@ -105,6 +106,9 @@ class TestConsumerProducer:
         assert schema_mod.ChannelSchema is ChannelSchema
         assert schema_mod.PropertySchema is PropertySchema
         assert schema_mod.HaEnrichHook is HaEnrichHook
+        # Settings-resolved document as a dict (ADR-051, cos-2zyq).
+        assert schema_mod.resolved_asyncapi is resolved_asyncapi
+        assert schema_mod.SchemaBuildError is SchemaBuildError
         assert set(schema_mod.__all__) == {
             "consumer",
             "ConsumerMeta",
@@ -124,6 +128,8 @@ class TestConsumerProducer:
             "ChannelSchema",
             "PropertySchema",
             "HaEnrichHook",
+            "resolved_asyncapi",
+            "SchemaBuildError",
         }
 
 

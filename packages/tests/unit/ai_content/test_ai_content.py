@@ -483,6 +483,13 @@ class TestGetWhatsNewContent:
         assert "schema dump --format yaml|json" in content
         assert "installer-neutral" in content
 
+    def test_get_whats_new_content_0_11_4_describes_resolved_asyncapi(self):
+        """The 0.11.4 entry names the settings-resolved document API (cos-2zyq)."""
+        content = get_whats_new_content("0.11.3")
+
+        assert "cosalette.schema.resolved_asyncapi(" in content
+        assert "SchemaBuildError" in content
+
     def test_get_whats_new_content_0_11_2_describes_stream_restart_on_stale(self):
         """The 0.11.2 entry says restart_on_stale now covers streams (ADR-084)."""
         content = get_whats_new_content("0.11.1")

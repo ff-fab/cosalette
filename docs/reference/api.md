@@ -417,3 +417,13 @@ See [Streaming](../concepts/streaming.md) for a full explanation and
 ::: cosalette.JsonFileStore
 
 ::: cosalette.SqliteStore
+
+## Schema Generation
+
+The settings-resolved AsyncAPI document of an app, the library form of
+`cosalette schema dump --resolve-settings` (see
+[Generating the Document from Python](../guides/schema-enforcement.md#generating-the-document-from-python)).
+
+::: cosalette.schema.resolved_asyncapi
+
+::: cosalette.schema.SchemaBuildError

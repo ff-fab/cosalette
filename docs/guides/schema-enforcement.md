@@ -765,6 +765,51 @@ addresses only — identity, and therefore Home Assistant `object_id` /
 
 ---
 
+## Generating the Document from Python
+
+`cosalette.schema.resolved_asyncapi()` returns the document
+`cosalette schema dump --resolve-settings` writes, as a dict. Use it in tests and
+build scripts that already import the app, instead of running the CLI and parsing
+its output:
+
+```python
+from cosalette.schema import SchemaBuildError, resolved_asyncapi
+
+from myapp.app import app
+
+doc = resolved_asyncapi(app, env_file="prod.env")
+# Same as: cosalette schema dump --app myapp.app:app --resolve-settings \
+#          --env-file prod.env --format json
+```
+
+It takes the inputs of `dump --resolve-settings`: `env_file=` (`--env-file`),
+`config_file=` (`--config-file`) and `topic_prefix=` (`--topic-prefix`). For the
+same app and inputs the dict equals the parsed `--format json` output. Without
+`env_file=`, a `.env` file in the working directory is read if it exists, as the
+CLI does.
+
+The app is not modified. Settings-derived
+([ADR-023](../adr/ADR-023-on-configure-lifecycle-phase.md)) `name=` and `topic=`
+specs are expanded on copies of its registrations, so `app.asyncapi()` still
+describes the unresolved app and repeated calls return equal documents. Adapter
+factories and `on_configure` hooks do run, since resolution depends on them;
+adapters are resolved in dry-run mode, and no store or adapter lifecycle is
+entered.
+
+Failures are raised, not printed:
+
+| Exception | When |
+|-----------|------|
+| `cosalette.SettingsLoadError` | `env_file` or `config_file` does not exist, or the config file cannot be parsed. |
+| `pydantic.ValidationError` | The Settings are invalid, or `topic_prefix` is not a valid MQTT topic prefix. |
+| `cosalette.schema.SchemaBuildError` | Two registrations resolve to the same name, a `persist=` telemetry handler survives without a store, or a settings-derived name cannot be expanded. |
+
+An exception raised by an adapter factory or a configure hook propagates
+unchanged. The CLI stays the primary interface: the function follows it
+([ADR-051](../adr/ADR-051-settings-aware-schema-pipeline-for-settings-derived-entity-names.md)).
+
+---
+
 ## CLI Reference
 
 | Command | Description |

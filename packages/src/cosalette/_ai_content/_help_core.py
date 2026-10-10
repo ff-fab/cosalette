@@ -349,6 +349,10 @@ Topic Prefix vs App Identity (ADR-072):
     PyYAML; acl / ha-discovery / openhab / validate read the *.json file:
     dump --format json > schema.json; schema openhab schema.json
     (NaN/Infinity become null; init and slice stay YAML-only)
+  • In Python, cosalette.schema.resolved_asyncapi(app, env_file=...,
+    config_file=..., topic_prefix=...) returns the dump --resolve-settings
+    document as a dict and leaves the App unchanged; failures raise
+    SettingsLoadError, ValidationError or cosalette.schema.SchemaBuildError
   • Device names and HA object_id/unique_id are derived past the prefix, so
     changing the prefix never orphans existing Home Assistant entities
   • Several instances of one app on one broker: set a distinct

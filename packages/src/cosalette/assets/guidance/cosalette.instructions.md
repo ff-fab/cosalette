@@ -718,6 +718,12 @@ or write YAML need `cosalette[schema]`; a YAML settings file needs
 `cosalette schema dump --app myapp.main:app --format json > schema.json` and feed
 `schema.json` to `schema openhab`, `acl`, `ha-discovery` or `validate`.
 
+In tests and build scripts, use `cosalette.schema.resolved_asyncapi(app, env_file=...,
+config_file=..., topic_prefix=...)` instead of running `schema dump --resolve-settings`
+and parsing its output: it returns the same document as a dict and leaves the App
+unchanged (configure hooks still run). It raises `SettingsLoadError`, pydantic
+`ValidationError` or `cosalette.schema.SchemaBuildError` (ADR-051).
+
 ---
 
 Refresh this file: `cosalette ai init`
