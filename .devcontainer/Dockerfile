@@ -63,7 +63,7 @@ RUN set -eux; \
 # user-mode networking. The startup script (docker-init.sh) is called from
 # post-start.sh.
 # renovate: datasource=docker depName=docker versioning=docker
-ARG DOCKER_VERSION=29.8.1
+ARG DOCKER_VERSION=29.9.0
 # renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
 ARG CONTAINERD_VERSION=2.3.6
 # renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
