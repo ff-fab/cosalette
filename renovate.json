@@ -1,6 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "customManagers:dockerfileVersions",
+    "customManagers:githubActionsVersions"
+  ],
   "labels": ["dependencies"],
   "timezone": "Europe/Berlin",
   "schedule": ["before 9am on monday"],
@@ -13,7 +18,7 @@
   "packageRules": [
     {
       "description": "Group Python minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these ship to the fleet in the wheel",
-      "matchManagers": ["uv"],
+      "matchManagers": ["pep621"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "python-deps",
       "automerge": false,
@@ -50,7 +55,7 @@
   },
   "pip_requirements": {
     "description": "Track the hash-pinned CI build-tool requirements (e.g. maturin)",
-    "fileMatch": ["^\\.github/requirements/[^/]+\\.txt$"]
+    "managerFilePatterns": ["/^\\.github/requirements/[^/]+\\.txt$/"]
   },
   "vulnerabilityAlerts": {
     "enabled": true,
