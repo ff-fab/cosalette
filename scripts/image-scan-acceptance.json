@@ -5,12 +5,12 @@
     "debian_pending": {
       "owner": "cos-nxu6",
       "expires": "2026-10-27",
-      "reason": "Temporary acceptance of exact inherited Debian 13 findings in the development image while vendor patches and package removal are tracked. This does not assert non-exploitability. Do not expose this image as a production service."
+      "reason": "Temporary acceptance of exact inherited Debian 13 findings while vendor patches and package removal are tracked. This includes Expat heap overread and GnuTLS certificate-validation issues; exposure remains if tools process attacker-controlled input. No claim of non-exploitability. Reviewed in .devcontainer/security-review-2026-10-10.md; expires 2026-10-27."
     },
     "kernel_headers": {
       "owner": "cos-nxu6",
       "expires": "2026-10-27",
-      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. The 51 changed-version pairs are individually reviewed in .devcontainer/security-review-2026-10-05.md; CVE-2026-89972 is additionally reviewed in .devcontainer/security-review-2026-10-05-renewal.md. CVE-2026-89811, CVE-2026-90111 and CVE-2026-90315 are individually reviewed in .devcontainer/security-review-2026-10-08.md. Evidence and remediation are in .devcontainer/security-remediation.md. Privileged Docker-in-Docker has been replaced by rootless Docker (cos-2jj7). Host applicability, including CVE-2026-89972, remains open in cos-dam4; cos-nxu6 remains the owner. This does not claim the host kernel is patched."
+      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. The 51 changed-version pairs are individually reviewed in .devcontainer/security-review-2026-10-05.md; CVE-2026-89972 is additionally reviewed in .devcontainer/security-review-2026-10-05-renewal.md. CVE-2026-89811, CVE-2026-90111 and CVE-2026-90315 are individually reviewed in .devcontainer/security-review-2026-10-08.md. CVE-2026-97528, CVE-2026-98222 and CVE-2026-98364 are reviewed in .devcontainer/security-review-2026-10-10.md. Evidence and remediation are in .devcontainer/security-remediation.md. Privileged Docker-in-Docker has been replaced by rootless Docker (cos-2jj7). Host applicability remains open in cos-dam4; this does not claim the host kernel is patched."
     },
     "libxml2_pending": {
       "owner": "cos-nxu6",
@@ -25,7 +25,7 @@
     "go_binaries": {
       "owner": "cos-nxu6",
       "expires": "2026-11-02",
-      "reason": "Re-reviewed 2026-10-05 (cos-yi5p): 22 exact findings remain in prebuilt dolt v2.4.1 (Go 1.26.2 stdlib), bd v1.3.1 (grpc v1.83.0, thrift v0.23.0) and docker-buildx 0.37.1 (docker/docker v28.5.2, moby/go-archive v0.2.0). Each pin is its publisher's latest available release; syft and task findings are resolved. Update each binary when a patched release ships; tool input and registry access remain in scope. Evidence: .devcontainer/security-review-2026-10-05-renewal.md."
+      "reason": "Temporary acceptance of exact Go standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. CVE-2026-78667, CVE-2026-78669 and CVE-2026-97031 and affected binary versions are reviewed in .devcontainer/security-review-2026-10-10.md. Docker Engine was updated to 29.9.0, removing its findings; other tools remain exposed to crafted input. Update pins as soon as fixed releases ship; expires 2026-11-02."
     }
   }
 }

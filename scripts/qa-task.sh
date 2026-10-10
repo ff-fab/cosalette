@@ -253,8 +253,7 @@ _run_impl() {
             }
             cargo audit --file Cargo.lock || return
             (cd crates/cosalette-filters-rs && "${cargo_deny_bin}" check) || return
-            (cd crates/cosalette-health \
-                && "${cargo_deny_bin}" --config ../cosalette-filters-rs/deny.toml check)
+            (cd crates/cosalette-health && "${cargo_deny_bin}" check)
             ;;
 
         security:secrets)

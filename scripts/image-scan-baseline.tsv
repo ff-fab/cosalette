@@ -151,6 +151,8 @@ debian	HIGH	CVE-2026-76956	libexpat1	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-76956	libexpat1-dev	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-76957	libexpat1	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-76957	libexpat1-dev	2.8.3-1~deb13u1	-	debian_pending
+debian	HIGH	CVE-2026-77214	libexpat1	2.8.3-1~deb13u1	-	debian_pending
+debian	HIGH	CVE-2026-77214	libexpat1-dev	2.8.3-1~deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-78408	bsdextrautils	2.41.5-0+deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-78408	bsdutils	1:2.41.5-0+deb13u1	-	debian_pending
 debian	HIGH	CVE-2026-78408	libblkid-dev	2.41.5-0+deb13u1	-	debian_pending
@@ -214,6 +216,14 @@ debian	HIGH	CVE-2026-86143	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-	libxml
 debian	HIGH	CVE-2026-86143	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-	libxml2_pending
 debian	HIGH	CVE-2026-86144	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-	libxml2_pending
 debian	HIGH	CVE-2026-86144	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-	libxml2_pending
+debian	HIGH	CVE-2026-88647	libgnutls-dane0t64	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88647	libgnutls-openssl27t64	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88647	libgnutls28-dev	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88647	libgnutls30t64	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88648	libgnutls-dane0t64	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88648	libgnutls-openssl27t64	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88648	libgnutls28-dev	3.8.9-3+deb13u4	-	debian_pending
+debian	HIGH	CVE-2026-88648	libgnutls30t64	3.8.9-3+deb13u4	-	debian_pending
 debian	HIGH	CVE-2026-88806	libx11-6	2:1.8.12-1	-	debian_pending
 debian	HIGH	CVE-2026-88806	libx11-data	2:1.8.12-1	-	debian_pending
 debian	HIGH	CVE-2026-88806	libx11-dev	2:1.8.12-1	-	debian_pending
@@ -241,12 +251,37 @@ debian	HIGH	CVE-2026-96512	sudo	1.9.16p2-3+deb13u2	-	debian_pending
 debian	HIGH	CVE-2026-96889	gir1.2-rsvg-2.0	2.60.0+dfsg-1	-	debian_pending
 debian	HIGH	CVE-2026-96889	librsvg2-2	2.60.0+dfsg-1	-	debian_pending
 debian	HIGH	CVE-2026-96889	librsvg2-common	2.60.0+dfsg-1	-	debian_pending
+debian	HIGH	CVE-2026-97528	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-98222	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-98364	linux-libc-dev	6.12.111-1	-	kernel_headers
+usr/bin/gh	HIGH	CVE-2026-78667	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/bin/gh	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/bin/gh	HIGH	CVE-2026-78669	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/bin/gh	HIGH	CVE-2026-97031	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlessctl	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlessctl	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlessctl	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/bin/rootlesskit	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-17106	github.com/moby/go-archive	v0.2.0	0.3.0	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-41567	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-42306	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-43871	github.com/apache/thrift	v0.23.0	0.24.0	go_binaries
+usr/local/bin/bd	HIGH	CVE-2026-78667	stdlib	v1.26.7	1.26.9, 1.27.2	go_binaries
+usr/local/bin/bd	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/local/bin/bd	HIGH	CVE-2026-78669	stdlib	v1.26.7	1.26.9, 1.27.2	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-84304	google.golang.org/grpc	v1.83.0	1.83.1	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-84445	google.golang.org/grpc	v1.83.0	1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e	go_binaries
+usr/local/bin/bd	HIGH	CVE-2026-97031	stdlib	v1.26.7	1.26.9, 1.27.2	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-27145	stdlib	v1.26.2	1.25.11, 1.26.4	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-33811	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-33814	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
@@ -263,3 +298,15 @@ usr/local/bin/dolt	HIGH	CVE-2026-56858	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc
 usr/local/bin/dolt	HIGH	CVE-2026-56859	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-56860	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-56862	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-78667	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-78669	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-97031	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
+usr/local/bin/syft	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/local/bin/syft	HIGH	CVE-2026-78669	golang.org/x/net	v0.59.0	0.60.0	go_binaries
+usr/local/bin/syft	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/local/bin/syft	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
+usr/local/bin/task	HIGH	CVE-2026-78667	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/local/bin/task	HIGH	CVE-2026-78669	golang.org/x/net	v0.59.0	0.60.0	go_binaries
+usr/local/bin/task	HIGH	CVE-2026-78669	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/local/bin/task	HIGH	CVE-2026-97031	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
