@@ -1,0 +1,24 @@
+# cargo-deny configuration for cosalette-health.
+# Same policy as crates/cosalette-filters-rs/deny.toml, with the license allow
+# list trimmed to what this crate's dependency tree uses. Run via
+# `task security:rust`.
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "MIT",
+]
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
