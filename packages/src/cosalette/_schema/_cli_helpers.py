@@ -43,18 +43,16 @@ def _load_schema_or_exit(path: Path) -> SchemaRegistry:
         Parsed SchemaRegistry.
 
     Note:
-        On SchemaLoadError or ImportError, prints errors and exits with
-        EXIT_CONFIG_ERROR.
+        On SchemaLoadError or ImportError, prints the error and exits with
+        EXIT_CONFIG_ERROR.  A missing optional dependency raises ImportError
+        from ``require_optional``, whose message already carries the install
+        hint, so no hint is appended here.
     """
     source = FileSchemaSource(path=path)
     try:
         return load_schema_sync(source)
     except (SchemaLoadError, ImportError) as exc:
-        typer.echo(
-            f"Error: {exc}\n\nHint: Install schema dependencies with: "
-            "pip install cosalette[schema]",
-            err=True,
-        )
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
 

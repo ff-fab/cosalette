@@ -433,16 +433,8 @@ def validate(
 
             doc = orjson.loads(path.read_bytes())
         else:
-            try:
-                import yaml
-            except ImportError as exc:
-                typer.echo(
-                    "Error: PyYAML is required for this command.\n\n"
-                    "Hint: Install schema dependencies with: "
-                    "pip install cosalette[schema]",
-                    err=True,
-                )
-                raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+            # A non-JSON schema only loads with PyYAML, so it is present here.
+            import yaml
 
             yaml_content = path.read_text(encoding="utf-8")
             doc = yaml.safe_load(yaml_content)

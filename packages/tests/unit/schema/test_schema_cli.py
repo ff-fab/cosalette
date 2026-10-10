@@ -15,6 +15,7 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -159,6 +160,61 @@ class TestValidateCommand:
         # Typer handles file existence validation and exits with code 2
         assert result.exit_code == 2
         assert "does not exist" in result.stderr
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            ("{not json", "Failed to parse JSON"),
+            ('{"asyncapi": "2.0.0"}', "Unsupported AsyncAPI version: 2.0.0"),
+            ("[1, 2]", "Schema must be a JSON mapping"),
+        ],
+        ids=["malformed-json", "wrong-version", "non-mapping"],
+    )
+    def test_load_error_shows_no_install_hint(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        content: str,
+        expected: str,
+    ) -> None:
+        """A schema load error unrelated to dependencies gets no install hint.
+
+        Test Boundary: _load_schema_or_exit SchemaLoadError reporting.
+        Test Technique: Equivalence Partitioning over non-dependency load errors.
+        """
+        # Arrange
+        schema = tmp_path / "bad.json"
+        schema.write_text(content, encoding="utf-8")
+
+        # Act
+        result = runner.invoke(schema_app, ["validate", str(schema)])
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert expected in result.stderr
+        assert "cosalette[schema]" not in result.stderr
+
+    def test_missing_pyyaml_prints_install_hint_once(
+        self,
+        runner: CliRunner,
+        valid_basic_schema: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A YAML schema without PyYAML prints the dependency hint exactly once.
+
+        Test Boundary: _load_schema_or_exit ImportError reporting.
+        Test Technique: Error Guessing — hide yaml via sys.modules.
+        """
+        # Arrange
+        monkeypatch.setitem(sys.modules, "yaml", None)
+
+        # Act
+        result = runner.invoke(schema_app, ["validate", str(valid_basic_schema)])
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "missing: yaml" in result.stderr
+        assert result.stderr.count("cosalette[schema]") == 1
 
 
 # ---------------------------------------------------------------------------
