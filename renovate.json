@@ -93,6 +93,17 @@
       "autoReplaceStringTemplate": "{{{depName}}}:{{{newValue}}}@{{{newDigest}}}",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the Dolt version and digest in its Dockerfile COPY --from image reference",
+      "managerFilePatterns": [".devcontainer/Dockerfile"],
+      "matchStrings": [
+        "(?<depName>dolthub/dolt):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "autoReplaceStringTemplate": "{{{depName}}}:{{{newValue}}}@{{{newDigest}}}",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ]
 }
