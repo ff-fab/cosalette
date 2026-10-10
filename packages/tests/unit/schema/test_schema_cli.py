@@ -3873,3 +3873,174 @@ class TestDumpFormat:
         # Assert
         assert result.exit_code == 2
         assert "No such option" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Exact stderr of the settings-resolution error paths (cos-2zyq)
+# ---------------------------------------------------------------------------
+
+_UNEXPANDED_STDERR = (
+    "Error: one or more registrations use a settings-derived name= (ADR-023) "
+    "or topic= that cannot be represented in a static schema artifact. Use "
+    "--resolve-settings to resolve their names and topics before generating "
+    "the schema.\n\nOffending handlers:\n"
+    "  - 'callable_name_app.<locals>.dynamic_sensor_handler'\n"
+)
+_RESOLUTION_FAILED = (
+    "Error: settings resolution failed after expanding settings-derived "
+    "(ADR-023) name=/topic=/enabled= specs: "
+)
+
+
+@pytest.fixture
+def duplicate_after_expansion_app() -> App:
+    """App whose callable ``name=`` expands onto an already registered name."""
+    app = App(name="dup-app", version="1.0.0", description="Test app")
+
+    @app.device("sensor")
+    async def static_sensor(ctx: DeviceContext) -> None:
+        pass
+
+    @app.device(name=lambda settings: ["sensor"])  # noqa: ARG005
+    async def dynamic_sensor(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
+class TestResolveSettingsErrorOutput:
+    """The CLI's stderr and exit code for every resolution failure, verbatim.
+
+    Pinned before the resolution pipeline moved behind an exception contract,
+    so the CLI keeps printing exactly what it printed before.
+
+    Test Techniques Used:
+        - Golden / Snapshot Testing: exact stderr per error path
+        - Error Guessing: a name_spec kind the expander does not handle
+    """
+
+    def test_missing_env_file(
+        self, runner: CliRunner, mixed_app: App, tmp_path: Path
+    ) -> None:
+        """An explicit --env-file that does not exist is a config error."""
+        # Arrange
+        missing = tmp_path / "missing.env"
+
+        # Act
+        result = _dump_stdout(
+            runner, mixed_app, "--resolve-settings", "--env-file", str(missing)
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == f"Error: env file not found: {missing}\n"
+
+    def test_missing_config_file(
+        self, runner: CliRunner, mixed_app: App, tmp_path: Path
+    ) -> None:
+        """An explicit --config-file that does not exist is a config error."""
+        # Arrange
+        missing = tmp_path / "missing.toml"
+
+        # Act
+        result = _dump_stdout(
+            runner, mixed_app, "--resolve-settings", "--config-file", str(missing)
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == f"Error: config file not found: {missing}\n"
+
+    def test_settings_validation_failure(self, runner: CliRunner) -> None:
+        """Invalid Settings print the failing field names, not a traceback."""
+        # Arrange
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        # Act
+        result = _dump_stdout(runner, app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            "Error: Configuration validation failed (1 error(s)): required_field\n"
+        )
+
+    @pytest.mark.parametrize("command", ["dump", "init", "check"])
+    def test_duplicate_name_after_expansion(
+        self,
+        runner: CliRunner,
+        duplicate_after_expansion_app: App,
+        valid_basic_schema: Path,
+        command: str,
+    ) -> None:
+        """A duplicate produced by expansion is reported with the ValueError repr."""
+        # Arrange
+        extra = ["--schema", str(valid_basic_schema)] if command == "check" else []
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=duplicate_after_expansion_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [command, "--app", "dummy:app", "--resolve-settings", *extra],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            _RESOLUTION_FAILED
+            + "ValueError(\"Device name 'sensor' is already registered\")\n"
+        )
+
+    def test_persist_without_store(
+        self, runner: CliRunner, persist_without_store_app: App
+    ) -> None:
+        """resolve_enabled's own ValueError is reported the same way."""
+        # Act
+        result = _dump_stdout(runner, persist_without_store_app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            _RESOLUTION_FAILED
+            + "ValueError(\"persist= on telemetry 'reading' requires a store= "
+            "backend on the App.  Pass store=MemoryStore() (or another Store) "
+            'to App().")\n'
+        )
+
+    def test_unexpanded_without_resolve_settings(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """Without --resolve-settings a callable name= is rejected."""
+        # Act
+        result = _dump_stdout(runner, callable_name_app)
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == _UNEXPANDED_STDERR
+
+    def test_unexpanded_after_resolution(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """A name spec the expander leaves behind trips the same guard.
+
+        Test Technique: Error Guessing — the device expander is disabled, as a
+        name_spec kind it does not support would be.
+        """
+        # Act
+        with patch(
+            "cosalette._wiring._resolution_checks._expand_device_names",
+            return_value=None,
+        ):
+            result = _dump_stdout(runner, callable_name_app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == _UNEXPANDED_STDERR
