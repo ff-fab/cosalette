@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.4](https://github.com/ff-fab/cosalette/compare/v0.11.3...v0.11.4) (2026-10-10)
+
+
+### Features
+
+* **errors:** installer-neutral missing-dependency messages from one helper ([0eb362b](https://github.com/ff-fab/cosalette/commit/0eb362b3944a4ec95b817d415b6b20b4941531ec))
+* **schema:** add --format yaml|json to schema dump ([0eb362b](https://github.com/ff-fab/cosalette/commit/0eb362b3944a4ec95b817d415b6b20b4941531ec))
+* **schema:** add resolved_asyncapi() for the settings-resolved document ([0eb362b](https://github.com/ff-fab/cosalette/commit/0eb362b3944a4ec95b817d415b6b20b4941531ec))
+
+
+### Bug Fixes
+
+* **schema:** print the install hint only for a missing dependency, once ([0eb362b](https://github.com/ff-fab/cosalette/commit/0eb362b3944a4ec95b817d415b6b20b4941531ec))
+
 ## [0.11.3](https://github.com/ff-fab/cosalette/compare/v0.11.2...v0.11.3) (2026-10-09)
 
 
