@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from cosalette._app import App
     from cosalette._schema import SchemaRegistry
     from cosalette._schema._consumer_gen import SilenceReason
+    from cosalette._schema._resolve import ResolvedApp
 
 import typer
 
@@ -359,12 +360,14 @@ def _import_schema_app(
     env_file: str | Path | None,
     config_file: Path | None = None,
     topic_prefix: str | None = None,
-) -> tuple[App, str]:
+) -> tuple[App | ResolvedApp, str]:
     """Import app for schema commands, honouring --resolve-settings.
 
-    Returns an ``(app, topic_prefix)`` pair.  Without ``--resolve-settings``
-    there are no settings to read, so the prefix falls back to ``app.name`` —
-    the pre-ADR-072 behaviour.
+    Returns an ``(app, topic_prefix)`` pair.  With ``--resolve-settings`` the
+    first item is the settings-resolved snapshot of the imported App
+    (ADR-051), which offers the same read-only views and ``asyncapi()``.
+    Without it there are no settings to read, so the prefix falls back to
+    ``app.name`` — the pre-ADR-072 behaviour.
 
     An explicit *topic_prefix* (``--topic-prefix``) always wins: it exists for
     CI gates that deliberately refuse to execute an app's configure hooks and
@@ -374,6 +377,7 @@ def _import_schema_app(
     given the configure/expand lifecycle still runs, so ADR-023 callable
     ``name=`` registrations are still expanded.
     """
+    app: App | ResolvedApp
     if resolve_settings:
         app, resolved = _resolve_app_settings(_import_app(spec), env_file, config_file)
     else:

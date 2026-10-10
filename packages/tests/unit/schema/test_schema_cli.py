@@ -1479,7 +1479,7 @@ class TestDumpResolveSettings:
         with (
             patch("cosalette._schema._cli._import_app", return_value=mixed_app),
             patch(
-                "cosalette._schema._cli_helpers._check_expanded_duplicates",
+                "cosalette._wiring._resolution_checks._check_expanded_duplicates",
                 side_effect=ValueError(
                     "Device name 'temperature' is already registered"
                 ),
@@ -1539,7 +1539,7 @@ class TestDumpResolveSettings:
         with (
             patch("cosalette._schema._cli._import_app", return_value=mixed_app),
             patch(
-                "cosalette._schema._cli_helpers._adapter_lifecycle.resolve_adapters",
+                "cosalette._wiring._adapter_lifecycle.resolve_adapters",
                 return_value={},
             ) as mock_resolve_adapters,
         ):
@@ -2524,14 +2524,14 @@ class TestResolveAppSettingsReturnsPrefix:
         - Specification-based Testing: documented
           ``settings.mqtt.topic_prefix or app.name`` resolution.
         - Equivalence Partitioning: configured prefix vs. unset prefix.
-        - State-based Testing: the per-prefix asyncapi cache is dropped so
-          the in-place name expansion cannot be served stale.
+        - State-based Testing: the App, including its per-prefix asyncapi
+          cache, is left untouched (cos-2zyq).
     """
 
     def test_returns_configured_prefix(
         self, prefix_app: App, prefix_env_file: Path
     ) -> None:
-        """A configured MQTT__TOPIC_PREFIX is returned alongside the app."""
+        """A configured MQTT__TOPIC_PREFIX is returned alongside the snapshot."""
         # Arrange
         from cosalette._schema._cli_helpers import _resolve_app_settings
 
@@ -2539,7 +2539,8 @@ class TestResolveAppSettingsReturnsPrefix:
         resolved_app, prefix = _resolve_app_settings(prefix_app, prefix_env_file)
 
         # Assert
-        assert resolved_app is prefix_app
+        assert resolved_app is not prefix_app
+        assert resolved_app.name == prefix_app.name
         assert prefix == "house/wiz"
 
     def test_falls_back_to_app_name(
@@ -2559,22 +2560,20 @@ class TestResolveAppSettingsReturnsPrefix:
         # Assert
         assert prefix == "wiz2mqtt"
 
-    def test_drops_stale_asyncapi_cache(
-        self, prefix_app: App, prefix_env_file: Path
-    ) -> None:
-        """Name expansion mutates registrations, so every cached prefix is stale."""
+    def test_keeps_asyncapi_cache(self, prefix_app: App, prefix_env_file: Path) -> None:
+        """Resolution works on copies, so the App's cached documents stay valid."""
         # Arrange
         from cosalette._schema._cli_helpers import _resolve_app_settings
 
-        prefix_app.asyncapi()
-        prefix_app.asyncapi(topic_prefix="other")
-        assert getattr(prefix_app, "_asyncapi_cache", None)
+        default_doc = prefix_app.asyncapi()
+        other_doc = prefix_app.asyncapi(topic_prefix="other")
 
         # Act
         _resolve_app_settings(prefix_app, prefix_env_file)
 
         # Assert
-        assert not hasattr(prefix_app, "_asyncapi_cache")
+        assert prefix_app.asyncapi() is default_doc
+        assert prefix_app.asyncapi(topic_prefix="other") is other_doc
 
 
 class TestDumpTopicPrefix:
