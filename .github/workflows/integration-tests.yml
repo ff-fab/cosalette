@@ -16,6 +16,11 @@ on:
         required: true
         type: string
         # Valid values: mqtt, full
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       suite:
@@ -54,6 +59,8 @@ jobs:
         with:
           run-cmd: task test:mqtt
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run full integration suite
         if: inputs.suite == 'full'
@@ -61,6 +68,8 @@ jobs:
         with:
           run-cmd: task test:integration:full
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Upload MQTT test results
         if: always() && inputs.suite == 'mqtt'

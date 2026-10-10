@@ -35,9 +35,9 @@ RUN pipx uninstall pipenv \
     && black --version && pytest --version
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
-# renovate: datasource=github-releases depName=anchore/syft
+# renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
 ARG SYFT_VERSION=1.54.0
-# SHA-256 digests for supply-chain integrity verification (update on version bump)
+# SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG SYFT_SHA256_AMD64=54a87372498168b2d033e876fd41fa4e8035b872699e525a57046e1f2f09c860
 ARG SYFT_SHA256_ARM64=ee6d4566373a05b344bc6b5f1706f14419bf9338ba39ff686e247deefe9b8818
 RUN set -eux; \
@@ -184,7 +184,7 @@ COPY --chmod=0755 docker-runtime.sh /usr/local/share/docker-runtime.sh
 # Install go-task (task runner - https://github.com/go-task/task)
 # renovate: datasource=github-releases depName=go-task/task
 ARG TASK_VERSION=v3.54.0
-# SHA-256 digests for supply-chain integrity verification (update on version bump)
+# SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG TASK_SHA256_AMD64=680859dbb4d881a9c72d4d9a8f510825450849af8567deacd7302c01124416fb
 ARG TASK_SHA256_ARM64=d7189d439d4a6058e39e1b2acd7c8b27acd4856691b408f23b242e4294e1df5b
 # DL3003 suppressed: cd in a single RUN is scoped to that layer; WORKDIR would
@@ -225,32 +225,14 @@ RUN set -eux; \
 # Baked into the image so the container starts reliably without a runtime download.
 # bd on Linux requires an external dolt binary; the embedded dolt in the bd binary
 # is macOS-only as of beads v1.0.0.
-# renovate: datasource=github-releases depName=dolthub/dolt
-ARG DOLT_VERSION=v2.4.2
-# SHA-256 digests for supply-chain integrity verification (update on version bump)
-ARG DOLT_SHA256_AMD64=5d95a271149dc6ea97f47157af7ba9a0df5e8d4e9bbac4d79c169f2faa3cfb9e
-ARG DOLT_SHA256_ARM64=c1c610e22c6bacd4c5b2fbf5697a0f453d759d075c4abff380c6e646553e22d8
-# Dolt stores this setting per home; configure build-time root and vscode
-# before invoking Dolt. Renovate tracks DOLT_VERSION instead.
-RUN set -eux; \
-    ARCH=$(dpkg --print-architecture); \
-    case "${ARCH}" in \
-      amd64) EXPECTED_SHA="${DOLT_SHA256_AMD64}" ;; \
-      arm64) EXPECTED_SHA="${DOLT_SHA256_ARM64}" ;; \
-      *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
-    esac; \
-    TARBALL="/tmp/dolt-linux-${ARCH}.tar.gz"; \
-    curl -fsSL \
-      "https://github.com/dolthub/dolt/releases/download/${DOLT_VERSION}/dolt-linux-${ARCH}.tar.gz" \
-      -o "${TARBALL}"; \
-    echo "${EXPECTED_SHA}  ${TARBALL}" | sha256sum -c -; \
-    tar -xzf "${TARBALL}" -C /tmp; \
-    install "/tmp/dolt-linux-${ARCH}/bin/dolt" /usr/local/bin/; \
-    rm -rf "/tmp/dolt-linux-${ARCH}" "${TARBALL}"; \
-    dolt config --global --add versioncheck.disabled true; \
-    runuser -u vscode -- env HOME=/home/vscode \
-      dolt config --global --add versioncheck.disabled true; \
-    dolt version
+# The official image ships the same static binary as the release tarball;
+# Renovate updates its tag and digest together (ADR-090).
+COPY --from=dolthub/dolt:2.4.2@sha256:8a822610f9fffab0e347a9d4a0cce2a53444e7e6fb459a684b6b9fa721dfcbb4 /usr/local/bin/dolt /usr/local/bin/dolt
+# Dolt stores this setting per home; configure build-time root and vscode.
+RUN dolt config --global --add versioncheck.disabled true \
+    && runuser -u vscode -- env HOME=/home/vscode \
+      dolt config --global --add versioncheck.disabled true \
+    && dolt version
 
 # Install beads (bd) — git-backed issue tracker for AI agents.
 # Baked into the image so the VS Code extension (planet57.vscode-beads) can
@@ -259,7 +241,7 @@ RUN set -eux; \
 # is created when the binary links against a different ICU than the OS provides.
 # renovate: datasource=github-releases depName=gastownhall/beads
 ARG BD_VERSION=v1.3.1
-# SHA-256 digests for supply-chain integrity verification (update on version bump)
+# SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG BD_SHA256_AMD64=3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
 ARG BD_SHA256_ARM64=c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a
 RUN set -eux; \
@@ -301,7 +283,7 @@ RUN set -eux; \
 # caching). Uses per-arch rustup-init binary with sha256 sidecar verification — consistent with
 # the dolt/beads pattern elsewhere in this file. RUST_VERSION uses major.minor because rustup
 # resolves the latest stable patch automatically (e.g. 1.98 → 1.98.1).
-# renovate: datasource=github-releases depName=rust-lang/rust
+# renovate: datasource=github-releases depName=rust-lang/rust extractVersion=^(?<version>\d+\.\d+)\.\d+$
 ARG RUST_VERSION=1.98
 # renovate: datasource=crate depName=cargo-audit
 ARG CARGO_AUDIT_VERSION=0.22.2
@@ -361,7 +343,7 @@ RUN set -eux; \
 # Install opencode (AI coding agent — https://opencode.ai)
 # renovate: datasource=github-releases depName=anomalyco/opencode
 ARG OPENCODE_VERSION=v1.18.32
-# SHA-256 digests for supply-chain integrity verification (update on version bump)
+# SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG OPENCODE_SHA256_AMD64=3046e0404fdc60fb80307e7a47824ba07477364178a4d09baa8548496dd6d43b
 ARG OPENCODE_SHA256_ARM64=568461b7d4d8c19865c97e9a1102e613049c6039d01fe772154de873c1865840
 RUN set -eux; \

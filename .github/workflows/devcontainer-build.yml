@@ -55,6 +55,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # False in fork and Dependabot PRs (no secrets): those pull anonymously.
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,6 +76,14 @@ jobs:
       - name: Record runner kernel inventory
         run: bash scripts/host-kernel-inventory.sh
 
+      # The build pulls dolthub/dolt (.devcontainer/Dockerfile) from Docker Hub.
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build devcontainer without publishing
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
         env:
@@ -83,6 +94,11 @@ jobs:
           runCmd: |
             bash .devcontainer/tests/security-toolchain.sh
             bash .devcontainer/tests/rootless-docker.sh
+
+      # Pulls are done; the following steps run PR scripts on the runner.
+      - name: Log out of Docker Hub
+        if: always() && env.HAS_DOCKERHUB == 'true'
+        run: docker logout
 
       - name: Scan locally built image with Trivy
         env:
@@ -107,6 +123,8 @@ jobs:
     permissions:
       packages: write         # push to GHCR
       security-events: write  # upload Trivy SARIF to GitHub Security tab
+    env:
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,6 +136,15 @@ jobs:
           dockerfile: .devcontainer/Dockerfile
           # failure-threshold: warning exits on warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules)
           failure-threshold: warning
+
+      # Before Buildx: its docker-container driver pulls moby/buildkit, and the
+      # build pulls dolthub/dolt, both from Docker Hub.
+      - name: Log in to Docker Hub
+        if: env.HAS_DOCKERHUB == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

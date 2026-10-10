@@ -31,6 +31,8 @@ jobs:
         with:
           run-cmd: task security:audit
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   fuzzing:
     name: Fuzzing
@@ -44,3 +46,5 @@ jobs:
         with:
           run-cmd: task security:fuzz
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}

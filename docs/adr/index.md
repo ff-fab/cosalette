@@ -102,3 +102,4 @@ rationale, and consequences.
 | [ADR-087](ADR-087-native-cosalette-health-probe-binary-shipped-in-platform-wheels.md) | Native cosalette-health probe binary shipped in platform wheels | Accepted | 2026-10-04 |
 | [ADR-088](ADR-088-opt-in-event-loop-stall-watchdog-with-exit-code-6.md) | Opt-in event-loop stall watchdog with exit code 6 | Accepted | 2026-10-05 |
 | [ADR-089](ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md) | Opt-in instance identity for HA discovery and openHAB output | Accepted | 2026-10-05 |
+| [ADR-090](ADR-090-keep-devcontainer-tool-checksums-current-under-renovate.md) | Keep devcontainer tool checksums current under Renovate | Accepted | 2026-10-10 |
