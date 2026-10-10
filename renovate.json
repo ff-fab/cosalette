@@ -23,6 +23,11 @@
       "automerge": false
     },
     {
+      "description": "Docker/containerd/buildx are tracked in Docker's apt repository (deb datasource), which publishes no release timestamps; under minimumReleaseAge they would stay pending forever. A package appears there only after the upstream release, and these PRs are reviewed, never automerged",
+      "matchDatasources": ["deb"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "Group Python minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these ship to the fleet in the wheel",
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["minor", "patch"],

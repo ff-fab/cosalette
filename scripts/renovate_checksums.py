@@ -7,9 +7,9 @@ HEAD_DOCKERFILE (a Renovate branch's Dockerfile, read as data) is rewritten in
 place. For every tool in ``TOOLS`` whose ``<PREFIX>_VERSION`` ARG differs from
 BASE_DOCKERFILE (the default branch), the release assets are downloaded with
 ``gh`` and their SHA-256 must agree with the GitHub release asset digest, the
-publisher's checksums file (when one exists) and the publisher's attestation
-(when one exists). Any disagreement or failed verification exits non-zero
-without writing anything (ADR-090).
+publisher's checksums file or per-asset ``.sha256`` sidecar (when one exists)
+and the publisher's attestation (when one exists). Any disagreement or failed
+verification exits non-zero without writing anything (ADR-090).
 
 Standard library only, so the workflow runs it with the runner's ``python3 -I``.
 """
@@ -44,6 +44,8 @@ class Tool:
     assets: dict[str, str]
     tag: str = "v{v}"
     checksums: str | None = None
+    #: Each asset has a ``<asset>.sha256`` sidecar holding its bare hash.
+    sidecar: bool = False
     #: The release is immutable and carries GitHub's release attestation.
     release_attestation: bool = False
     #: Workflow that signs the SLSA provenance (``gh attestation verify``).
@@ -73,6 +75,21 @@ TOOLS: dict[str, Tool] = {
         },
         checksums="checksums.txt",
         signer_workflow="gastownhall/beads/.github/workflows/release.yml",
+    ),
+    "ROOTLESSKIT": Tool(
+        "rootless-containers/rootlesskit",
+        {"AMD64": "rootlesskit-x86_64.tar.gz", "ARM64": "rootlesskit-aarch64.tar.gz"},
+        checksums="SHA256SUMS",
+        release_attestation=True,
+    ),
+    "CARGO_DENY": Tool(
+        "EmbarkStudios/cargo-deny",
+        {
+            "AMD64": "cargo-deny-{v}-x86_64-unknown-linux-musl.tar.gz",
+            "ARM64": "cargo-deny-{v}-aarch64-unknown-linux-musl.tar.gz",
+        },
+        tag="{v}",
+        sidecar=True,
     ),
     "OPENCODE": Tool(
         "anomalyco/opencode",
@@ -117,9 +134,9 @@ def release_hashes(
     names = {arch: tmpl.format(v=v) for arch, tmpl in tool.assets.items()}
     release = json.loads(run(["api", f"repos/{tool.repo}/releases/tags/{tag}"]))
     api_digests = {a["name"]: a.get("digest") or "" for a in release["assets"]}
-    wanted = list(names.values()) + (
-        [tool.checksums.format(v=v)] if tool.checksums else []
-    )
+    wanted = list(names.values())
+    wanted += [f"{name}.sha256" for name in wanted] if tool.sidecar else []
+    wanted += [tool.checksums.format(v=v)] if tool.checksums else []
     patterns = [arg for name in wanted for arg in ("--pattern", name)]
     run(
         [
@@ -147,6 +164,9 @@ def release_hashes(
             raise VerificationError(f"{name}: release asset digest does not match")
         if tool.checksums and published.get(name) != actual:
             raise VerificationError(f"{name}: checksums file does not match")
+        sidecar = workdir / f"{name}.sha256"
+        if tool.sidecar and sidecar.read_text().split() != [actual]:
+            raise VerificationError(f"{name}: .sha256 sidecar does not match")
         if tool.release_attestation:
             run(["release", "verify-asset", tag, str(path), "--repo", tool.repo])
         if tool.signer_workflow:
