@@ -1,0 +1,105 @@
+# Renovate Checksums — add the SHA-256 ARGs that Renovate cannot update (ADR-090).
+#
+# Renovate bumps the *_VERSION ARGs in .devcontainer/Dockerfile but not the
+# paired *_SHA256_* ARGs. On a Renovate PR this workflow downloads the new
+# release assets, checks that the asset digest, the publisher's checksums file
+# and the publisher's attestation agree (scripts/renovate_checksums.py, fail
+# closed), and commits the new hashes to the PR branch as a reviewable diff.
+#
+# Trust boundary: pull_request_target runs this file and the parser as they are
+# on the default branch. The PR's Dockerfile is fetched through the API and only
+# read as data; nothing from the PR branch is checked out or executed.
+#
+# The commit is made with the release GitHub App token (contents: write on
+# this repository only), because a GITHUB_TOKEN push would not trigger the
+# DevContainer Build. renovate.json lists the App's bot e-mail in
+# gitIgnoredAuthors so Renovate keeps rebasing the branch; a rebase drops the
+# hash commit and this workflow adds it again.
+
+name: Renovate Checksums
+
+on:
+  # The trigger is the point: base-branch code, data-only access to the PR.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths: ['.devcontainer/Dockerfile']
+
+permissions: {}
+
+concurrency:
+  group: renovate-checksums-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Update Dockerfile checksums
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login == 'renovate[bot]'
+      && startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the default branch (trusted parser and base Dockerfile)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the PR Dockerfile as data
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/${REPO}/contents/.devcontainer/Dockerfile?ref=${HEAD_SHA}" > "${RUNNER_TEMP}/head.json"
+          jq -r .content "${RUNNER_TEMP}/head.json" | base64 -d > "${RUNNER_TEMP}/Dockerfile.orig"
+          cp "${RUNNER_TEMP}/Dockerfile.orig" "${RUNNER_TEMP}/Dockerfile"
+          echo "blob=$(jq -r .sha "${RUNNER_TEMP}/head.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify releases and compute checksums
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I scripts/renovate_checksums.py .devcontainer/Dockerfile "${RUNNER_TEMP}/Dockerfile" \
+            > "${RUNNER_TEMP}/changed.txt"
+          cat "${RUNNER_TEMP}/changed.txt" >> "$GITHUB_STEP_SUMMARY"
+          if ! cmp -s "${RUNNER_TEMP}/Dockerfile.orig" "${RUNNER_TEMP}/Dockerfile"; then
+            echo "commit=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint a contents-only App token
+        if: steps.update.outputs.commit == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Commit the checksums to the PR branch
+        if: steps.update.outputs.commit == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          BLOB: ${{ steps.head.outputs.blob }}
+        run: |
+          # The blob SHA makes the update fail if the branch moved meanwhile;
+          # the run for the newer push then takes over.
+          {
+            echo "chore(deps): update Dockerfile checksums"
+            echo
+            echo "Verified by .github/workflows/renovate-checksums.yml for:"
+            cat "${RUNNER_TEMP}/changed.txt"
+          } > "${RUNNER_TEMP}/message.txt"
+          gh api -X PUT "repos/${REPO}/contents/.devcontainer/Dockerfile" \
+            -f branch="${BRANCH}" \
+            -f sha="${BLOB}" \
+            -F message=@"${RUNNER_TEMP}/message.txt" \
+            -f content="$(base64 -w0 "${RUNNER_TEMP}/Dockerfile")" \
+            --jq '.commit.html_url'

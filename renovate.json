@@ -15,7 +15,13 @@
   "dependencyDashboard": true,
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
+  "gitIgnoredAuthors": ["269983026+ff-fab-release-bot[bot]@users.noreply.github.com"],
   "packageRules": [
+    {
+      "description": "Devcontainer Dockerfile pins are reviewed, never automerged; .github/workflows/renovate-checksums.yml commits the matching SHA-256 ARGs as the release bot, which gitIgnoredAuthors keeps from blocking rebases (ADR-090)",
+      "matchFileNames": [".devcontainer/Dockerfile"],
+      "automerge": false
+    },
     {
       "description": "Group Python minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these ship to the fleet in the wheel",
       "matchManagers": ["pep621"],
