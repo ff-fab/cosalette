@@ -9,7 +9,7 @@ tags: [architecture, cli, devices, configuration, naming]
 
 ## Status
 
-Accepted **Date:** 2026-08-04 | Amended **Date:** 2026-08-08
+Accepted **Date:** 2026-08-04 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-10-10
 
 > **Guard implemented** (cos-sdne.1/cos-sdne.2): `_reject_unexpanded_name_specs` ships in
 > the companion PR and is live.  The settings-resolving dump mode (cos-sdne.3) is now
@@ -93,3 +93,48 @@ _Scale: 1 (poor) to 5 (excellent)_
 
 !!! note "Editorial note (2026-08-08)"
     The follow-up flagged in the 2026-08-05 editorial note above is now implemented (cos-mxk1) — `--resolve-settings` / `--env-file` have been extended from `schema dump` to `schema check` and `schema init` as well (`_schema/_cli.py`). Both commands accept the same flag pair with the same semantics: when passed, they swap `_import_validated_app()` for `_resolve_app_settings(_import_app(app_spec), env_file)`, reusing the exact ADR-051 pipeline dump already used — no new resolution logic was introduced. `schema check` (the CI gate) can therefore validate a settings-derived (ADR-023 callable `name=`) app's real, post-expansion entity names against a schema written for those names, instead of only being able to refuse to run via the `_reject_unexpanded_name_specs` guard. `schema init` scaffolds real per-entity channels for such apps under the same flag. Without the flag, both commands are unchanged and the fail-loud guard still applies. This closes the schema-check/runtime-enforcement asymmetry this ADR's Context section originally described, for the two commands still on the import-time-only path.
+
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** Build scripts and tests that already hold an `App` need the settings-resolved AsyncAPI document. Today they get it only by running `cosalette schema dump --resolve-settings` and parsing its output, because the pipeline lives in CLI helpers that print errors and exit, and because it expands name specs in place on the imported App. This amendment makes the pipeline reusable outside the CLI (cos-2zyq).
+
+### Additional Sub-Decision: Settings resolution does not mutate the App
+
+The settings-resolving pipeline runs on copies of the App's registration lists and returns a read-only resolved snapshot with the same registration views as `App` (expanded names, `enabled=`-disabled registrations removed). The AsyncAPI document is built from that snapshot. Afterwards the App is unchanged in every observable way: its registrations, its other attributes and its per-prefix `asyncapi()` cache. Adapter factories and `on_configure` hooks are user code and still run, because resolution depends on them. Registrations a hook adds to the App through a closure are part of the resolved snapshot; the App's attributes are then restored to their state before the pipeline ran, also when a hook raises. The runtime bootstrap (`app.run()`) keeps its own in-place sequence and is not affected.
+
+### Additional Sub-Decision: The pipeline reports failures as exceptions
+
+The shared pipeline raises exceptions and never prints or exits:
+
+- `SettingsLoadError` when the env file or the config file is missing or cannot be parsed;
+- pydantic's `ValidationError` when the Settings are invalid;
+- `SchemaBuildError`, a new public exception, when resolution fails after expansion (duplicate names, `persist=` without a store; the original `ValueError` is its cause) or a settings-derived `name=`/`topic=` remains unexpanded.
+
+Exceptions from adapter factories and configure hooks propagate unchanged. The `cosalette schema` CLI catches the three documented exceptions and prints them as before: its stderr text and exit codes do not change.
+
+### Additional Sub-Decision: Public API with the CLI as primary contract
+
+`cosalette.schema.resolved_asyncapi(app, *, env_file=None, config_file=None, topic_prefix=None)` returns the document `schema dump --resolve-settings` writes, as a dict, and `cosalette.schema` exports `SchemaBuildError`. Its inputs and its result follow the CLI: for the same app and inputs, the dict equals the parsed `dump --resolve-settings --format json` output. The CLI stays the primary contract; the function is its library form and changes with it.
+
+### Additional Positive Consequences
+
+- Tests and build scripts get the settings-resolved document in-process, without a subprocess or parsing CLI output.
+- Resolving an App twice gives the same document, and the App's own `asyncapi()` still describes its unresolved registrations.
+
+### Additional Negative Consequences
+
+- `build_app_asyncapi` accepts any object with the App's registration views, so a view the builder starts reading must be added to the resolved snapshot as well.
+- Restoring the App after configure hooks covers its attributes, not state that hooks change elsewhere (module globals, adapters' own state).
+
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** The public resolved document API is used by tests and build scripts that may already be running inside an event loop. The implementation now exposes an awaitable API and a sync wrapper for non-async callers.
+
+### Additional Sub-Decision: Resolved AsyncAPI supports async and sync callers
+
+`cosalette.schema.resolved_asyncapi(...)` is an async function for callers inside an event loop. `cosalette.schema.resolved_asyncapi_sync(...)` is the synchronous wrapper for scripts and CLI contexts without a running event loop. Both return the same settings-resolved AsyncAPI dict and propagate the documented exceptions.
+
+## Amendment (2026-10-10) — Minor
+
+!!! note "Editorial note (2026-10-10)"
+    The library API `cosalette.schema.resolved_asyncapi` is awaitable and must be awaited from async code. Synchronous callers without a running event loop can use `cosalette.schema.resolved_asyncapi_sync` instead; the schema CLI uses the synchronous wrapper.

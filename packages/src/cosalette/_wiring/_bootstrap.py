@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from cosalette._clock import ClockPort
 from cosalette._injection import build_injection_plan, resolve_request_kwargs
 from cosalette._persistence._stores import Store
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._settings import Settings
 
 if TYPE_CHECKING:
@@ -111,3 +112,19 @@ async def run_configure_hooks(
             await hook(**kwargs)
         else:
             hook(**kwargs)
+
+
+def resolve_adapters_with_notifier(
+    adapters_config: dict[type, Any],
+    settings: Settings,
+    dry_run: bool,
+) -> tuple[dict[type, object], EntityNotifier]:
+    """Resolve adapters with the runtime's shared EntityNotifier provider."""
+    from cosalette._wiring import _adapter_lifecycle
+
+    notifier = EntityNotifier()
+    adapters = _adapter_lifecycle.resolve_adapters(
+        adapters_config, dry_run, settings, notifier=notifier
+    )
+    adapters[EntityNotifier] = notifier
+    return adapters, notifier

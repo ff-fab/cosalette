@@ -14,6 +14,7 @@ to shrink the god-class and turn ``_run_async`` into a clean recipe.
 # Re-export everything from sub-modules
 from cosalette._wiring._bootstrap import (
     _build_configure_providers,
+    resolve_adapters_with_notifier,
     resolve_settings,
     resolve_store_factory,
     run_configure_hooks,
@@ -51,6 +52,7 @@ from cosalette._wiring._infra import (
     register_first_connect_gate,
     register_reconnect_wake,
 )
+from cosalette._wiring._registration_lifecycle import prepare_registrations
 from cosalette._wiring._resolution import (
     _DEFAULT_TIMEOUT_FACTOR,
     _enabled_arg,
@@ -127,6 +129,7 @@ __all__ = [
     "_build_configure_providers",
     "resolve_settings",
     "resolve_store_factory",
+    "resolve_adapters_with_notifier",
     "run_configure_hooks",
     # Resolution
     "_check_command_registrations",
@@ -147,6 +150,7 @@ __all__ = [
     "_resolve_per_device_timeout",
     "_validate_config_type",
     "_validate_enabled_telemetry",
+    "prepare_registrations",
     "expand_name_specs",
     "resolve_enabled",
     "resolve_intervals",

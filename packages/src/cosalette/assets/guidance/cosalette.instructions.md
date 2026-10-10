@@ -712,8 +712,18 @@ devices removed from config are cleared the same way ADR-048 already clears
 `cosalette ai help discovery`, ADR-059.
 
 `app.discovery()` needs no optional extra; do not add `cosalette[schema]` for it. Only
-a YAML schema file, `on_publish: true` validation and the `schema` CLI need
-`cosalette[schema]`; a YAML settings file needs `cosalette[config-yaml]`.
+a YAML schema file, `on_publish: true` validation and `schema` CLI commands that read
+or write YAML need `cosalette[schema]`; a YAML settings file needs
+`cosalette[config-yaml]`. Without PyYAML, run
+`cosalette schema dump --app myapp.main:app --format json > schema.json` and feed
+`schema.json` to `schema openhab`, `acl`, `ha-discovery` or `validate`.
+
+In async tests and build scripts, use `await cosalette.schema.resolved_asyncapi(app,
+env_file=..., config_file=..., topic_prefix=...)` instead of running `schema dump
+--resolve-settings` and parsing its output: it returns the same document as a dict
+and leaves the App unchanged (configure hooks still run). Synchronous code can use
+`cosalette.schema.resolved_asyncapi_sync(app, ...)`. It raises `SettingsLoadError`, pydantic
+`ValidationError` or `cosalette.schema.SchemaBuildError` (ADR-051).
 
 ---
 

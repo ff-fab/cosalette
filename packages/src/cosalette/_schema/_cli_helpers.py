@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import itertools
 from collections.abc import Set as AbstractSet
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import typer
 from pydantic import ValidationError
 
-from cosalette._clock import SystemClock
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._schema import SchemaRegistry
 from cosalette._schema._loader import (
@@ -19,18 +17,17 @@ from cosalette._schema._loader import (
     SchemaLoadError,
     load_schema_sync,
 )
-from cosalette._settings._config_file import SettingsLoadError
-from cosalette._wiring import _adapter_lifecycle
-from cosalette._wiring._bootstrap import run_configure_hooks
-from cosalette._wiring._resolution import resolve_enabled
-from cosalette._wiring._resolution_checks import (
-    _check_expanded_duplicates,
-    expand_name_specs,
+from cosalette._schema._resolve import (
+    ResolvedApp,
+    SchemaBuildError,
+    build_settings,
+    check_names_expanded,
+    resolve_app,
 )
+from cosalette._settings._config_file import SettingsLoadError
 
 if TYPE_CHECKING:
     from cosalette._app import App
-    from cosalette._settings import Settings
 
 
 def _load_schema_or_exit(path: Path) -> SchemaRegistry:
@@ -43,18 +40,16 @@ def _load_schema_or_exit(path: Path) -> SchemaRegistry:
         Parsed SchemaRegistry.
 
     Note:
-        On SchemaLoadError or ImportError, prints errors and exits with
-        EXIT_CONFIG_ERROR.
+        On SchemaLoadError or ImportError, prints the error and exits with
+        EXIT_CONFIG_ERROR.  A missing optional dependency raises ImportError
+        from ``require_optional``, whose message already carries the dependency
+        hint, so no hint is appended here.
     """
     source = FileSchemaSource(path=path)
     try:
         return load_schema_sync(source)
     except (SchemaLoadError, ImportError) as exc:
-        typer.echo(
-            f"Error: {exc}\n\nHint: Install schema dependencies with: "
-            "pip install cosalette[schema]",
-            err=True,
-        )
+        typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
 
@@ -123,6 +118,22 @@ def _import_app(spec: str) -> App:
     return obj
 
 
+def _exit_config_error(exc: Exception) -> NoReturn:
+    """Print *exc* as a CLI configuration error and exit."""
+    if isinstance(exc, ValidationError):
+        field_errors = ", ".join(
+            ".".join(str(part) for part in e["loc"]) for e in exc.errors()
+        )
+        message = (
+            f"Configuration validation failed "
+            f"({exc.error_count()} error(s)): {field_errors}"
+        )
+    else:
+        message = str(exc)
+    typer.echo(f"Error: {message}", err=True)
+    raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+
+
 def _reject_unexpanded_name_specs(app: App) -> None:
     """Abort if a registration has an unresolved callable name= or topic=.
 
@@ -130,204 +141,50 @@ def _reject_unexpanded_name_specs(app: App) -> None:
     they can appear in a schema artifact. Static schema commands without that
     step would otherwise emit incomplete or incorrect channels.
 
-    Args:
-        app: The imported App instance to inspect.
-
     Raises:
         typer.Exit: With EXIT_CONFIG_ERROR when a name_spec or topic_spec is set.
     """
-    all_regs = [
-        *itertools.chain(
-            app.devices,
-            app.telemetry_registrations,
-            app.commands,
-            app.inbound_registrations,
-        )
-    ]
-    unexpanded = [
-        reg
-        for reg in all_regs
-        if reg.name_spec is not None or getattr(reg, "topic_spec", None) is not None
-    ]
-    if not unexpanded:
-        return
-
-    names_list = "\n".join(f"  - {repr(reg.name)}" for reg in unexpanded)
-    typer.echo(
-        "Error: one or more registrations use a settings-derived name= "
-        "(ADR-023) or topic= that cannot be represented in a static schema artifact. "
-        "Use --resolve-settings to resolve their names and topics before "
-        "generating the schema.\n\n"
-        f"Offending handlers:\n{names_list}",
-        err=True,
-    )
-    raise typer.Exit(EXIT_CONFIG_ERROR)
-
-
-def _assert_file_arg(path: str | Path, label: str) -> None:
-    """Exit with CONFIG_ERROR when an explicitly supplied file does not exist."""
-    if not Path(path).is_file():
-        typer.echo(f"Error: {label} not found: {path}", err=True)
-        raise typer.Exit(EXIT_CONFIG_ERROR)
-
-
-def _build_settings(
-    app: App, env_file: str | Path | None, config_file: Path | None
-) -> Settings:
-    """Construct *app*'s Settings from an optional ``.env`` / config file.
-
-    Settings construction is the one step of the ADR-051 pipeline whose failures
-    are expected, user-facing config errors, so they get friendly
-    ``typer.Exit`` treatment rather than a traceback.
-
-    Raises:
-        typer.Exit: With EXIT_CONFIG_ERROR when the env/config file is missing
-            or the resulting Settings fail validation.
-    """
-    if env_file is not None:
-        _assert_file_arg(env_file, "env file")
-
-    # _ConfigFileSource already raises SettingsLoadError.not_found when the
-    # file is absent; the except SettingsLoadError handler below covers it.
-    settings_kwargs: dict[str, Any] = {"_env_file": env_file or ".env"}
-    if config_file is not None:
-        settings_kwargs["_config_file"] = config_file
     try:
-        return app._settings_class(**settings_kwargs)
-    except ValidationError as exc:
-        field_errors = ", ".join(
-            ".".join(str(part) for part in e["loc"]) for e in exc.errors()
+        check_names_expanded(
+            itertools.chain(
+                app.devices,
+                app.telemetry_registrations,
+                app.commands,
+                app.inbound_registrations,
+            )
         )
-        typer.echo(
-            f"Error: Configuration validation failed "
-            f"({exc.error_count()} error(s)): {field_errors}",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
-    except SettingsLoadError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
+    except SchemaBuildError as exc:
+        _exit_config_error(exc)
 
 
 def _resolve_app_settings(
     app: App, env_file: str | Path | None, config_file: Path | None = None
-) -> tuple[App, str]:
-    """Run the ADR-051 settings-resolving pipeline on an imported App.
+) -> tuple[ResolvedApp, str]:
+    """Run the ADR-051 settings-resolving pipeline for a schema command.
 
-    Mirrors the settings -> adapters -> configure-hooks -> expand ->
-    resolve_enabled sequence in ``_app/_lifecycle.py::_run_async`` so that
-    settings-derived entity names (ADR-023 callable ``name=`` NameSpecs)
-    are expanded before the static AsyncAPI document is built — closing
-    the import-time vs bootstrap-time name-set split described in ADR-051.
-
-    Deliberately diverges from the runtime bootstrap in two ways:
-
-    - Adapters are resolved with ``dry_run=True`` unconditionally, ignoring
-      ``app._dry_run``.  Schema generation is static analysis and must never
-      construct real hardware/network adapters; a reader expecting this to
-      honor the app's configured dry-run default would be surprised, hence
-      this note.
-    - The Store is never resolved (``store=None`` is passed to
-      ``resolve_enabled``) and adapter lifecycle context managers
-      (``__aenter__``/``__aexit__``) are never entered — schema generation
-      reads registrations, it does not run the application.
-
-    Only settings construction (:func:`_build_settings`) and post-expansion
-    resolution (``resolve_enabled`` / ``_check_expanded_duplicates``) get
-    friendly ``typer.Exit`` treatment — those are the expected, user-facing
-    config errors (bad ``.env``, duplicate settings-derived names, missing
-    store for ``persist=``).  ``resolve_adapters(...)`` and
-    ``run_configure_hooks(...)`` are deliberately left unwrapped: a factory
-    or configure hook raising is an app bug, not a config error, and
-    ``app.run()`` itself does not catch these either (see
-    ``_app/_lifecycle.py::_run_async``) — wrapping them here would hide a
-    real traceback behind a misleadingly generic "config error" message.
-
-    Args:
-        app: The imported App instance to resolve in place.
-        env_file: Path to a ``.env`` file used to construct Settings.
-            ``None`` means use pydantic-settings' default behaviour (silent
-            `.env` look-up).  An explicit path that does not exist is
-            rejected fail-loud, matching the main CLI contract.
-        config_file: Optional path to a TOML/YAML/JSON config file.
+    The pipeline itself is :func:`cosalette._schema._resolve.resolve_app`,
+    shared with :func:`cosalette.schema.resolved_asyncapi`; it leaves *app*
+    unchanged and returns a resolved snapshot.  This wrapper only turns its
+    configuration errors into CLI output.  Exceptions from adapter factories
+    and configure hooks are app bugs and propagate with their traceback.
 
     Returns:
-        A ``(app, topic_prefix)`` pair.  *app* is the same instance, with its
-        registration lists mutated in place (name specs expanded, disabled
-        registrations pruned).  *topic_prefix* is the resolved MQTT topic
-        prefix — ``settings.mqtt.topic_prefix or app.name``, the same
-        resolution the runtime performs at ``_app/_lifecycle.py`` — which
-        AsyncAPI channel addresses must be composed from (ADR-072).
+        A ``(resolved, topic_prefix)`` pair, see ``resolve_app``.
 
     Raises:
-        typer.Exit: With EXIT_CONFIG_ERROR when Settings construction fails
-            validation, or when settings resolution raises (e.g. duplicate
-            names after expansion, or persist= without a store).
+        typer.Exit: With EXIT_CONFIG_ERROR when the env/config file is
+            missing or broken, the Settings are invalid, or resolution fails
+            (duplicate names after expansion, persist= without a store, an
+            unexpanded name spec).
     """
-    settings = _build_settings(app, env_file, config_file)
-
-    # dry_run=True requests the dry-run variant; falls back to real impl when
-    # none is registered — adapter factories may still run.
-    resolved_adapters = _adapter_lifecycle.resolve_adapters(
-        app._adapters, True, settings
-    )
-
-    asyncio.run(  # sync-only: must not be called from an async context
-        run_configure_hooks(
-            app._configure_hooks,
-            settings,
-            resolved_adapters,
-            SystemClock(),
-        )
-    )
-
-    expand_name_specs(
-        app._telemetry,
-        app._devices,
-        app._commands,
-        settings,
-        inbound_list=app._inbounds,
-    )
-
     try:
-        # store=None: schema generation never touches Store (no persistence
-        # I/O during static analysis).  A surviving telemetry registration
-        # that declares persist= is still rejected below, same as runtime.
-        resolve_enabled(
-            app._telemetry,
-            app._devices,
-            app._commands,
-            settings,
-            None,
-            periodic_list=app._periodic,
-            stream_list=app._streams,
-            inbound_list=app._inbounds,
-        )
-        _check_expanded_duplicates(
-            app._devices,
-            app._telemetry,
-            app._commands,
-            inbound_list=app._inbounds,
-        )
-    except ValueError as exc:
-        typer.echo(
-            f"Error: settings resolution failed after expanding "
-            f"settings-derived (ADR-023) name=/topic=/enabled= specs: {exc!r}",
-            err=True,
-        )
-        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
-
-    # Safety net: expand_name_specs should leave nothing unexpanded — a
-    # name_spec kind it doesn't support would be a real framework bug, so
-    # surface it loudly via the existing guard rather than silently
-    # emitting a phantom channel.
-    _reject_unexpanded_name_specs(app)
-    # Drop the whole per-prefix cache (ADR-072): the in-place mutation above
-    # changed the registrations, so *every* prefix's document is stale, not just
-    # the one we are about to rebuild.
-    if hasattr(app, "_asyncapi_cache"):
-        object.__delattr__(app, "_asyncapi_cache")
-    return app, settings.mqtt.topic_prefix or app.name
+        settings = build_settings(app, env_file, config_file)
+    except (SettingsLoadError, ValidationError) as exc:
+        _exit_config_error(exc)
+    try:
+        return resolve_app(app, env_file, config_file, _settings=settings)
+    except SchemaBuildError as exc:
+        _exit_config_error(exc)
 
 
 def _print_missing_devices(missing_devices: AbstractSet[str]) -> int:

@@ -32,8 +32,8 @@ apps need no optional schema dependencies at runtime.
 | Schema enforcement with a `.json` schema file, `on_publish` false | nothing | — |
 | Schema enforcement with a YAML schema file | PyYAML | `cosalette[schema]` or `cosalette[config-yaml]` |
 | Publish-time payload validation (`on_publish: true`) | jsonschema | `cosalette[schema]` |
-| Schema CLI commands reading a `.json` schema and writing JSON/text (`validate`, `check`, `acl`, `ha-discovery --format json`, `openhab`, `monitor`) | nothing | — |
-| Schema CLI commands reading YAML, or emitting YAML (`slice`, `dump`, `init`, `ha-discovery --format yaml`) | PyYAML | `cosalette[schema]` or `cosalette[config-yaml]` |
+| `schema dump --format json`, and schema CLI commands reading a `.json` schema and writing JSON/text (`validate`, `check`, `acl`, `ha-discovery --format json`, `openhab`, `monitor`) | nothing | — |
+| Schema CLI commands reading YAML, or emitting YAML (`dump` without `--format json`, `init`, `slice`, `ha-discovery --format yaml`) | PyYAML | `cosalette[schema]` or `cosalette[config-yaml]` |
 | YAML settings file (`config_file=`, `--config-file`) | PyYAML | `cosalette[config-yaml]` |
 | MCP server for AI agents | fastmcp, jinja2, mcp | `cosalette[mcp]` |
 
@@ -44,7 +44,7 @@ PyYAML, and jsonschema is needed only when `x-cosalette-enforcement.on_publish` 
 `true` (default `false`). A schema file whose name ends in `.json` is parsed with
 `orjson`, a core dependency, so it never needs PyYAML; it still needs jsonschema
 when `on_publish` is true. A missing dependency fails startup, before MQTT connects,
-with an install hint. A YAML schema with `on_publish: true` needs both packages, so
+with a dependency hint. A YAML schema with `on_publish: true` needs both packages, so
 install `cosalette[schema]`:
 
 ```bash
@@ -54,8 +54,31 @@ pip install cosalette[schema]
 The schema CLI never imports `jsonschema`; that dependency is used only for
 publish-time payload validation. Commands that read a `.json` schema and write
 JSON or text need neither optional package. PyYAML is needed when a command reads a
-YAML schema or emits YAML; `dump` and `init` always emit YAML, as does `slice` and
-`ha-discovery --format yaml`.
+YAML schema or emits YAML. `dump` emits YAML by default; `dump --format json` writes
+the same document as JSON without PyYAML. `init` and `slice` always emit YAML, and
+`ha-discovery --format yaml` does too.
+
+A container image without PyYAML can still generate and use a schema:
+
+```bash
+cosalette schema dump --app myapp.app:app --format json > schema.json
+cosalette schema openhab schema.json
+```
+
+JSON has no NaN or Infinity, so a non-finite float in the document (for example a
+`float("inf")` bound) is written as `null` in JSON output. A document key that is not
+a string cannot be written as JSON at all; `dump --format json` then exits with a
+configuration error and suggests `--format yaml`.
+
+A missing optional dependency is reported with a message and a hint that names the
+package first, then the extras that contain it, and the JSON alternative where one
+exists:
+
+```text
+Error: YAML output requires pyyaml, which is not installed.
+
+Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] extra) to your project dependencies, or use --format json.
+```
 
 TOML and JSON settings files need no extra (see
 [Configuration — Supported Formats](configuration.md#supported-formats)). For the
@@ -157,7 +180,8 @@ operations:
 
     - `cosalette schema dump` — outputs the canonical AsyncAPI document. Use this
       to pipe to external tooling (AsyncAPI Studio, documentation generators, or
-      for programmatic inspection).
+      for programmatic inspection). `--format json` writes it as JSON, which
+      every schema command reads without PyYAML.
     - `cosalette schema init` — same as `dump`, plus an `x-cosalette-enforcement`
       scaffold at the document root. Use this to create a schema you will commit
       and validate against.
@@ -741,13 +765,65 @@ addresses only — identity, and therefore Home Assistant `object_id` /
 
 ---
 
+## Generating the Document from Python
+
+`cosalette.schema.resolved_asyncapi()` is an async function that returns the document
+`cosalette schema dump --resolve-settings` writes, as a dict. Use it in tests and
+build scripts that already import the app, instead of running the CLI and parsing
+its output:
+
+```python
+from cosalette.schema import (
+    SchemaBuildError,
+    resolved_asyncapi,
+    resolved_asyncapi_sync,
+)
+
+from myapp.app import app
+
+doc = await resolved_asyncapi(app, env_file="prod.env")
+# Same as: cosalette schema dump --app myapp.app:app --resolve-settings \
+#          --env-file prod.env --format json
+```
+
+For a script that has no running event loop, call
+`resolved_asyncapi_sync(app, ...)` with the same keyword arguments.
+
+It takes the inputs of `dump --resolve-settings`: `env_file=` (`--env-file`),
+`config_file=` (`--config-file`) and `topic_prefix=` (`--topic-prefix`). For the
+same app and inputs the dict equals the parsed `--format json` output. Without
+`env_file=`, a `.env` file in the working directory is read if it exists, as the
+CLI does.
+
+The app is not modified. Settings-derived
+([ADR-023](../adr/ADR-023-on-configure-lifecycle-phase.md)) `name=` and `topic=`
+specs are expanded on copies of its registrations, so `app.asyncapi()` still
+describes the unresolved app and repeated calls return equal documents. Adapter
+factories and `on_configure` hooks do run, since resolution depends on them;
+adapters are resolved in dry-run mode, and no store or adapter lifecycle is
+entered.
+
+Failures are raised, not printed:
+
+| Exception | When |
+|-----------|------|
+| `cosalette.SettingsLoadError` | `env_file` or `config_file` does not exist, or the config file cannot be parsed. |
+| `pydantic.ValidationError` | The Settings are invalid, or `topic_prefix` is not a valid MQTT topic prefix. |
+| `cosalette.schema.SchemaBuildError` | Two registrations resolve to the same name, a `persist=` telemetry handler survives without a store, or a settings-derived name cannot be expanded. |
+
+An exception raised by an adapter factory or a configure hook propagates
+unchanged. The CLI stays the primary interface: the function follows it
+([ADR-051](../adr/ADR-051-settings-aware-schema-pipeline-for-settings-derived-entity-names.md)).
+
+---
+
 ## CLI Reference
 
 | Command | Description |
 |---------|-------------|
 | `cosalette schema validate <file>` | Validate schema document structure. |
 | `cosalette schema check --app module:attr --schema <file>` | Check app registrations against schema (CI gate). |
-| `cosalette schema dump --app module:attr [--topic-prefix PREFIX]` | Generate canonical AsyncAPI 3.0.0 YAML via `app.asyncapi()` (typed schemas, archetype extensions, contract-version). |
+| `cosalette schema dump --app module:attr [--topic-prefix PREFIX] [--format yaml\|json]` | Generate the canonical AsyncAPI 3.0.0 document via `app.asyncapi()` (typed schemas, archetype extensions, contract-version), as YAML (default) or JSON. `--format json` needs no PyYAML. |
 | `cosalette schema init --app module:attr [--topic-prefix PREFIX]` | Generate starter schema with cosalette extensions (for editing). |
 | `cosalette schema slice --network <file> --app <name>` | Extract one app's slice from a network schema. |
 | `cosalette schema ha-discovery <file> [--prefix PREFIX] [--format json\|yaml] [--instance-id ID]` | Generate Home Assistant MQTT discovery payloads. |

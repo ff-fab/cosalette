@@ -125,7 +125,7 @@ async def _load_schema_file(path: Path) -> SchemaRegistry:
     try:
         registry = await load_schema(FileSchemaSource(path))
     except ImportError:
-        raise  # PyYAML is missing; keep its install hint.
+        raise  # PyYAML is missing; keep its dependency hint.
     except Exception:
         logger.debug("Schema load failed for %s", path, exc_info=True)
         msg = "Failed to load schema — check SCHEMA__PATH configuration"

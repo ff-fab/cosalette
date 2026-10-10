@@ -22,6 +22,7 @@ from typing import (
     Annotated,
     Any,
     Literal,
+    Protocol,
     get_args,
     get_origin,
     override,
@@ -35,11 +36,42 @@ from cosalette._schema import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pydantic.json_schema import GenerateJsonSchema
 
-    from cosalette._app import App
-    from cosalette._registration import DiscoverableSpec
+    from cosalette._registration import (
+        DiscoverableSpec,
+        StreamRegistration,
+        _CommandRegistration,
+        _DeviceRegistration,
+        _InboundRegistration,
+        _TelemetryRegistration,
+    )
     from cosalette._schema import ChannelSchema, SchemaRegistry
+
+
+class AppRegistrations(Protocol):
+    """What :func:`build_app_asyncapi` reads from an application.
+
+    Satisfied by :class:`~cosalette.App` and by the settings-resolved
+    :class:`~cosalette._schema._resolve.ResolvedApp` snapshot (ADR-051).
+    """
+
+    @property
+    def name(self) -> str: ...
+    @property
+    def version(self) -> str: ...
+    @property
+    def devices(self) -> Sequence[_DeviceRegistration]: ...
+    @property
+    def telemetry_registrations(self) -> Sequence[_TelemetryRegistration]: ...
+    @property
+    def commands(self) -> Sequence[_CommandRegistration]: ...
+    @property
+    def stream_registrations(self) -> Sequence[StreamRegistration]: ...
+    @property
+    def inbound_registrations(self) -> Sequence[_InboundRegistration]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -900,7 +932,7 @@ _AVAILABILITY_SUFFIX = "Availability"
 _ROOT_AVAILABILITY_CHANNEL = "availability"
 
 
-def _availability_owners(app: App) -> list[tuple[str, bool]]:
+def _availability_owners(app: AppRegistrations) -> list[tuple[str, bool]]:
     """Return ``(name, is_root)`` for every entity that owns availability.
 
     Mirrors the runtime announcement (``_announced_registrations`` fed to
@@ -919,7 +951,7 @@ def _availability_owners(app: App) -> list[tuple[str, bool]]:
 
 
 def _emit_availability_channels(
-    app: App,
+    app: AppRegistrations,
     prefix: str,
     channels: dict[str, Any],
     operations: dict[str, Any],
@@ -968,7 +1000,9 @@ def _emit_availability_channels(
         operations[op_name] = op_dict
 
 
-def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str, Any]:
+def build_app_asyncapi(
+    app: AppRegistrations, *, topic_prefix: str | None = None
+) -> dict[str, Any]:
     """Build a canonical AsyncAPI 3.0.0 document dict from *app* registrations.
 
     This is the single source of truth used by :meth:`~cosalette.App.asyncapi`,
@@ -1023,7 +1057,9 @@ def build_app_asyncapi(app: App, *, topic_prefix: str | None = None) -> dict[str
     availability channels and operations (ADR-086).
 
     Args:
-        app: The :class:`~cosalette.App` instance to introspect.
+        app: The :class:`~cosalette.App` to introspect, or any object with
+            the same read-only registration views (:class:`AppRegistrations`),
+            such as a settings-resolved snapshot.
         topic_prefix: The resolved MQTT topic prefix.  ``None`` (the default)
             means "not resolved from settings" and falls back to ``app.name``.
 

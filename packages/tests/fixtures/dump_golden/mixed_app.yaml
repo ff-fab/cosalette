@@ -1,0 +1,104 @@
+asyncapi: 3.0.0
+info:
+  title: vito2mqtt
+  version: 0.2.0
+  x-cosalette-contract-version: '2'
+channels:
+  sensorAvailability:
+    address: vito2mqtt/sensor/availability
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          type: string
+          enum:
+          - online
+          - offline
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+    x-cosalette-framework: availability
+    x-cosalette-discoverable: false
+  sensorState:
+    address: vito2mqtt/sensor/state
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          type: object
+    x-cosalette-archetype: device
+  temperatureAvailability:
+    address: vito2mqtt/temperature/availability
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          type: string
+          enum:
+          - online
+          - offline
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+    x-cosalette-framework: availability
+    x-cosalette-discoverable: false
+  temperatureState:
+    address: vito2mqtt/temperature/state
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          additionalProperties: true
+          type: object
+    x-cosalette-archetype: telemetry
+  valveAvailability:
+    address: vito2mqtt/valve/availability
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          type: string
+          enum:
+          - online
+          - offline
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+    x-cosalette-framework: availability
+    x-cosalette-discoverable: false
+  valveCommand:
+    address: vito2mqtt/valve/set
+    x-cosalette-app: vito2mqtt
+    messages:
+      message:
+        payload:
+          type: object
+    x-cosalette-archetype: command
+operations:
+  publishSensorAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/sensorAvailability'
+  publishSensorState:
+    action: send
+    channel:
+      $ref: '#/channels/sensorState'
+  publishTemperatureAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/temperatureAvailability'
+  publishTemperatureState:
+    action: send
+    channel:
+      $ref: '#/channels/temperatureState'
+  publishValveAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/valveAvailability'
+  receiveValveCommand:
+    action: receive
+    channel:
+      $ref: '#/channels/valveCommand'

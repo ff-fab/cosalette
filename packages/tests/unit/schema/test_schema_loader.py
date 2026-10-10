@@ -159,9 +159,11 @@ class TestRequireOptional:
         assert "jsonschema" not in sys.modules
         assert "yaml" not in sys.modules
 
-    @pytest.mark.parametrize("missing", ["jsonschema", "yaml"])
-    def test_missing_dependency_raises_install_hint(
-        self, monkeypatch: pytest.MonkeyPatch, missing: str
+    @pytest.mark.parametrize(
+        ("missing", "package"), [("jsonschema", "jsonschema"), ("yaml", "pyyaml")]
+    )
+    def test_missing_dependency_raises_dependency_hint(
+        self, monkeypatch: pytest.MonkeyPatch, missing: str, package: str
     ) -> None:
         """A missing dependency raises ImportError naming it and the extra."""
         # Arrange
@@ -169,7 +171,8 @@ class TestRequireOptional:
 
         # Act / Assert
         with pytest.raises(
-            ImportError, match=rf"^Feature requires .*missing: {missing}\).*\[schema\]"
+            ImportError,
+            match=rf"^Feature requires {package}, .*\n\nHint: add {package} .*schema",
         ):
             _loader.require_optional(missing, "Feature")
 
@@ -212,7 +215,9 @@ class TestJsonSchemaFile:
         monkeypatch.setitem(sys.modules, "yaml", None)
 
         # Act / Assert
-        with pytest.raises(ImportError, match=r"missing: yaml\)"):
+        with pytest.raises(
+            ImportError, match=r"^A YAML schema requires pyyaml, which is not installed"
+        ):
             await load_schema(FileSchemaSource(schemas_dir / "valid_basic.yaml"))
 
     @pytest.mark.parametrize(

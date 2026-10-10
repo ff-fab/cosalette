@@ -19,6 +19,7 @@ from typing import Any, Literal
 import pytest
 from pydantic import ValidationError
 
+from cosalette._dependency_hints import OPTIONAL_DEPENDENCIES
 from cosalette._schema import (
     ChannelSchema,
     EnforcementConfig,
@@ -437,16 +438,40 @@ class TestSchemaLoadFailureAtStartup:
     """
 
     @pytest.mark.parametrize(
-        ("missing_module", "on_publish"), [("yaml", False), ("jsonschema", True)]
+        ("missing_module", "on_publish", "expected"),
+        [
+            (
+                "yaml",
+                False,
+                "A YAML schema requires pyyaml, which is not installed.\n\n"
+                "Hint: add pyyaml (or the cosalette[schema] or "
+                "cosalette[config-yaml] extra) to your project dependencies, "
+                "or use a .json schema (cosalette schema dump --format json).",
+            ),
+            (
+                "jsonschema",
+                True,
+                "Payload validation (x-cosalette-enforcement.on_publish) requires "
+                "jsonschema, which is not installed.\n\n"
+                "Hint: add jsonschema (or the cosalette[schema] extra) to your "
+                "project dependencies.",
+            ),
+        ],
+        ids=["pyyaml", "jsonschema"],
     )
-    async def test_missing_schema_extra_reports_install_hint(
+    async def test_missing_schema_extra_reports_dependency_hint(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         missing_module: str,
         on_publish: bool,
+        expected: str,
     ) -> None:
-        """A dependency the configuration needs names itself and the extra."""
+        """A missing dependency names its package, the extras, and any way out.
+
+        A missing pyyaml never mentions jsonschema; only the YAML schema has a
+        JSON alternative.
+        """
         # Arrange
         from cosalette.testing import AppHarness
 
@@ -456,12 +481,12 @@ class TestSchemaLoadFailureAtStartup:
         harness = AppHarness.create(name="vito2mqtt", schema=schema)
         harness.trigger_shutdown()
 
-        # Act / Assert
-        with pytest.raises(
-            ImportError,
-            match=rf"missing: {missing_module}.*pip install cosalette\[schema\]",
-        ):
+        # Act
+        with pytest.raises(ImportError) as exc_info:
             await harness.run()
+
+        # Assert
+        assert str(exc_info.value) == expected
 
     async def test_unparsable_schema_reports_path_setting(self, tmp_path: Path) -> None:
         """A file that is not YAML keeps the existing SCHEMA__PATH message."""
@@ -537,7 +562,8 @@ class TestOptionalDependenciesPerConfiguration:
 
         # Act / Assert
         if missing is not None:
-            with pytest.raises(ImportError, match=rf"missing: {missing}\)"):
+            package = OPTIONAL_DEPENDENCIES[missing][0]
+            with pytest.raises(ImportError, match=rf"requires {package}, which is not"):
                 await load_and_validate_schema(registered, settings, "vito2mqtt")
             return
         result = await load_and_validate_schema(registered, settings, "vito2mqtt")

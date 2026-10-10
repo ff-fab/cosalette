@@ -6,6 +6,7 @@ Test Techniques Used:
     - Error Condition Testing: Invalid schemas, missing files, app names
     - Behavioural Testing: Exit codes and YAML output formatting
     - Round-trip Testing: consumer block parity; --resolve-settings init/check parity
+    - Golden / Snapshot Testing: default schema dump output pinned byte for byte
     - Equivalence Partitioning: registration-kind coverage for guard tests
     - Error Guessing: callable name= guard negative testing; pinned absence of
       the pre-fix discovery-gate wording
@@ -15,6 +16,8 @@ Test Techniques Used:
 
 from __future__ import annotations
 
+import copy
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +30,8 @@ from typer.testing import CliRunner, Result
 
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
+from cosalette._json import dumps_pretty, loads
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._runners._stream_types import Stream
 from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
@@ -159,6 +164,65 @@ class TestValidateCommand:
         # Typer handles file existence validation and exits with code 2
         assert result.exit_code == 2
         assert "does not exist" in result.stderr
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            ("{not json", "Failed to parse JSON"),
+            ('{"asyncapi": "2.0.0"}', "Unsupported AsyncAPI version: 2.0.0"),
+            ("[1, 2]", "Schema must be a JSON mapping"),
+        ],
+        ids=["malformed-json", "wrong-version", "non-mapping"],
+    )
+    def test_load_error_shows_no_install_hint(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        content: str,
+        expected: str,
+    ) -> None:
+        """A schema load error unrelated to dependencies gets no install hint.
+
+        Test Boundary: _load_schema_or_exit SchemaLoadError reporting.
+        Test Technique: Equivalence Partitioning over non-dependency load errors.
+        """
+        # Arrange
+        schema = tmp_path / "bad.json"
+        schema.write_text(content, encoding="utf-8")
+
+        # Act
+        result = runner.invoke(schema_app, ["validate", str(schema)])
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert expected in result.stderr
+        assert "cosalette[schema]" not in result.stderr
+
+    def test_missing_pyyaml_prints_install_hint_once(
+        self,
+        runner: CliRunner,
+        valid_basic_schema: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A YAML schema without PyYAML prints the dependency hint exactly once.
+
+        Test Boundary: _load_schema_or_exit ImportError reporting.
+        Test Technique: Error Guessing — hide yaml via sys.modules.
+        """
+        # Arrange
+        monkeypatch.setitem(sys.modules, "yaml", None)
+
+        # Act
+        result = runner.invoke(schema_app, ["validate", str(valid_basic_schema)])
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            "Error: A YAML schema requires pyyaml, which is not installed.\n\n"
+            "Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] "
+            "extra) to your project dependencies, or use a .json schema "
+            "(cosalette schema dump --format json).\n"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1402,6 +1466,30 @@ class TestDumpResolveSettings:
         assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
 
+    def test_configure_hook_validation_error_propagates(
+        self, runner: CliRunner
+    ) -> None:
+        """ValidationError from user hooks stays an application exception."""
+        from pydantic import ValidationError
+
+        from cosalette._settings import MqttSettings
+
+        app = App(name="hook-validation", version="1.0.0")
+
+        @app.on_configure
+        def invalid_hook_model() -> None:
+            MqttSettings(topic_prefix="invalid/+/prefix")
+
+        with (
+            patch("cosalette._schema._cli._import_app", return_value=app),
+            pytest.raises(ValidationError, match="MQTT wildcard"),
+        ):
+            runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--resolve-settings"],
+                catch_exceptions=False,
+            )
+
     def test_resolve_settings_duplicate_name_friendly_error(
         self, runner: CliRunner, mixed_app: App
     ) -> None:
@@ -1417,7 +1505,7 @@ class TestDumpResolveSettings:
         with (
             patch("cosalette._schema._cli._import_app", return_value=mixed_app),
             patch(
-                "cosalette._schema._cli_helpers._check_expanded_duplicates",
+                "cosalette._wiring._registration_lifecycle._check_expanded_duplicates",
                 side_effect=ValueError(
                     "Device name 'temperature' is already registered"
                 ),
@@ -1477,7 +1565,7 @@ class TestDumpResolveSettings:
         with (
             patch("cosalette._schema._cli._import_app", return_value=mixed_app),
             patch(
-                "cosalette._schema._cli_helpers._adapter_lifecycle.resolve_adapters",
+                "cosalette._wiring._adapter_lifecycle.resolve_adapters",
                 return_value={},
             ) as mock_resolve_adapters,
         ):
@@ -2462,14 +2550,14 @@ class TestResolveAppSettingsReturnsPrefix:
         - Specification-based Testing: documented
           ``settings.mqtt.topic_prefix or app.name`` resolution.
         - Equivalence Partitioning: configured prefix vs. unset prefix.
-        - State-based Testing: the per-prefix asyncapi cache is dropped so
-          the in-place name expansion cannot be served stale.
+        - State-based Testing: the App, including its per-prefix asyncapi
+          cache, is left untouched (cos-2zyq).
     """
 
     def test_returns_configured_prefix(
         self, prefix_app: App, prefix_env_file: Path
     ) -> None:
-        """A configured MQTT__TOPIC_PREFIX is returned alongside the app."""
+        """A configured MQTT__TOPIC_PREFIX is returned alongside the snapshot."""
         # Arrange
         from cosalette._schema._cli_helpers import _resolve_app_settings
 
@@ -2477,7 +2565,8 @@ class TestResolveAppSettingsReturnsPrefix:
         resolved_app, prefix = _resolve_app_settings(prefix_app, prefix_env_file)
 
         # Assert
-        assert resolved_app is prefix_app
+        assert resolved_app is not prefix_app
+        assert resolved_app.name == prefix_app.name
         assert prefix == "house/wiz"
 
     def test_falls_back_to_app_name(
@@ -2497,22 +2586,20 @@ class TestResolveAppSettingsReturnsPrefix:
         # Assert
         assert prefix == "wiz2mqtt"
 
-    def test_drops_stale_asyncapi_cache(
-        self, prefix_app: App, prefix_env_file: Path
-    ) -> None:
-        """Name expansion mutates registrations, so every cached prefix is stale."""
+    def test_keeps_asyncapi_cache(self, prefix_app: App, prefix_env_file: Path) -> None:
+        """Resolution works on copies, so the App's cached documents stay valid."""
         # Arrange
         from cosalette._schema._cli_helpers import _resolve_app_settings
 
-        prefix_app.asyncapi()
-        prefix_app.asyncapi(topic_prefix="other")
-        assert getattr(prefix_app, "_asyncapi_cache", None)
+        default_doc = prefix_app.asyncapi()
+        other_doc = prefix_app.asyncapi(topic_prefix="other")
 
         # Act
         _resolve_app_settings(prefix_app, prefix_env_file)
 
         # Assert
-        assert not hasattr(prefix_app, "_asyncapi_cache")
+        assert prefix_app.asyncapi() is default_doc
+        assert prefix_app.asyncapi(topic_prefix="other") is other_doc
 
 
 class TestDumpTopicPrefix:
@@ -3509,3 +3596,803 @@ class TestInboundResolveSettings:
 
         assert acl_result.exit_code == EXIT_OK
         assert "topic read ext/fixed/state" in acl_result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Golden output for schema dump (default YAML must stay byte-identical)
+# ---------------------------------------------------------------------------
+
+_DUMP_GOLDEN_DIR = Path(__file__).parents[2] / "fixtures" / "dump_golden"
+
+# (golden file stem, app fixture, dump resolves settings from a TOML config file)
+_GOLDEN_DUMP_CASES = [
+    pytest.param("mixed_app", "mixed_app", False, id="mixed_app"),
+    pytest.param(
+        "unicode_consumer_app", "unicode_consumer_app", False, id="unicode_consumer"
+    ),
+    pytest.param(
+        "config_file_app", "config_file_derived_name_app", True, id="config_file"
+    ),
+]
+
+
+def _dump_stdout(runner: CliRunner, app: App, *extra: str) -> Result:
+    """Run ``schema dump`` for *app* with extra CLI args and return the result."""
+    with patch("cosalette._schema._cli._import_app", return_value=app):
+        return runner.invoke(schema_app, ["dump", "--app", "dummy:app", *extra])
+
+
+@pytest.fixture
+def config_file_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A TOML settings file that drives ``config_file_derived_name_app``."""
+    monkeypatch.delenv("COSALETTE_TEST_CFNAME_DEVICE_NAME", raising=False)
+    config_file = tmp_path / "settings.toml"
+    config_file.write_text('device_name = "config-device"\n', encoding="utf-8")
+    return config_file
+
+
+def _settings_args(config_file: Path, *, with_config: bool) -> list[str]:
+    """``--resolve-settings --config-file`` args when *with_config* is set."""
+    if not with_config:
+        return []
+    return ["--resolve-settings", "--config-file", str(config_file)]
+
+
+class TestDumpGolden:
+    """Default ``schema dump`` output is pinned byte for byte.
+
+    Adopter release tooling and their ``schema:generate`` task operate on the
+    YAML text, so any change to the default output is a breaking change.
+
+    Test Techniques Used:
+        - Golden / Snapshot Testing: exact stdout vs. committed files
+    """
+
+    @pytest.mark.parametrize(
+        "format_args",
+        [[], ["--format", "yaml"], ["-f", "yaml"]],
+        ids=["default", "format-yaml", "f-yaml"],
+    )
+    @pytest.mark.parametrize(
+        ("golden", "app_fixture", "with_config"), _GOLDEN_DUMP_CASES
+    )
+    def test_default_dump_matches_golden(
+        self,
+        runner: CliRunner,
+        request: pytest.FixtureRequest,
+        config_file_settings: Path,
+        golden: str,
+        app_fixture: str,
+        with_config: bool,
+        format_args: list[str],
+    ) -> None:
+        """Default (and explicit YAML) dump output equals the golden YAML exactly.
+
+        Test Technique: Golden / Snapshot Testing.
+        """
+        # Arrange
+        app = request.getfixturevalue(app_fixture)
+        args = _settings_args(config_file_settings, with_config=with_config)
+
+        # Act
+        result = _dump_stdout(runner, app, *args, *format_args)
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        expected = (_DUMP_GOLDEN_DIR / f"{golden}.yaml").read_text(encoding="utf-8")
+        assert result.stdout == expected
+
+
+_HA_YAML_WAY_OUT = ", or use --format json (the default)."
+
+
+def _hide_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make ``import yaml`` fail and ``find_spec('yaml')`` return None."""
+    monkeypatch.setitem(sys.modules, "yaml", None)
+
+
+class TestDumpFormat:
+    """``schema dump --format json`` and the shared format check (cos-eb8k.2).
+
+    Test Techniques Used:
+        - Round-trip Testing: JSON vs. YAML parse equality; JSON schema file
+          through openhab/acl/ha-discovery equals the YAML path
+        - Equivalence Partitioning: yaml / json / unknown format values
+        - Error Guessing: PyYAML hidden; non-str dict keys
+        - Specification-based Testing: init/slice keep YAML-only output
+    """
+
+    @pytest.mark.parametrize(
+        ("golden", "app_fixture", "with_config"), _GOLDEN_DUMP_CASES
+    )
+    def test_json_equals_yaml_without_pyyaml(
+        self,
+        runner: CliRunner,
+        request: pytest.FixtureRequest,
+        config_file_settings: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        golden: str,
+        app_fixture: str,
+        with_config: bool,
+    ) -> None:
+        """--format json works with PyYAML hidden and parses to the YAML data.
+
+        Test Technique: Round-trip Testing — key order and literal unicode too.
+        """
+        # Arrange
+        import yaml
+
+        expected = yaml.safe_load((_DUMP_GOLDEN_DIR / f"{golden}.yaml").read_text())
+        app = request.getfixturevalue(app_fixture)
+        args = _settings_args(config_file_settings, with_config=with_config)
+        _hide_yaml(monkeypatch)
+
+        # Act
+        result = _dump_stdout(runner, app, *args, "--format", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_OK, result.stderr
+        assert loads(result.stdout) == expected
+        # Same key order and literal non-ASCII as the YAML, 2-space indent.
+        assert result.stdout == dumps_pretty(expected) + "\n"
+        assert result.stdout.startswith('{\n  "asyncapi": "3.0.0",')
+
+    def test_json_keeps_unicode_literal(
+        self, runner: CliRunner, unicode_consumer_app: App
+    ) -> None:
+        """Non-ASCII units are written literally, not as \\u escapes.
+
+        Test Technique: Error Guessing — the escaping bug fixed for YAML.
+        """
+        # Act
+        result = _dump_stdout(runner, unicode_consumer_app, "-f", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        assert '"°C"' in result.stdout
+        assert '"Bq/m³"' in result.stdout
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ["openhab", "--output", "things"],
+            ["openhab", "--output", "items"],
+            ["acl"],
+            ["ha-discovery"],
+            ["validate"],
+        ],
+        ids=["openhab-things", "openhab-items", "acl", "ha-discovery", "validate"],
+    )
+    def test_json_dump_pipeline_without_pyyaml(
+        self,
+        runner: CliRunner,
+        unicode_consumer_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        command: list[str],
+    ) -> None:
+        """dump --format json feeds every reader with PyYAML hidden.
+
+        Output equals the same reader run on the YAML dump with PyYAML present.
+
+        Test Technique: Round-trip Testing — YAML path vs. JSON path.
+        """
+        # Arrange
+        yaml_file = tmp_path / "schema.yaml"
+        yaml_file.write_text(_dump_stdout(runner, unicode_consumer_app).stdout)
+        name, *options = command
+        yaml_result = runner.invoke(schema_app, [name, str(yaml_file), *options])
+        _hide_yaml(monkeypatch)
+        dumped = _dump_stdout(runner, unicode_consumer_app, "--format", "json")
+        json_file = tmp_path / "schema.json"
+        json_file.write_text(dumped.stdout)
+
+        # Act
+        json_result = runner.invoke(schema_app, [name, str(json_file), *options])
+
+        # Assert
+        assert dumped.exit_code == EXIT_OK
+        assert yaml_result.exit_code == EXIT_OK
+        assert json_result.exit_code == EXIT_OK, json_result.stderr
+        assert json_result.stdout == yaml_result.stdout
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["dump", "--app", "dummy:app", "--format", "toml"],
+            ["ha-discovery", "unused.yaml", "--format", "toml"],
+        ],
+        ids=["dump", "ha-discovery"],
+    )
+    def test_unknown_format_lists_choices(
+        self, runner: CliRunner, mixed_app: App, args: list[str]
+    ) -> None:
+        """An unknown --format exits EXIT_CONFIG_ERROR and lists the choices.
+
+        Test Technique: Equivalence Partitioning — invalid format value.
+        """
+        # Act
+        with patch("cosalette._schema._cli._import_app", return_value=mixed_app):
+            result = runner.invoke(schema_app, args)
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "Unknown format: toml. Available: json, yaml" in result.stderr
+
+    @pytest.mark.parametrize(
+        ("args", "way_out"),
+        [
+            (["dump", "--app", "x:app"], ", or use --format json."),
+            (["dump", "--app", "x:app", "--format", "yaml"], ", or use --format json."),
+            (["init", "--app", "x:app"], "."),
+            (["ha-discovery", "{json}", "--format", "yaml"], _HA_YAML_WAY_OUT),
+        ],
+        ids=["dump-default", "dump-format-yaml", "init", "ha-discovery-yaml"],
+    )
+    def test_yaml_output_without_pyyaml_prints_hint(
+        self,
+        runner: CliRunner,
+        unicode_consumer_app: App,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        args: list[str],
+        way_out: str,
+    ) -> None:
+        """YAML output with PyYAML hidden exits EXIT_CONFIG_ERROR with one hint.
+
+        The JSON alternative appears only where the command has one.
+
+        Test Technique: Error Guessing — missing optional dependency.
+        """
+        # Arrange
+        _hide_yaml(monkeypatch)
+        json_file = tmp_path / "schema.json"
+        dumped = _dump_stdout(runner, unicode_consumer_app, "--format", "json")
+        json_file.write_text(dumped.stdout)
+        args = [str(json_file) if arg == "{json}" else arg for arg in args]
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app", return_value=unicode_consumer_app
+        ):
+            result = runner.invoke(schema_app, args)
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            "Error: YAML output requires pyyaml, which is not installed.\n\n"
+            "Hint: add pyyaml (or the cosalette[schema] or cosalette[config-yaml] "
+            f"extra) to your project dependencies{way_out}\n"
+        )
+
+    def test_non_str_key_exits_config_error(
+        self, runner: CliRunner, mixed_app: App
+    ) -> None:
+        """A non-string dict key cannot be JSON; exit with a clear error.
+
+        Test Technique: Error Guessing — orjson rejects non-str keys.
+        """
+        # Arrange
+        doc = {"asyncapi": "3.0.0", "channels": {1: {}}}
+
+        # Act
+        with patch.object(mixed_app, "asyncapi", return_value=doc):
+            result = _dump_stdout(runner, mixed_app, "--format", "json")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert "cannot be written as JSON" in result.stderr
+        assert "--format yaml" in result.stderr
+
+    @pytest.mark.parametrize("command", ["init", "slice"])
+    def test_init_and_slice_have_no_format_option(
+        self, runner: CliRunner, command: str
+    ) -> None:
+        """init and slice stay YAML-only: --format is not an option.
+
+        Test Technique: Specification-based Testing — scope is dump only.
+        """
+        # Act
+        result = runner.invoke(schema_app, [command, "--format", "json"])
+
+        # Assert
+        assert result.exit_code == 2
+        assert "No such option" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Exact stderr of the settings-resolution error paths (cos-2zyq)
+# ---------------------------------------------------------------------------
+
+_UNEXPANDED_STDERR = (
+    "Error: one or more registrations use a settings-derived name= (ADR-023) "
+    "or topic= that cannot be represented in a static schema artifact. Use "
+    "--resolve-settings to resolve their names and topics before generating "
+    "the schema.\n\nOffending handlers:\n"
+    "  - 'callable_name_app.<locals>.dynamic_sensor_handler'\n"
+)
+_RESOLUTION_FAILED = (
+    "Error: settings resolution failed after expanding settings-derived "
+    "(ADR-023) name=/topic=/enabled= specs: "
+)
+
+
+@pytest.fixture
+def duplicate_after_expansion_app() -> App:
+    """App whose callable ``name=`` expands onto an already registered name."""
+    app = App(name="dup-app", version="1.0.0", description="Test app")
+
+    @app.device("sensor")
+    async def static_sensor(ctx: DeviceContext) -> None:
+        pass
+
+    @app.device(name=lambda settings: ["sensor"])  # noqa: ARG005
+    async def dynamic_sensor(ctx: DeviceContext) -> None:
+        pass
+
+    return app
+
+
+class TestResolveSettingsErrorOutput:
+    """The CLI's stderr and exit code for every resolution failure, verbatim.
+
+    Pinned before the resolution pipeline moved behind an exception contract,
+    so the CLI keeps printing exactly what it printed before.
+
+    Test Techniques Used:
+        - Golden / Snapshot Testing: exact stderr per error path
+        - Error Guessing: a name_spec kind the expander does not handle
+    """
+
+    def test_missing_env_file(
+        self, runner: CliRunner, mixed_app: App, tmp_path: Path
+    ) -> None:
+        """An explicit --env-file that does not exist is a config error."""
+        # Arrange
+        missing = tmp_path / "missing.env"
+
+        # Act
+        result = _dump_stdout(
+            runner, mixed_app, "--resolve-settings", "--env-file", str(missing)
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == f"Error: env file not found: {missing}\n"
+
+    def test_missing_config_file(
+        self, runner: CliRunner, mixed_app: App, tmp_path: Path
+    ) -> None:
+        """An explicit --config-file that does not exist is a config error."""
+        # Arrange
+        missing = tmp_path / "missing.toml"
+
+        # Act
+        result = _dump_stdout(
+            runner, mixed_app, "--resolve-settings", "--config-file", str(missing)
+        )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == f"Error: config file not found: {missing}\n"
+
+    def test_settings_validation_failure(self, runner: CliRunner) -> None:
+        """Invalid Settings print the failing field names, not a traceback."""
+        # Arrange
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        # Act
+        result = _dump_stdout(runner, app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            "Error: Configuration validation failed (1 error(s)): required_field\n"
+        )
+
+    @pytest.mark.parametrize("command", ["dump", "init", "check"])
+    def test_duplicate_name_after_expansion(
+        self,
+        runner: CliRunner,
+        duplicate_after_expansion_app: App,
+        valid_basic_schema: Path,
+        command: str,
+    ) -> None:
+        """A duplicate produced by expansion is reported with the ValueError repr."""
+        # Arrange
+        extra = ["--schema", str(valid_basic_schema)] if command == "check" else []
+
+        # Act
+        with patch(
+            "cosalette._schema._cli._import_app",
+            return_value=duplicate_after_expansion_app,
+        ):
+            result = runner.invoke(
+                schema_app,
+                [command, "--app", "dummy:app", "--resolve-settings", *extra],
+            )
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            _RESOLUTION_FAILED
+            + "ValueError(\"Device name 'sensor' is already registered\")\n"
+        )
+
+    def test_persist_without_store(
+        self, runner: CliRunner, persist_without_store_app: App
+    ) -> None:
+        """resolve_enabled's own ValueError is reported the same way."""
+        # Act
+        result = _dump_stdout(runner, persist_without_store_app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == (
+            _RESOLUTION_FAILED
+            + "ValueError(\"persist= on telemetry 'reading' requires a store= "
+            "backend on the App.  Pass store=MemoryStore() (or another Store) "
+            'to App().")\n'
+        )
+
+    def test_unexpanded_without_resolve_settings(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """Without --resolve-settings a callable name= is rejected."""
+        # Act
+        result = _dump_stdout(runner, callable_name_app)
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == _UNEXPANDED_STDERR
+
+    def test_unexpanded_after_resolution(
+        self, runner: CliRunner, callable_name_app: App
+    ) -> None:
+        """A name spec the expander leaves behind trips the same guard.
+
+        Test Technique: Error Guessing — the device expander is disabled, as a
+        name_spec kind it does not support would be.
+        """
+        # Act
+        with patch(
+            "cosalette._wiring._resolution_checks._expand_device_names",
+            return_value=None,
+        ):
+            result = _dump_stdout(runner, callable_name_app, "--resolve-settings")
+
+        # Assert
+        assert result.exit_code == EXIT_CONFIG_ERROR
+        assert result.stderr == _UNEXPANDED_STDERR
+
+
+# ---------------------------------------------------------------------------
+# cosalette.schema.resolved_asyncapi_sync (cos-2zyq)
+# ---------------------------------------------------------------------------
+
+
+def _app_state(app: App) -> dict[str, object]:
+    """Every attribute of *app*: identity, plus the items of each container."""
+    state: dict[str, object] = {}
+    for key, value in vars(app).items():
+        if isinstance(value, (list, dict, set)):
+            state[key] = (id(value), copy.copy(value))
+        else:
+            state[key] = id(value)
+    return state
+
+
+def _registrations(app: App) -> tuple[object, ...]:
+    """The registration views schema generation reads."""
+    return (
+        app.devices,
+        app.telemetry_registrations,
+        app.commands,
+        app.periodic_registrations,
+        app.stream_registrations,
+        app.inbound_registrations,
+        app.registered_names,
+    )
+
+
+class TestResolvedAsyncapi:
+    """The library form of ``schema dump --resolve-settings``.
+
+    Test Techniques Used:
+        - Round-trip Testing: API dict equals the parsed CLI JSON output
+        - State-based Testing: the App is unchanged after a call
+        - Error Guessing: a configure hook that registers or raises
+        - Equivalence Partitioning: one test per documented exception
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_stray_dotenv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Run from an empty directory, so no ``.env`` is read implicitly."""
+        work = tmp_path / "cwd"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        monkeypatch.delenv("MQTT__TOPIC_PREFIX", raising=False)
+        monkeypatch.delenv("COSALETTE_TEST_DEVICE_NAME", raising=False)
+
+    @pytest.mark.parametrize(
+        ("app_fixture", "file_kind"),
+        [
+            ("mixed_app", None),
+            ("unicode_consumer_app", None),
+            ("callable_name_app", None),
+            ("config_file_derived_name_app", "config"),
+            ("env_derived_name_app", "env"),
+            ("prefix_app", "env"),
+        ],
+    )
+    def test_equals_cli_json_output(
+        self,
+        runner: CliRunner,
+        request: pytest.FixtureRequest,
+        config_file_settings: Path,
+        tmp_path: Path,
+        app_fixture: str,
+        file_kind: str | None,
+    ) -> None:
+        """The dict equals what ``dump --resolve-settings --format json`` prints."""
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        env_file = tmp_path / "app.env"
+        env_lines = [
+            "COSALETTE_TEST_DEVICE_NAME=env-device",
+            "MQTT__TOPIC_PREFIX=house/x",
+        ]
+        env_file.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+        kwargs: dict[str, Path] = {}
+        if file_kind == "config":
+            kwargs["config_file"] = config_file_settings
+        elif file_kind == "env":
+            kwargs["env_file"] = env_file
+        cli_args = [
+            f"--{key.replace('_', '-')}={value}" for key, value in kwargs.items()
+        ]
+        app = request.getfixturevalue(app_fixture)
+
+        # Act
+        cli = _dump_stdout(
+            runner, app, "--resolve-settings", "--format", "json", *cli_args
+        )
+        doc = resolved_asyncapi_sync(
+            app,
+            env_file=kwargs.get("env_file"),
+            config_file=kwargs.get("config_file"),
+        )
+
+        # Assert
+        assert cli.exit_code == EXIT_OK, cli.stderr
+        assert doc == loads(cli.stdout)
+
+    def test_explicit_topic_prefix_equals_cli(
+        self, runner: CliRunner, prefix_app: App, prefix_env_file: Path
+    ) -> None:
+        """``topic_prefix=`` overrides the settings prefix as --topic-prefix does."""
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        # Act
+        cli = _dump_stdout(
+            runner,
+            prefix_app,
+            "--resolve-settings",
+            "--env-file",
+            str(prefix_env_file),
+            "--topic-prefix",
+            "lab/wiz/",
+            "--format",
+            "json",
+        )
+        doc = resolved_asyncapi_sync(
+            prefix_app, env_file=prefix_env_file, topic_prefix="lab/wiz/"
+        )
+
+        # Assert
+        assert cli.exit_code == EXIT_OK, cli.stderr
+        assert doc == loads(cli.stdout)
+        assert doc["info"]["x-cosalette-topic-prefix"] == "lab/wiz"
+
+    def test_app_is_unchanged(self, env_derived_name_app: App, tmp_path: Path) -> None:
+        """Expansion works on copies: registrations, cache and attributes stay."""
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        env_file = tmp_path / "app.env"
+        env_file.write_text("COSALETTE_TEST_DEVICE_NAME=kitchen\n", encoding="utf-8")
+        unresolved_doc = env_derived_name_app.asyncapi()
+        registrations = _registrations(env_derived_name_app)
+        state = _app_state(env_derived_name_app)
+
+        # Act
+        doc = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
+
+        # Assert
+        assert any("kitchen" in ch["address"] for ch in doc["channels"].values())
+        assert _registrations(env_derived_name_app) == registrations
+        assert _app_state(env_derived_name_app) == state
+        assert env_derived_name_app.asyncapi() is unresolved_doc
+        assert env_derived_name_app.devices[0].name_spec is not None
+
+    def test_repeated_calls_are_equal(
+        self, env_derived_name_app: App, tmp_path: Path
+    ) -> None:
+        """Calls are idempotent and each returns a new dict."""
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        env_file = tmp_path / "app.env"
+        env_file.write_text("COSALETTE_TEST_DEVICE_NAME=kitchen\n", encoding="utf-8")
+
+        # Act
+        first = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
+        second = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
+
+        # Assert
+        assert first == second
+        assert first is not second
+
+    def test_hook_registrations_are_described_but_not_kept(self) -> None:
+        """A hook that registers through a closure is honoured, then undone.
+
+        Test Technique: Error Guessing — user code mutating the App mid-pipeline.
+        """
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        app = App(name="hook-app", version="1.0.0")
+
+        @app.on_configure
+        def add_late_device() -> None:
+            @app.device("late")
+            async def late(ctx: DeviceContext) -> None:
+                pass
+
+        state = _app_state(app)
+
+        # Act
+        doc = resolved_asyncapi_sync(app)
+
+        # Assert
+        addresses = {ch["address"] for ch in doc["channels"].values()}
+        assert "hook-app/late/state" in addresses
+        assert _app_state(app) == state
+        assert app.devices == ()
+
+    async def test_async_api_runs_in_loop_and_injects_entity_notifier(self) -> None:
+        """The public coroutine works in a loop and configure DI matches runtime."""
+        from cosalette.schema import resolved_asyncapi
+
+        app = App(name="hook-app", version="1.0.0")
+        received: list[EntityNotifier] = []
+
+        @app.on_configure
+        def check_notifier(notifier: EntityNotifier) -> None:
+            received.append(notifier)
+
+        doc = await resolved_asyncapi(app)
+
+        assert doc["info"]["title"] == "hook-app"
+        assert len(received) == 1
+        assert isinstance(received[0], EntityNotifier)
+
+    def test_raising_hook_propagates_and_restores(self) -> None:
+        """A hook's own exception is an app bug: unwrapped, App still restored."""
+        # Arrange
+        from cosalette.schema import resolved_asyncapi_sync
+
+        app = App(name="hook-app", version="1.0.0")
+
+        @app.device("kept")
+        async def kept(ctx: DeviceContext) -> None:
+            pass
+
+        @app.on_configure
+        def broken() -> None:
+            app._devices.clear()
+            raise RuntimeError("hook bug")
+
+        state = _app_state(app)
+
+        # Act / Assert
+        with pytest.raises(RuntimeError, match="hook bug"):
+            resolved_asyncapi_sync(app)
+        assert _app_state(app) == state
+
+    def test_missing_env_file(self, mixed_app: App, tmp_path: Path) -> None:
+        """A missing ``env_file`` raises SettingsLoadError."""
+        # Arrange
+        from cosalette import SettingsLoadError
+        from cosalette.schema import resolved_asyncapi_sync
+
+        missing = tmp_path / "missing.env"
+
+        # Act / Assert
+        with pytest.raises(SettingsLoadError) as excinfo:
+            resolved_asyncapi_sync(mixed_app, env_file=missing)
+        assert str(excinfo.value) == f"env file not found: {missing}"
+        assert excinfo.value.path == missing
+
+    def test_missing_config_file(self, mixed_app: App, tmp_path: Path) -> None:
+        """A missing ``config_file`` raises SettingsLoadError."""
+        # Arrange
+        from cosalette import SettingsLoadError
+        from cosalette.schema import resolved_asyncapi_sync
+
+        # Act / Assert
+        with pytest.raises(SettingsLoadError, match="config file not found"):
+            resolved_asyncapi_sync(mixed_app, config_file=tmp_path / "missing.toml")
+
+    def test_invalid_settings(self) -> None:
+        """Invalid Settings raise pydantic's ValidationError unchanged."""
+        # Arrange
+        from pydantic import ValidationError
+
+        from cosalette.schema import resolved_asyncapi_sync
+
+        app = App(
+            name="needs-config",
+            version="1.0.0",
+            description="Test app",
+            settings_class=_RequiredFieldSettings,
+        )
+
+        # Act / Assert
+        with pytest.raises(ValidationError, match="required_field"):
+            resolved_asyncapi_sync(app)
+
+    def test_invalid_topic_prefix(self, mixed_app: App) -> None:
+        """A prefix the runtime would reject raises ValidationError."""
+        # Arrange
+        from pydantic import ValidationError
+
+        from cosalette.schema import resolved_asyncapi_sync
+
+        # Act / Assert
+        with pytest.raises(ValidationError):
+            resolved_asyncapi_sync(mixed_app, topic_prefix="a/+/b")
+
+    def test_duplicate_name_after_expansion(
+        self, duplicate_after_expansion_app: App
+    ) -> None:
+        """A post-expansion duplicate raises SchemaBuildError from the ValueError."""
+        # Arrange
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
+
+        # Act / Assert
+        with pytest.raises(SchemaBuildError) as excinfo:
+            resolved_asyncapi_sync(duplicate_after_expansion_app)
+        assert str(excinfo.value).startswith("settings resolution failed")
+        assert isinstance(excinfo.value.__cause__, ValueError)
+
+    def test_persist_without_store(self, persist_without_store_app: App) -> None:
+        """persist= without a store raises SchemaBuildError."""
+        # Arrange
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
+
+        # Act / Assert
+        with pytest.raises(SchemaBuildError, match="persist="):
+            resolved_asyncapi_sync(persist_without_store_app)
+
+    def test_unexpanded_name_spec(self, callable_name_app: App) -> None:
+        """A name spec the expander leaves behind raises SchemaBuildError."""
+        # Arrange
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
+
+        # Act / Assert
+        with (
+            patch(
+                "cosalette._wiring._resolution_checks._expand_device_names",
+                return_value=None,
+            ),
+            pytest.raises(SchemaBuildError, match="Offending handlers"),
+        ):
+            resolved_asyncapi_sync(callable_name_app)

@@ -9,7 +9,7 @@ tags: [mqtt, architecture, cli, dependencies, security]
 
 ## Status
 
-Accepted **Date:** 2026-04-09 | Amended **Date:** 2026-10-09
+Accepted **Date:** 2026-04-09 | Amended **Date:** 2026-10-09 | Amended **Date:** 2026-10-10
 
 ## Context
 
@@ -148,3 +148,37 @@ Parse `*.json` schema files with orjson, a core dependency, instead of PyYAML.
 ### Additional Negative Consequences
 
 - Which packages an app needs now depends on its configuration (file suffix, on_publish), so the docs must explain it (cos-c1jb.3).
+
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** A downstream proposal (cosalette-apps FEP 'schema-dump', epic cos-eb8k) needs the settings-resolved schema from `cosalette schema dump` in images installed without the `[schema]` extra. The schema CLI readers already parse a `.json` schema with orjson, so only `dump` still needs PyYAML. This amendment records JSON output for `dump`, drops the blanket `[schema]` requirement of the schema CLI, and sets one policy for missing-dependency messages. It supersedes two statements of the 2026-10-09 amendment: the `pip install cosalette[schema]` wording of the `ImportError`, and 'The `cosalette schema` CLI keeps requiring the `[schema]` extra'.
+
+### Additional Sub-Decision: schema dump gains --format yaml|json
+
+`cosalette schema dump` takes `--format yaml|json`. The default is `yaml`, and the default output stays byte-identical to the output before this option. The format is chosen explicitly with `--format`; it is not inferred from a path. `--format json` emits the document through `cosalette._json` (ADR-021) with 2-space indentation, keys in source order and non-ASCII characters written literally. `cosalette schema init` and `cosalette schema slice` keep YAML-only output.
+
+### Additional Sub-Decision: The schema CLI requires only the dependencies a command uses
+
+Supersedes the 2026-10-09 statement that the `cosalette schema` CLI keeps requiring the `[schema]` extra. A schema CLI command needs PyYAML only when it reads a YAML schema, reads a YAML settings file (`--config-file`), or writes YAML output (`dump` without `--format json`, `init`, `slice`, `ha-discovery --format yaml`). Given a `.json` schema, for example one written by `dump --format json`, `validate`, `check`, `acl`, `openhab`, `ha-discovery` and `monitor` run without PyYAML. No schema CLI command needs jsonschema, `validate` included: it checks the AsyncAPI structure and the cosalette extensions without it. jsonschema is needed only by publish-time payload validation at runtime (`x-cosalette-enforcement.on_publish`).
+
+### Additional Sub-Decision: Missing-dependency messages are installer-neutral
+
+Supersedes the `pip install cosalette[schema]` wording of the 2026-10-09 amendment. Applies to the runtime startup check and to the schema CLI. A missing-dependency message:
+
+- names the missing package first (for example `pyyaml`);
+- then lists every cosalette extra that contains it (for `pyyaml`: `[schema]` and `[config-yaml]`);
+- names only the dependencies the failing operation needs (jsonschema only when jsonschema is missing);
+- points to the JSON alternative where one exists (`schema dump --format json`, a `.json` schema file, a `.toml` or `.json` settings file);
+- names no installer command (no `pip install`, no `uv add`).
+
+The message is printed once, and only when a dependency is missing; other schema load errors do not print it.
+
+### Additional Positive Consequences
+
+- A settings-resolved app can run `schema dump --format json` and feed the result to `schema openhab`, `schema acl`, `schema ha-discovery` and `schema validate` in a plain `cosalette` install, without PyYAML or jsonschema.
+- Missing-dependency messages can be followed in images built without pip or uv, because they name packages and extras instead of an installer command.
+
+### Additional Negative Consequences
+
+- `dump` has two output formats to keep consistent; JSON cannot represent NaN or Infinity and requires string keys, which YAML output does not.
+- Which schema CLI commands work in a slim image now depends on the schema file format and the chosen output format, so the docs must explain it.

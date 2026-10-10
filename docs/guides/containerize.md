@@ -287,13 +287,23 @@ project itself with `--no-deps` after copying its source.
 
 Most apps need no cosalette extra at runtime. Runtime discovery (`app.discovery()`)
 and a schema file in JSON format need none. `cosalette[schema]` is needed only for a
-YAML schema file, for publish-time payload validation and for the `schema` CLI
-commands, and `cosalette[mcp]` only for the MCP server, which runs in your editor,
-not in the image. Check the
+YAML schema file, for publish-time payload validation and for `schema` CLI commands
+that read or write YAML, and `cosalette[mcp]` only for the MCP server, which runs in
+your editor, not in the image. Check the
 [Which Extra Do I Need?](schema-enforcement.md#which-extra-do-i-need) table before
-you add an extra to the app's runtime dependencies. If CI runs the `schema` commands,
-put the extra in a dev dependency group: `uv sync --no-dev` then keeps it out of the
-image.
+you add an extra to the app's runtime dependencies.
+
+A slim image without PyYAML can still generate a schema and the artefacts derived
+from it, because `schema dump --format json` writes JSON and the other `schema`
+commands read a `.json` schema:
+
+```bash
+cosalette schema dump --app myapp.app:app --format json > schema.json
+cosalette schema openhab schema.json
+```
+
+If CI runs `schema` commands that need YAML, put the extra in a dev dependency group:
+`uv sync --no-dev` then keeps it out of the image.
 
 ### What the Runtime Wheel Contains
 

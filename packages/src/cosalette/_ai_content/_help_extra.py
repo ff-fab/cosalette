@@ -1774,8 +1774,11 @@ Basic Usage:
   non-default HA discovery prefix.
 
   Needs no optional extra: payloads come from the app's in-memory AsyncAPI
-  document, so cosalette[schema] is not required (ADR-059). Which extra each
-  feature needs: docs/guides/schema-enforcement.md, "Which Extra Do I Need?".
+  document, so cosalette[schema] is not required (ADR-059). The schema CLI
+  needs no extra either when it stays in JSON: `cosalette schema dump --format
+  json > schema.json` then `cosalette schema openhab schema.json` (or acl,
+  ha-discovery, validate). Which extra each feature needs:
+  docs/guides/schema-enforcement.md, "Which Extra Do I Need?".
 
 Enrichment Hook (the escape hatch):
   `consumer()` / `ha_discovery()` / `ha_entities()` cover most cases, but HA's

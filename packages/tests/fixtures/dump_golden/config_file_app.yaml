@@ -1,0 +1,39 @@
+asyncapi: 3.0.0
+info:
+  title: config-file-app
+  version: 1.0.0
+  x-cosalette-contract-version: '2'
+channels:
+  config-deviceAvailability:
+    address: config-file-app/config-device/availability
+    x-cosalette-app: config-file-app
+    messages:
+      message:
+        payload:
+          type: string
+          enum:
+          - online
+          - offline
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+    x-cosalette-framework: availability
+    x-cosalette-discoverable: false
+  config-deviceState:
+    address: config-file-app/config-device/state
+    x-cosalette-app: config-file-app
+    messages:
+      message:
+        payload:
+          type: object
+    x-cosalette-archetype: device
+operations:
+  publishConfig-deviceAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/config-deviceAvailability'
+  publishConfig-deviceState:
+    action: send
+    channel:
+      $ref: '#/channels/config-deviceState'
