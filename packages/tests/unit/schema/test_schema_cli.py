@@ -31,6 +31,7 @@ from typer.testing import CliRunner, Result
 from cosalette._app import App, DeviceContext
 from cosalette._constants import EXIT_CONFIG_ERROR, EXIT_OK
 from cosalette._json import dumps_pretty, loads
+from cosalette._runners._notifier import EntityNotifier
 from cosalette._runners._stream_types import Stream
 from cosalette._schema._asyncapi import _to_camel_case
 from cosalette._schema._cli import schema_app
@@ -4047,7 +4048,7 @@ class TestResolveSettingsErrorOutput:
 
 
 # ---------------------------------------------------------------------------
-# cosalette.schema.resolved_asyncapi (cos-2zyq)
+# cosalette.schema.resolved_asyncapi_sync (cos-2zyq)
 # ---------------------------------------------------------------------------
 
 
@@ -4116,7 +4117,7 @@ class TestResolvedAsyncapi:
     ) -> None:
         """The dict equals what ``dump --resolve-settings --format json`` prints."""
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         env_file = tmp_path / "app.env"
         env_lines = [
@@ -4138,7 +4139,7 @@ class TestResolvedAsyncapi:
         cli = _dump_stdout(
             runner, app, "--resolve-settings", "--format", "json", *cli_args
         )
-        doc = resolved_asyncapi(
+        doc = resolved_asyncapi_sync(
             app,
             env_file=kwargs.get("env_file"),
             config_file=kwargs.get("config_file"),
@@ -4153,7 +4154,7 @@ class TestResolvedAsyncapi:
     ) -> None:
         """``topic_prefix=`` overrides the settings prefix as --topic-prefix does."""
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         # Act
         cli = _dump_stdout(
@@ -4167,7 +4168,7 @@ class TestResolvedAsyncapi:
             "--format",
             "json",
         )
-        doc = resolved_asyncapi(
+        doc = resolved_asyncapi_sync(
             prefix_app, env_file=prefix_env_file, topic_prefix="lab/wiz/"
         )
 
@@ -4179,7 +4180,7 @@ class TestResolvedAsyncapi:
     def test_app_is_unchanged(self, env_derived_name_app: App, tmp_path: Path) -> None:
         """Expansion works on copies: registrations, cache and attributes stay."""
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         env_file = tmp_path / "app.env"
         env_file.write_text("COSALETTE_TEST_DEVICE_NAME=kitchen\n", encoding="utf-8")
@@ -4188,7 +4189,7 @@ class TestResolvedAsyncapi:
         state = _app_state(env_derived_name_app)
 
         # Act
-        doc = resolved_asyncapi(env_derived_name_app, env_file=env_file)
+        doc = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
 
         # Assert
         assert any("kitchen" in ch["address"] for ch in doc["channels"].values())
@@ -4202,14 +4203,14 @@ class TestResolvedAsyncapi:
     ) -> None:
         """Calls are idempotent and each returns a new dict."""
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         env_file = tmp_path / "app.env"
         env_file.write_text("COSALETTE_TEST_DEVICE_NAME=kitchen\n", encoding="utf-8")
 
         # Act
-        first = resolved_asyncapi(env_derived_name_app, env_file=env_file)
-        second = resolved_asyncapi(env_derived_name_app, env_file=env_file)
+        first = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
+        second = resolved_asyncapi_sync(env_derived_name_app, env_file=env_file)
 
         # Assert
         assert first == second
@@ -4221,7 +4222,7 @@ class TestResolvedAsyncapi:
         Test Technique: Error Guessing — user code mutating the App mid-pipeline.
         """
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         app = App(name="hook-app", version="1.0.0")
 
@@ -4234,7 +4235,7 @@ class TestResolvedAsyncapi:
         state = _app_state(app)
 
         # Act
-        doc = resolved_asyncapi(app)
+        doc = resolved_asyncapi_sync(app)
 
         # Assert
         addresses = {ch["address"] for ch in doc["channels"].values()}
@@ -4242,10 +4243,27 @@ class TestResolvedAsyncapi:
         assert _app_state(app) == state
         assert app.devices == ()
 
+    async def test_async_api_runs_in_loop_and_injects_entity_notifier(self) -> None:
+        """The public coroutine works in a loop and configure DI matches runtime."""
+        from cosalette.schema import resolved_asyncapi
+
+        app = App(name="hook-app", version="1.0.0")
+        received: list[EntityNotifier] = []
+
+        @app.on_configure
+        def check_notifier(notifier: EntityNotifier) -> None:
+            received.append(notifier)
+
+        doc = await resolved_asyncapi(app)
+
+        assert doc["info"]["title"] == "hook-app"
+        assert len(received) == 1
+        assert isinstance(received[0], EntityNotifier)
+
     def test_raising_hook_propagates_and_restores(self) -> None:
         """A hook's own exception is an app bug: unwrapped, App still restored."""
         # Arrange
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         app = App(name="hook-app", version="1.0.0")
 
@@ -4262,20 +4280,20 @@ class TestResolvedAsyncapi:
 
         # Act / Assert
         with pytest.raises(RuntimeError, match="hook bug"):
-            resolved_asyncapi(app)
+            resolved_asyncapi_sync(app)
         assert _app_state(app) == state
 
     def test_missing_env_file(self, mixed_app: App, tmp_path: Path) -> None:
         """A missing ``env_file`` raises SettingsLoadError."""
         # Arrange
         from cosalette import SettingsLoadError
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         missing = tmp_path / "missing.env"
 
         # Act / Assert
         with pytest.raises(SettingsLoadError) as excinfo:
-            resolved_asyncapi(mixed_app, env_file=missing)
+            resolved_asyncapi_sync(mixed_app, env_file=missing)
         assert str(excinfo.value) == f"env file not found: {missing}"
         assert excinfo.value.path == missing
 
@@ -4283,18 +4301,18 @@ class TestResolvedAsyncapi:
         """A missing ``config_file`` raises SettingsLoadError."""
         # Arrange
         from cosalette import SettingsLoadError
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         # Act / Assert
         with pytest.raises(SettingsLoadError, match="config file not found"):
-            resolved_asyncapi(mixed_app, config_file=tmp_path / "missing.toml")
+            resolved_asyncapi_sync(mixed_app, config_file=tmp_path / "missing.toml")
 
     def test_invalid_settings(self) -> None:
         """Invalid Settings raise pydantic's ValidationError unchanged."""
         # Arrange
         from pydantic import ValidationError
 
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         app = App(
             name="needs-config",
@@ -4305,45 +4323,45 @@ class TestResolvedAsyncapi:
 
         # Act / Assert
         with pytest.raises(ValidationError, match="required_field"):
-            resolved_asyncapi(app)
+            resolved_asyncapi_sync(app)
 
     def test_invalid_topic_prefix(self, mixed_app: App) -> None:
         """A prefix the runtime would reject raises ValidationError."""
         # Arrange
         from pydantic import ValidationError
 
-        from cosalette.schema import resolved_asyncapi
+        from cosalette.schema import resolved_asyncapi_sync
 
         # Act / Assert
         with pytest.raises(ValidationError):
-            resolved_asyncapi(mixed_app, topic_prefix="a/+/b")
+            resolved_asyncapi_sync(mixed_app, topic_prefix="a/+/b")
 
     def test_duplicate_name_after_expansion(
         self, duplicate_after_expansion_app: App
     ) -> None:
         """A post-expansion duplicate raises SchemaBuildError from the ValueError."""
         # Arrange
-        from cosalette.schema import SchemaBuildError, resolved_asyncapi
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
 
         # Act / Assert
         with pytest.raises(SchemaBuildError) as excinfo:
-            resolved_asyncapi(duplicate_after_expansion_app)
+            resolved_asyncapi_sync(duplicate_after_expansion_app)
         assert str(excinfo.value).startswith("settings resolution failed")
         assert isinstance(excinfo.value.__cause__, ValueError)
 
     def test_persist_without_store(self, persist_without_store_app: App) -> None:
         """persist= without a store raises SchemaBuildError."""
         # Arrange
-        from cosalette.schema import SchemaBuildError, resolved_asyncapi
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
 
         # Act / Assert
         with pytest.raises(SchemaBuildError, match="persist="):
-            resolved_asyncapi(persist_without_store_app)
+            resolved_asyncapi_sync(persist_without_store_app)
 
     def test_unexpanded_name_spec(self, callable_name_app: App) -> None:
         """A name spec the expander leaves behind raises SchemaBuildError."""
         # Arrange
-        from cosalette.schema import SchemaBuildError, resolved_asyncapi
+        from cosalette.schema import SchemaBuildError, resolved_asyncapi_sync
 
         # Act / Assert
         with (
@@ -4353,4 +4371,4 @@ class TestResolvedAsyncapi:
             ),
             pytest.raises(SchemaBuildError, match="Offending handlers"),
         ):
-            resolved_asyncapi(callable_name_app)
+            resolved_asyncapi_sync(callable_name_app)

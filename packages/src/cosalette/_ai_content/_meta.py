@@ -614,9 +614,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "dependencies, or use --format json.' The hint is printed only for a "
         "missing dependency, once. SettingsLoadError.missing_dependency now "
         "takes (path, module).",
-        "cosalette.schema.resolved_asyncapi(app, *, env_file=None, "
+        "async cosalette.schema.resolved_asyncapi(app, *, env_file=None, "
         "config_file=None, topic_prefix=None) -> dict returns the document "
-        "schema dump --resolve-settings writes, without running the CLI "
+        "schema dump --resolve-settings writes; await it from async code, or "
+        "use resolved_asyncapi_sync(app, ...) from synchronous code. "
+        "This returns the document without running the CLI "
         "(ADR-051 amendment). The App is left unchanged: settings-derived "
         "name=/topic= specs are expanded on copies, so app.asyncapi() still "
         "describes the unresolved app; configure hooks still run. It raises "

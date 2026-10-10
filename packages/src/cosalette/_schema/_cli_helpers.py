@@ -20,6 +20,7 @@ from cosalette._schema._loader import (
 from cosalette._schema._resolve import (
     ResolvedApp,
     SchemaBuildError,
+    build_settings,
     check_names_expanded,
     resolve_app,
 )
@@ -177,8 +178,12 @@ def _resolve_app_settings(
             unexpanded name spec).
     """
     try:
-        return resolve_app(app, env_file, config_file)
-    except (SettingsLoadError, ValidationError, SchemaBuildError) as exc:
+        settings = build_settings(app, env_file, config_file)
+    except (SettingsLoadError, ValidationError) as exc:
+        _exit_config_error(exc)
+    try:
+        return resolve_app(app, env_file, config_file, _settings=settings)
+    except SchemaBuildError as exc:
         _exit_config_error(exc)
 
 

@@ -125,3 +125,16 @@ Exceptions from adapter factories and configure hooks propagate unchanged. The `
 
 - `build_app_asyncapi` accepts any object with the App's registration views, so a view the builder starts reading must be added to the resolved snapshot as well.
 - Restoring the App after configure hooks covers its attributes, not state that hooks change elsewhere (module globals, adapters' own state).
+
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** The public resolved document API is used by tests and build scripts that may already be running inside an event loop. The implementation now exposes an awaitable API and a sync wrapper for non-async callers.
+
+### Additional Sub-Decision: Resolved AsyncAPI supports async and sync callers
+
+`cosalette.schema.resolved_asyncapi(...)` is an async function for callers inside an event loop. `cosalette.schema.resolved_asyncapi_sync(...)` is the synchronous wrapper for scripts and CLI contexts without a running event loop. Both return the same settings-resolved AsyncAPI dict and propagate the documented exceptions.
+
+## Amendment (2026-10-10) — Minor
+
+!!! note "Editorial note (2026-10-10)"
+    The library API `cosalette.schema.resolved_asyncapi` is awaitable and must be awaited from async code. Synchronous callers without a running event loop can use `cosalette.schema.resolved_asyncapi_sync` instead; the schema CLI uses the synchronous wrapper.

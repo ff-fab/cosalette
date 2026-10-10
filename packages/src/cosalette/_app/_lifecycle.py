@@ -49,7 +49,6 @@ from cosalette._logging import configure_logging
 from cosalette._mqtt import MqttClient, MqttLifecycle, MqttPort
 from cosalette._persistence._stores import Store
 from cosalette._registration import LifespanFunc
-from cosalette._runners._notifier import EntityNotifier
 from cosalette._schema import _enforcement as _schema_enforcement
 from cosalette._settings import Settings
 from cosalette._supervisor import TaskSupervisor
@@ -254,16 +253,12 @@ class _LifecycleMixin:
         # once TriggerConfig.build has run in Phase 2.  Adapter factories,
         # @app.state factories, on_configure hooks and handlers all receive
         # this same instance.
-        entity_notifier = EntityNotifier()
-
-        resolved_adapters = _adapter_lifecycle.resolve_adapters(
-            self._adapters,
-            self._dry_run,
-            resolved_settings,
-            notifier=entity_notifier,
-        )
-        resolved_adapters[EntityNotifier] = entity_notifier
         resolved_clock = clock if clock is not None else SystemClock()
+        resolved_adapters, entity_notifier = _wiring.resolve_adapters_with_notifier(
+            self._adapters,
+            resolved_settings,
+            self._dry_run,
+        )
 
         if self._store_factory is not None:
             self._store = _wiring.resolve_store_factory(

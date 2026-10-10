@@ -24,10 +24,9 @@ types passed to an ``App.discovery(enrich=...)`` callback (F23) — re-exported
 here so an app can type-annotate its enrichment hook without reaching into
 the private ``cosalette._schema`` package.
 
-:func:`resolved_asyncapi` returns an App's AsyncAPI document with its settings
-resolved, the document ``cosalette schema dump --resolve-settings`` writes, as a
-dict.  It leaves the App unchanged and raises :exc:`SchemaBuildError` when the
-registrations cannot be described.
+:func:`resolved_asyncapi` is the awaitable API for returning an App's AsyncAPI
+document with settings resolved. :func:`resolved_asyncapi_sync` is its sync
+wrapper for scripts that do not run an event loop.
 
 See Also:
     ADR-033 — MQTT schema enforcement.
@@ -59,7 +58,11 @@ from cosalette._schema import (
     temperature,
 )
 from cosalette._schema._consumer_gen import HaEnrichHook
-from cosalette._schema._resolve import SchemaBuildError, resolved_asyncapi
+from cosalette._schema._resolve import (
+    SchemaBuildError,
+    resolved_asyncapi,
+    resolved_asyncapi_sync,
+)
 
 __all__ = [
     "ChannelSchema",
@@ -81,5 +84,6 @@ __all__ = [
     "openhab",
     "percent",
     "resolved_asyncapi",
+    "resolved_asyncapi_sync",
     "temperature",
 ]

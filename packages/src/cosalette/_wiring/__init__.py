@@ -14,6 +14,7 @@ to shrink the god-class and turn ``_run_async`` into a clean recipe.
 # Re-export everything from sub-modules
 from cosalette._wiring._bootstrap import (
     _build_configure_providers,
+    resolve_adapters_with_notifier,
     resolve_settings,
     resolve_store_factory,
     run_configure_hooks,
@@ -127,6 +128,7 @@ __all__ = [
     "_build_configure_providers",
     "resolve_settings",
     "resolve_store_factory",
+    "resolve_adapters_with_notifier",
     "run_configure_hooks",
     # Resolution
     "_check_command_registrations",

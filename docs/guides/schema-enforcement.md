@@ -767,20 +767,27 @@ addresses only — identity, and therefore Home Assistant `object_id` /
 
 ## Generating the Document from Python
 
-`cosalette.schema.resolved_asyncapi()` returns the document
+`cosalette.schema.resolved_asyncapi()` is an async function that returns the document
 `cosalette schema dump --resolve-settings` writes, as a dict. Use it in tests and
 build scripts that already import the app, instead of running the CLI and parsing
 its output:
 
 ```python
-from cosalette.schema import SchemaBuildError, resolved_asyncapi
+from cosalette.schema import (
+    SchemaBuildError,
+    resolved_asyncapi,
+    resolved_asyncapi_sync,
+)
 
 from myapp.app import app
 
-doc = resolved_asyncapi(app, env_file="prod.env")
+doc = await resolved_asyncapi(app, env_file="prod.env")
 # Same as: cosalette schema dump --app myapp.app:app --resolve-settings \
 #          --env-file prod.env --format json
 ```
+
+For a script that has no running event loop, call
+`resolved_asyncapi_sync(app, ...)` with the same keyword arguments.
 
 It takes the inputs of `dump --resolve-settings`: `env_file=` (`--env-file`),
 `config_file=` (`--config-file`) and `topic_prefix=` (`--topic-prefix`). For the

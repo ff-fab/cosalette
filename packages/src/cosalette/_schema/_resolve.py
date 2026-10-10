@@ -193,10 +193,12 @@ def _restore(app: App, snapshot: tuple[dict[str, Any], dict[str, Any]]) -> None:
             container.update(items)
 
 
-def resolve_app(
+async def resolve_app_async(
     app: App,
     env_file: str | Path | None = None,
     config_file: str | Path | None = None,
+    *,
+    _settings: Settings | None = None,
 ) -> tuple[ResolvedApp, str]:
     """Run the ADR-051 settings-resolving pipeline on copies of *app*'s lists.
 
@@ -226,26 +228,32 @@ def resolve_app(
         SchemaBuildError: When resolution fails after expansion, or a name
             spec is left unexpanded.
     """
-    import asyncio
-
     from cosalette._clock import SystemClock
-    from cosalette._wiring import _adapter_lifecycle
-    from cosalette._wiring._bootstrap import run_configure_hooks
+    from cosalette._wiring._bootstrap import (
+        resolve_adapters_with_notifier,
+        run_configure_hooks,
+    )
     from cosalette._wiring._resolution import resolve_enabled
     from cosalette._wiring._resolution_checks import (
         _check_expanded_duplicates,
         expand_name_specs,
     )
 
-    settings = build_settings(app, env_file, config_file)
+    settings = (
+        _settings
+        if _settings is not None
+        else build_settings(app, env_file, config_file)
+    )
 
     snapshot = _snapshot(app)
     try:
         # dry_run=True requests the dry-run variant; falls back to the real
         # implementation when none is registered, so factories may still run.
-        adapters = _adapter_lifecycle.resolve_adapters(app._adapters, True, settings)
-        asyncio.run(  # sync-only: must not be called from an async context
-            run_configure_hooks(app._configure_hooks, settings, adapters, SystemClock())
+        adapters, _notifier = resolve_adapters_with_notifier(
+            app._adapters, settings, True
+        )
+        await run_configure_hooks(
+            app._configure_hooks, settings, adapters, SystemClock()
         )
         telemetry = list(app._telemetry)
         devices = list(app._devices)
@@ -296,7 +304,22 @@ def resolve_app(
     return resolved, settings.mqtt.topic_prefix or app.name
 
 
-def resolved_asyncapi(
+def resolve_app(
+    app: App,
+    env_file: str | Path | None = None,
+    config_file: str | Path | None = None,
+    *,
+    _settings: Settings | None = None,
+) -> tuple[ResolvedApp, str]:
+    """Synchronous wrapper for CLI and non-async callers."""
+    import asyncio
+
+    return asyncio.run(
+        resolve_app_async(app, env_file, config_file, _settings=_settings)
+    )
+
+
+async def resolved_asyncapi(
     app: App,
     *,
     env_file: str | Path | None = None,
@@ -348,12 +371,22 @@ def resolved_asyncapi(
 
     Example:
         >>> from cosalette.schema import resolved_asyncapi
-        >>> doc = resolved_asyncapi(app, env_file="prod.env")  # doctest: +SKIP
+        >>> doc = await resolved_asyncapi(app, env_file="prod.env")  # doctest: +SKIP
         >>> sorted(doc["channels"])  # doctest: +SKIP
     """
-    resolved, prefix = resolve_app(app, env_file, config_file)
+    resolved, prefix = await resolve_app_async(app, env_file, config_file)
     if topic_prefix is not None:
         from cosalette._settings import MqttSettings
 
         prefix = MqttSettings(topic_prefix=topic_prefix).topic_prefix
     return resolved.asyncapi(topic_prefix=prefix)
+
+
+def resolved_asyncapi_sync(app: App, **kwargs: Any) -> dict[str, Any]:
+    """Synchronous wrapper for scripts without a running event loop.
+
+    Use :func:`resolved_asyncapi` when calling from async code.
+    """
+    import asyncio
+
+    return asyncio.run(resolved_asyncapi(app, **kwargs))
