@@ -281,34 +281,15 @@ class _LifecycleMixin:
         discovery_config = resolve_discovery_config(
             self._discovery, resolved_settings.mqtt, self._name
         )
-        _wiring.expand_name_specs(
-            self._telemetry,
-            self._devices,
-            self._commands,
-            resolved_settings,
-            inbound_list=self._inbounds,
-        )
-        _wiring.resolve_intervals(self._telemetry, resolved_settings)
-        _wiring.resolve_timeouts(self._telemetry, resolved_settings)
-        _wiring.resolve_stale_after(self._telemetry, resolved_settings)
-        _wiring.resolve_intervals_periodic(self._periodic, resolved_settings)
-        _wiring.resolve_timeouts_periodic(self._periodic, resolved_settings)
-        _wiring.resolve_timeouts_commands(self._commands, resolved_settings)
-        _wiring.resolve_enabled(
+        _wiring.prepare_registrations(
             self._telemetry,
             self._devices,
             self._commands,
             resolved_settings,
             self._store,
-            periodic_list=self._periodic,
-            stream_list=self._streams,
-            inbound_list=self._inbounds,
-        )
-        _wiring._check_expanded_duplicates(
-            self._devices,
-            self._telemetry,
-            self._commands,
-            inbound_list=self._inbounds,
+            periodic=self._periodic,
+            streams=self._streams,
+            inbounds=self._inbounds,
         )
         _wiring.resolve_stream_health(
             self._streams, self._devices, self._telemetry, resolved_settings

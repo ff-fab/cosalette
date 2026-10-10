@@ -52,6 +52,7 @@ from cosalette._wiring._infra import (
     register_first_connect_gate,
     register_reconnect_wake,
 )
+from cosalette._wiring._registration_lifecycle import prepare_registrations
 from cosalette._wiring._resolution import (
     _DEFAULT_TIMEOUT_FACTOR,
     _enabled_arg,
@@ -149,6 +150,7 @@ __all__ = [
     "_resolve_per_device_timeout",
     "_validate_config_type",
     "_validate_enabled_telemetry",
+    "prepare_registrations",
     "expand_name_specs",
     "resolve_enabled",
     "resolve_intervals",

@@ -229,14 +229,10 @@ async def resolve_app_async(
             spec is left unexpanded.
     """
     from cosalette._clock import SystemClock
+    from cosalette._wiring import prepare_registrations
     from cosalette._wiring._bootstrap import (
         resolve_adapters_with_notifier,
         run_configure_hooks,
-    )
-    from cosalette._wiring._resolution import resolve_enabled
-    from cosalette._wiring._resolution_checks import (
-        _check_expanded_duplicates,
-        expand_name_specs,
     )
 
     settings = (
@@ -264,22 +260,20 @@ async def resolve_app_async(
     finally:
         _restore(app, snapshot)
 
-    expand_name_specs(telemetry, devices, commands, settings, inbound_list=inbounds)
     try:
         # store=None: schema generation performs no persistence I/O, so a
         # surviving telemetry registration that declares persist= is rejected,
         # as it would be at runtime without a store.
-        resolve_enabled(
+        prepare_registrations(
             telemetry,
             devices,
             commands,
             settings,
             None,
-            periodic_list=periodic,
-            stream_list=streams,
-            inbound_list=inbounds,
+            periodic=periodic,
+            streams=streams,
+            inbounds=inbounds,
         )
-        _check_expanded_duplicates(devices, telemetry, commands, inbound_list=inbounds)
     except ValueError as exc:
         msg = (
             "settings resolution failed after expanding settings-derived "
