@@ -108,6 +108,8 @@ jobs:
         with:
           run-cmd: task docs:build
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Validate build output
         run: |

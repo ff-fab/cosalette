@@ -77,6 +77,8 @@ jobs:
         with:
           run-cmd: task ci:lint
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   unit-tests:
     name: 'Unit Tests & Coverage'
@@ -91,6 +93,8 @@ jobs:
         with:
           run-cmd: task ci:test:unit
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           cargo-cache: 'true'
 
       - name: Upload coverage to Codecov
@@ -154,6 +158,8 @@ jobs:
         with:
           run-cmd: task ci:test:integration
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           cargo-cache: 'true'
 
       - name: Upload integration test results
@@ -177,6 +183,8 @@ jobs:
         with:
           run-cmd: task complexity
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   codeql:
     name: CodeQL Security Analysis
@@ -215,6 +223,8 @@ jobs:
         with:
           run-cmd: task security:audit
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # ── CI Gate ────────────────────────────────────────────────────────────
   # Single required status check for GitHub rulesets. Aggregates all quality

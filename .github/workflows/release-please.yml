@@ -88,6 +88,9 @@ jobs:
     uses: ./.github/workflows/rust-wheels.yml
     permissions:
       contents: read
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # ── Collect artifacts, sdist, SBOM ─────────────────────────────────────
 
@@ -158,6 +161,9 @@ jobs:
       packages: read
     with:
       suite: full
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   publish-testpypi:
     name: Publish to TestPyPI
@@ -287,6 +293,8 @@ jobs:
         uses: ./.github/actions/devcontainer-run
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           run-cmd: task docs:build
 
       - name: Validate build output
