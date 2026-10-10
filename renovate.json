@@ -28,6 +28,11 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional"
     },
     {
+      "description": "The docker datasource has release timestamps only for Docker Hub, so images on ghcr.io and mcr.microsoft.com (devcontainer base image and features, uv, Trivy, Hadolint) would stay pending forever under minimumReleaseAge, including base-image digest refreshes that carry security fixes. timestamp-optional lets releases without a timestamp through while Docker Hub images (dolthub/dolt) keep the 7-day wait. Trade-off: those registries lose the release-age delay; tag+digest pinning, human review (never automerged), the DevContainer Build and the Trivy scan remain the gate (ADR-090)",
+      "matchDatasources": ["docker"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional"
+    },
+    {
       "description": "Group Python minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these ship to the fleet in the wheel",
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["minor", "patch"],
