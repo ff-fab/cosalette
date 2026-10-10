@@ -107,3 +107,8 @@ Every `*_VERSION` ARG in `.devcontainer/Dockerfile` carries a `# renovate:` comm
 - Docker apt updates skip the 7-day release-age delay because the apt repository has no timestamps; human review remains the gate
 - The trixie suite in the deb registryUrl must be updated by hand when the base image moves to a new Debian release
 - cargo-deny's sidecar comes from the same release as the asset, so it adds integrity but not provenance
+
+## Amendment (2026-10-10) — Minor
+
+!!! note "Editorial note (2026-10-10)"
+    The original Decision point 3's reference to RootlessKit and cargo-deny as manual is superseded by the additive amendment below, which tracks both with Renovate.

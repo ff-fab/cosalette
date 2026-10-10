@@ -2,9 +2,10 @@
 #
 # Renovate bumps the *_VERSION ARGs in .devcontainer/Dockerfile but not the
 # paired *_SHA256_* ARGs. On a Renovate PR this workflow downloads the new
-# release assets, checks that the asset digest, the publisher's checksums file
-# and the publisher's attestation agree (scripts/renovate_checksums.py, fail
-# closed), and commits the new hashes to the PR branch as a reviewable diff.
+# release assets, checks that the asset digest agrees with any publisher checksum
+# file or per-asset sidecar and verifies publisher attestations where available
+# (scripts/renovate_checksums.py, fail closed), then commits the new hashes to the
+# PR branch as a reviewable diff.
 #
 # Trust boundary: pull_request_target runs this file and the parser as they are
 # on the default branch. The PR's Dockerfile is fetched through the API and only
