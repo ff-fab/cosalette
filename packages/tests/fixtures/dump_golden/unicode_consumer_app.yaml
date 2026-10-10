@@ -1,0 +1,57 @@
+asyncapi: 3.0.0
+info:
+  title: airthings2mqtt
+  version: 0.1.0
+  x-cosalette-contract-version: '2'
+channels:
+  readingAvailability:
+    address: airthings2mqtt/reading/availability
+    x-cosalette-app: airthings2mqtt
+    messages:
+      message:
+        payload:
+          type: string
+          enum:
+          - online
+          - offline
+    bindings:
+      mqtt:
+        qos: 1
+        retain: true
+    x-cosalette-framework: availability
+    x-cosalette-discoverable: false
+  readingState:
+    address: airthings2mqtt/reading/state
+    x-cosalette-app: airthings2mqtt
+    messages:
+      message:
+        payload:
+          properties:
+            temp:
+              title: Temp
+              type: number
+              x-cosalette-consumer:
+                unit: °C
+                device_class: temperature
+                state_class: measurement
+            radon:
+              title: Radon
+              type: number
+              x-cosalette-consumer:
+                unit: Bq/m³
+                device_class: radon
+          required:
+          - temp
+          - radon
+          title: Reading
+          type: object
+    x-cosalette-archetype: telemetry
+operations:
+  publishReadingAvailability:
+    action: send
+    channel:
+      $ref: '#/channels/readingAvailability'
+  publishReadingState:
+    action: send
+    channel:
+      $ref: '#/channels/readingState'

@@ -6,6 +6,7 @@ Test Techniques Used:
     - Error Condition Testing: Invalid schemas, missing files, app names
     - Behavioural Testing: Exit codes and YAML output formatting
     - Round-trip Testing: consumer block parity; --resolve-settings init/check parity
+    - Golden / Snapshot Testing: default schema dump output pinned byte for byte
     - Equivalence Partitioning: registration-kind coverage for guard tests
     - Error Guessing: callable name= guard negative testing; pinned absence of
       the pre-fix discovery-gate wording
@@ -3565,3 +3566,82 @@ class TestInboundResolveSettings:
 
         assert acl_result.exit_code == EXIT_OK
         assert "topic read ext/fixed/state" in acl_result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Golden output for schema dump (default YAML must stay byte-identical)
+# ---------------------------------------------------------------------------
+
+_DUMP_GOLDEN_DIR = Path(__file__).parents[2] / "fixtures" / "dump_golden"
+
+# (golden file stem, app fixture, dump resolves settings from a TOML config file)
+_GOLDEN_DUMP_CASES = [
+    pytest.param("mixed_app", "mixed_app", False, id="mixed_app"),
+    pytest.param(
+        "unicode_consumer_app", "unicode_consumer_app", False, id="unicode_consumer"
+    ),
+    pytest.param(
+        "config_file_app", "config_file_derived_name_app", True, id="config_file"
+    ),
+]
+
+
+def _dump_stdout(runner: CliRunner, app: App, *extra: str) -> Result:
+    """Run ``schema dump`` for *app* with extra CLI args and return the result."""
+    with patch("cosalette._schema._cli._import_app", return_value=app):
+        return runner.invoke(schema_app, ["dump", "--app", "dummy:app", *extra])
+
+
+@pytest.fixture
+def config_file_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A TOML settings file that drives ``config_file_derived_name_app``."""
+    monkeypatch.delenv("COSALETTE_TEST_CFNAME_DEVICE_NAME", raising=False)
+    config_file = tmp_path / "settings.toml"
+    config_file.write_text('device_name = "config-device"\n', encoding="utf-8")
+    return config_file
+
+
+def _settings_args(config_file: Path, *, with_config: bool) -> list[str]:
+    """``--resolve-settings --config-file`` args when *with_config* is set."""
+    if not with_config:
+        return []
+    return ["--resolve-settings", "--config-file", str(config_file)]
+
+
+class TestDumpGolden:
+    """Default ``schema dump`` output is pinned byte for byte.
+
+    Adopter release tooling and their ``schema:generate`` task operate on the
+    YAML text, so any change to the default output is a breaking change.
+
+    Test Techniques Used:
+        - Golden / Snapshot Testing: exact stdout vs. committed files
+    """
+
+    @pytest.mark.parametrize(
+        ("golden", "app_fixture", "with_config"), _GOLDEN_DUMP_CASES
+    )
+    def test_default_dump_matches_golden(
+        self,
+        runner: CliRunner,
+        request: pytest.FixtureRequest,
+        config_file_settings: Path,
+        golden: str,
+        app_fixture: str,
+        with_config: bool,
+    ) -> None:
+        """Default dump output equals the committed golden YAML exactly.
+
+        Test Technique: Golden / Snapshot Testing.
+        """
+        # Arrange
+        app = request.getfixturevalue(app_fixture)
+        args = _settings_args(config_file_settings, with_config=with_config)
+
+        # Act
+        result = _dump_stdout(runner, app, *args)
+
+        # Assert
+        assert result.exit_code == EXIT_OK
+        expected = (_DUMP_GOLDEN_DIR / f"{golden}.yaml").read_text(encoding="utf-8")
+        assert result.stdout == expected
