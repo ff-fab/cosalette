@@ -25,14 +25,15 @@
       "minimumReleaseAge": "7 days"
     },
     {
+      "description": "Group pre-commit hook minor+patch updates (needs the pre-commit manager enabled below)",
       "matchManagers": ["pre-commit"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "pre-commit-hooks"
     },
     {
-      "description": "Group GitHub Actions minor+patch updates — reviewed (not automerged) with a 7-day cooldown; these run in the release pipeline (id-token/contents write)",
+      "description": "Group GitHub Actions minor+patch+digest updates — reviewed (not automerged) with a 7-day cooldown; these run in the release pipeline (id-token/contents write)",
       "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
       "groupName": "github-actions",
       "automerge": false,
       "minimumReleaseAge": "7 days"
@@ -48,6 +49,9 @@
       "automerge": false
     }
   ],
+  "pre-commit": {
+    "enabled": true
+  },
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": false,
