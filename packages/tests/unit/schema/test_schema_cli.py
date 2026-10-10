@@ -1466,6 +1466,30 @@ class TestDumpResolveSettings:
         assert "Configuration validation failed" in result.stderr
         assert "Traceback" not in result.stderr
 
+    def test_configure_hook_validation_error_propagates(
+        self, runner: CliRunner
+    ) -> None:
+        """ValidationError from user hooks stays an application exception."""
+        from pydantic import ValidationError
+
+        from cosalette._settings import MqttSettings
+
+        app = App(name="hook-validation", version="1.0.0")
+
+        @app.on_configure
+        def invalid_hook_model() -> None:
+            MqttSettings(topic_prefix="invalid/+/prefix")
+
+        with (
+            patch("cosalette._schema._cli._import_app", return_value=app),
+            pytest.raises(ValidationError, match="MQTT wildcard"),
+        ):
+            runner.invoke(
+                schema_app,
+                ["dump", "--app", "dummy:app", "--resolve-settings"],
+                catch_exceptions=False,
+            )
+
     def test_resolve_settings_duplicate_name_friendly_error(
         self, runner: CliRunner, mixed_app: App
     ) -> None:
@@ -1481,7 +1505,7 @@ class TestDumpResolveSettings:
         with (
             patch("cosalette._schema._cli._import_app", return_value=mixed_app),
             patch(
-                "cosalette._wiring._resolution_checks._check_expanded_duplicates",
+                "cosalette._wiring._registration_lifecycle._check_expanded_duplicates",
                 side_effect=ValueError(
                     "Device name 'temperature' is already registered"
                 ),
