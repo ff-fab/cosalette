@@ -10,6 +10,11 @@
         {
           "type": "generic",
           "path": "pyproject.toml"
+        },
+        {
+          "type": "toml",
+          "path": "uv.lock",
+          "jsonpath": "$.package[?(@.name.value=='cosalette')].version"
         }
       ]
     }
