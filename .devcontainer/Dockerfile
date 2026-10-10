@@ -62,14 +62,22 @@ RUN set -eux; \
 # scripts, uidmap and slirp4netns provide the daemon launcher, ID-mapping helpers and
 # user-mode networking. The startup script (docker-init.sh) is called from
 # post-start.sh.
-# renovate: datasource=docker depName=docker versioning=docker
-ARG DOCKER_VERSION=29.9.0
-# renovate: datasource=github-releases depName=containerd/containerd extractVersion=^v(?<version>.*)$
-ARG CONTAINERD_VERSION=2.3.6
-# renovate: datasource=github-releases depName=docker/buildx extractVersion=^v(?<version>.*)$
-ARG BUILDX_VERSION=0.37.1
-# Upgrade RootlessKit and both archive checksums together. Docker's bundled
-# binary still links vulnerable x/net and x/crypto versions (PR 505 scan).
+# Docker, containerd and buildx come from Docker's signed apt repository, so Renovate
+# reads that same repository (deb datasource): a bump is proposed only once the
+# Debian package exists, which can be days after the upstream release. Each ARG is
+# the package version without epoch and distro suffix; it keeps the Debian revision
+# because Docker does not always publish -1 (e.g. containerd.io 2.4.1-2). Update the
+# trixie/13 in these comments together with the base image's Debian release.
+# renovate: datasource=deb depName=docker-ce extractVersion=^5:(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
+ARG DOCKER_VERSION=29.9.0-1
+# renovate: datasource=deb depName=containerd.io extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
+ARG CONTAINERD_VERSION=2.3.6-1
+# renovate: datasource=deb depName=docker-buildx-plugin extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
+ARG BUILDX_VERSION=0.37.1-1
+# RootlessKit is pinned above Docker's bundled binary, which still links vulnerable
+# x/net and x/crypto versions (PR 505 scan). Renovate bumps the version and
+# .github/workflows/renovate-checksums.yml commits both verified checksums (ADR-090).
+# renovate: datasource=github-releases depName=rootless-containers/rootlesskit
 ARG ROOTLESSKIT_VERSION=v3.2.0
 ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
 ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
@@ -114,16 +122,16 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get -y install --no-install-recommends \
-        "docker-ce=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
-        "docker-ce-cli=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
-        "containerd.io=${CONTAINERD_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
-        "docker-buildx-plugin=${BUILDX_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce=5:${DOCKER_VERSION}~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-ce-cli=5:${DOCKER_VERSION}~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "containerd.io=${CONTAINERD_VERSION}~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+        "docker-buildx-plugin=${BUILDX_VERSION}~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
     # Only the launcher scripts are needed: installing rootless-extras brings
     # dbus-user-session and systemd, although post-start launches the daemon
     # directly. apt verifies the downloaded package against its signed index.
     && install -d /tmp/rootless-extras \
     && cd /tmp/rootless-extras \
-    && apt-get download "docker-ce-rootless-extras=5:${DOCKER_VERSION}-1~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    && apt-get download "docker-ce-rootless-extras=5:${DOCKER_VERSION}~debian.$(. /etc/os-release && echo "$VERSION_ID")~$(. /etc/os-release && echo "$VERSION_CODENAME")" \
     && dpkg-deb --extract ./*.deb extracted \
     && install -m 0755 extracted/usr/bin/dockerd-rootless.sh \
         extracted/usr/bin/dockerd-rootless-setuptool.sh /usr/bin/ \
@@ -289,8 +297,10 @@ ARG RUST_VERSION=1.98
 ARG CARGO_AUDIT_VERSION=0.22.2
 # renovate: datasource=crate depName=cargo-auditable
 ARG CARGO_AUDITABLE_VERSION=0.7.7
-# Upgrade cargo-deny manually: update the version and both architecture-specific
-# SHA-256 checksums together from the release archives before rebuilding.
+# cargo-deny is installed from its GitHub release (not crates.io), so Renovate tracks
+# that release and .github/workflows/renovate-checksums.yml commits both verified
+# checksums (ADR-090).
+# renovate: datasource=github-releases depName=EmbarkStudios/cargo-deny
 ARG CARGO_DENY_VERSION=0.20.2
 ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
 ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d

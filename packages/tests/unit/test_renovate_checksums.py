@@ -40,6 +40,9 @@ ARG OPENCODE_SHA256_ARM64=old-arm64
 ARG BD_VERSION=v2.0.0
 ARG BD_SHA256_AMD64=bd-amd64
 ARG BD_SHA256_ARM64=bd-arm64
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_DENY_SHA256_AMD64=deny-amd64
+ARG CARGO_DENY_SHA256_ARM64=deny-arm64
 """
 
 
@@ -82,6 +85,20 @@ def _beads_assets(listed_amd: str | None = None) -> dict[str, bytes]:
     """beads v2.1.0 assets; ``listed_amd`` overrides the checksums-file entry."""
     lines = f"{listed_amd or _sha(b'bd1')}  {BD_AMD}\n{_sha(b'bd2')}  {BD_ARM}\n"
     return {BD_AMD: b"bd1", BD_ARM: b"bd2", "checksums.txt": lines.encode()}
+
+
+DENY_AMD = "cargo-deny-0.21.0-x86_64-unknown-linux-musl.tar.gz"
+DENY_ARM = "cargo-deny-0.21.0-aarch64-unknown-linux-musl.tar.gz"
+
+
+def _deny_assets(sidecar_amd: str | None = None) -> dict[str, bytes]:
+    """cargo-deny 0.21.0 assets; ``sidecar_amd`` overrides the amd64 sidecar."""
+    return {
+        DENY_AMD: b"d1",
+        DENY_ARM: b"d2",
+        f"{DENY_AMD}.sha256": (sidecar_amd or _sha(b"d1")).encode(),
+        f"{DENY_ARM}.sha256": _sha(b"d2").encode(),
+    }
 
 
 MISSING_SHA = BASE.replace("v1.0.0", "v1.1.0").replace(
@@ -138,6 +155,36 @@ class TestUpdate:
         assert len(verify) == 2
         assert "refs/tags/v2.1.0" in verify[0]
         assert "gastownhall/beads/.github/workflows/release.yml" in verify[0]
+
+    def test_sidecar_checksums_and_unprefixed_tag(
+        self, rc: ModuleType, tmp_path: Path
+    ) -> None:
+        """Specification-based: cargo-deny tags lack ``v``; sidecars must agree."""
+        # Arrange
+        head = BASE.replace("CARGO_DENY_VERSION=0.20.2", "CARGO_DENY_VERSION=0.21.0")
+        fake = FakeGh(_deny_assets())
+
+        # Act
+        result, changed = rc.update(BASE, head, fake, tmp_path)
+
+        # Assert
+        assert f"ARG CARGO_DENY_SHA256_AMD64={_sha(b'd1')}\n" in result
+        assert f"ARG CARGO_DENY_SHA256_ARM64={_sha(b'd2')}\n" in result
+        assert changed == ["CARGO_DENY_VERSION=0.21.0"]
+        assert fake.calls[0] == [
+            "api",
+            "repos/EmbarkStudios/cargo-deny/releases/tags/0.21.0",
+        ]
+
+    def test_disagreeing_sidecar_fails_closed(
+        self, rc: ModuleType, tmp_path: Path
+    ) -> None:
+        """Decision Table: a sidecar hash that differs aborts the update."""
+        head = BASE.replace("CARGO_DENY_VERSION=0.20.2", "CARGO_DENY_VERSION=0.21.0")
+        fake = FakeGh(_deny_assets(_sha(b"other")))
+
+        with pytest.raises(rc.VerificationError, match="sidecar"):
+            rc.update(BASE, head, fake, tmp_path)
 
     @pytest.mark.parametrize(
         ("tamper", "message"),

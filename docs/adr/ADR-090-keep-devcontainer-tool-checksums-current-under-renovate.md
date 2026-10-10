@@ -9,7 +9,7 @@ tags: [security, dependencies, release]
 
 ## Status
 
-Accepted **Date:** 2026-10-10
+Accepted **Date:** 2026-10-10 | Amended **Date:** 2026-10-10
 
 ## Context
 
@@ -84,4 +84,26 @@ _Scale: 1 (poor) to 5 (excellent)_
 - A Renovate rebase drops the hash commit, so the workflow runs again after each rebase
 - The dolt image comes from Docker Hub and is subject to its pull limits
 
-_2026-10-10_
+## Amendment (2026-10-10) — Additive
+
+**Rationale:** Point 3 left RootlessKit and cargo-deny manual until cos-zfe6 decided their tracking. RootlessKit is pinned because of a CVE, so an untracked pin is a risk. Docker, containerd and buildx were tracked from Docker Hub and GitHub releases but installed as apt packages that appear later and do not always use Debian revision -1 (containerd.io 2.4.1 exists only as 2.4.1-2), so Renovate could propose versions apt cannot install.
+
+### Additional Sub-Decision: Track every pinned tool from the source it is installed from
+
+Every `*_VERSION` ARG in `.devcontainer/Dockerfile` carries a `# renovate:` comment whose datasource matches how the tool is installed. No pinned tool stays manual.
+
+- **RootlessKit** (`rootless-containers/rootlesskit`) and **cargo-deny** (`EmbarkStudios/cargo-deny`) use `github-releases` and join the hash-writing workflow. RootlessKit is verified against the asset digest, `SHA256SUMS` and the release attestation. cargo-deny is verified against the asset digest and its per-asset `.sha256` sidecar.
+- **Docker, containerd and buildx** use the `deb` datasource against Docker's apt repository (`suite=trixie`, `binaryArch=amd64`). Each ARG holds the package version with its Debian revision but without epoch or distro suffix (for example `2.3.6-1`). A bump is proposed only once apt can install it. The suite in the comments must follow the base image's Debian release.
+- The `deb` datasource publishes no release timestamps, so a `renovate.json` rule sets `minimumReleaseAgeBehaviour: timestamp-optional` for it. Otherwise `minimumReleaseAge` would keep these updates pending forever.
+- Tools without a hash ARG keep their existing verification, as in point 3: rustup and Cargo lockfile checksums, and the Claude Code installer manifest. Unpinned Debian utilities (DL3008) stay deliberately manual and are updated through the base image.
+
+### Additional Positive Consequences
+
+- The CVE-driven RootlessKit pin and cargo-deny get Renovate PRs with verified hashes instead of relying on someone remembering them
+- Docker apt bumps only propose versions already published in the apt repository (amd64 index; arm64 is published alongside)
+
+### Additional Negative Consequences
+
+- Docker apt updates skip the 7-day release-age delay because the apt repository has no timestamps; human review remains the gate
+- The trixie suite in the deb registryUrl must be updated by hand when the base image moves to a new Debian release
+- cargo-deny's sidecar comes from the same release as the asset, so it adds integrity but not provenance
