@@ -218,6 +218,8 @@ class CommandRunner:
         try:
             return self.prepare_command_kwargs(reg, ctx, topic, payload)
         except PayloadValidationError as exc:
+            if not exc._framework_rejected:
+                raise
             logger.debug("Command '%s' rejected input", reg.name, exc_info=exc)
             await publish_error_safely(
                 error_publisher, exc, reg.name, reg.is_root, log_traceback=False
@@ -583,9 +585,11 @@ class CommandRunner:
                     f"fp={fingerprint})"
                 )
                 logger.warning(
-                    "Unknown sub-command %r for '%s'",
-                    sub_repr,
+                    "Unknown sub-command for '%s' (type=%s, len=%d, fp=%s)",
                     _group_name,
+                    type(sub_value).__name__,
+                    len(sub_repr),
+                    fingerprint,
                 )
                 await publish_error_safely(
                     _ep, exc, _group_name, _is_root, log_traceback=False

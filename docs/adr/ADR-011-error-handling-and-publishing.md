@@ -316,3 +316,11 @@ Only the framework's input-binding step and the sub-command routing checks are d
 
 - Operators who alerted on the ERROR line for bad command input see WARNING instead and must adjust such rules.
 - Diagnosing a rejected payload in detail requires enabling DEBUG for `cosalette._runners._command_runner`, and the DEBUG record is not tagged with the publish correlation id.
+
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** The unknown sub-command warning originally retained the raw value for local diagnostics. That value may contain sensitive input, so local logging should follow the same minimization policy as the published error.
+
+### Additional Sub-Decision: Privacy of unknown sub-command warnings
+
+The local WARNING for an unknown sub-command logs only the value's type, length and non-reversible fingerprint. It does not include the raw value, which may contain sensitive input.

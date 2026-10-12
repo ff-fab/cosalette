@@ -166,8 +166,10 @@ carries a fingerprint.
 
 Exceptions raised by **handler code** are unchanged: an `ERROR` line plus the
 `WARNING` with the traceback. That includes a `PayloadValidationError` the
-handler raises itself, for example while validating a nested payload. The
-error topic payload is the same in both cases; only the local log differs.
+handler or an application dependency raises itself, for example while
+validating a nested payload. Unknown sub-command warnings include only the
+value's type, length and non-reversible fingerprint, so raw values stay out of
+local logs. The error topic payload is unchanged; only the local log differs.
 
 ## Message Disclosure
 

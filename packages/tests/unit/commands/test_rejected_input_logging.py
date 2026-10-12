@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
-from cosalette import LoggingSettings, Payload, PayloadValidationError
+from cosalette import Depends, LoggingSettings, Payload, PayloadValidationError
 from cosalette._runners._runner_utils import publish_error_safely
 from cosalette.testing import AppHarness
 
@@ -200,7 +200,8 @@ class TestFrameworkRejectedInput:
         # Assert
         warnings = log.at(logging.WARNING)
         assert [w.name for w in warnings] == [_RUNNER_LOGGER, "cosalette._errors"]
-        assert "'turbo'" in warnings[0].getMessage()
+        assert "fp=" in warnings[0].getMessage()
+        assert "turbo" not in warnings[0].getMessage()
         assert all(w.exc_info is None for w in warnings)
         assert log.at(logging.ERROR) == []
         assert error["error_type"] == "unknown_sub_command"
@@ -241,6 +242,34 @@ class TestHandlerFaults:
         assert warnings[0].exc_info is not None
         assert warnings[0].exc_info[1] is exc
         assert error["error_type"] == error_type
+
+    async def test_dependency_payload_validation_error_remains_handler_fault(
+        self,
+    ) -> None:
+        """An application dependency's error is not framework input rejection."""
+        # Arrange
+        harness = _harness()
+        exc = PayloadValidationError("dependency failed")
+
+        def dependency() -> str:
+            raise exc
+
+        @harness.app.command("display")
+        async def handle_display(value: Annotated[str, Depends(dependency)]) -> None:
+            return None
+
+        # Act
+        log, error = await _deliver(harness, "testapp/display/set", "{}")
+
+        # Assert
+        errors = log.at(logging.ERROR)
+        assert len(errors) == 1
+        assert errors[0].name == _RUNNER_LOGGER
+        warnings = log.at(logging.WARNING)
+        assert len(warnings) == 1
+        assert warnings[0].exc_info is not None
+        assert warnings[0].exc_info[1] is exc
+        assert error["error_type"] == "invalid_payload"
 
 
 class TestPublishErrorSafelyTraceback:
