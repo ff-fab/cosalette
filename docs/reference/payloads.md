@@ -80,7 +80,7 @@ overridden, with a startup warning when its label differs.
 | `invalid_json` | `InvalidJsonError` | Command payload is not valid JSON (sub-dispatch) |
 | `missing_sub_key` | `MissingSubKeyError` | Required routing field missing from JSON payload (sub-dispatch) |
 | `unknown_sub_command` | `UnknownSubCommandError` | Sub-command value not registered for topic (sub-dispatch) |
-| `invalid_payload` | `PayloadValidationError` | Typed command payload is not valid JSON or fails schema validation |
+| `invalid_payload` | `PayloadValidationError` | Typed command or telemetry trigger payload is not valid JSON or fails schema validation |
 | `timeout` | `TimeoutError` | Command handler exceeded its watchdog bound (ADR-060) |
 
 `ReturnValidationError` (a handler returned a value that does not match its

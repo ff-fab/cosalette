@@ -100,6 +100,11 @@ async def sensor(
     return {"data": await read_sensor(days=days)}
 ```
 
+A trigger payload that is not valid JSON or fails validation is rejected
+before the handler runs: it is published as `invalid_payload`, logged once at
+`WARNING`, and leaves the entity's health untouched. See
+[Log Severity for Rejected Input](../concepts/error-handling.md#log-severity-for-rejected-input).
+
 The raw `TriggerPayload` approach (see above) remains available when you only
 need `is_triggered` / `raw` / `data` without a full Pydantic model.
 

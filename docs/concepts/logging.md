@@ -241,15 +241,16 @@ asyncssh = "WARNING"
 - Each `configure_logging()` call first resets the loggers the previous call
   overrode, so a removed override does not linger.
 
-!!! tip "Seeing why a command payload was rejected"
+!!! tip "Seeing why a command or trigger payload was rejected"
 
-    A rejected typed command payload logs one `WARNING` with the sanitised
-    summary (see [Error Handling](error-handling.md#log-severity-for-rejected-input)).
-    The full traceback with the pydantic detail is logged at `DEBUG`. Turn it on
-    for the command runner only, or use `LOGGING__LEVEL=DEBUG` for everything:
+    A rejected typed command or telemetry trigger payload logs one `WARNING`
+    with the sanitised summary (see
+    [Error Handling](error-handling.md#log-severity-for-rejected-input)). The
+    full traceback with the pydantic detail is logged at `DEBUG`. Turn it on
+    for the runner only, or use `LOGGING__LEVEL=DEBUG` for everything:
 
     ```bash title=".env"
-    MYAPP_LOGGING__LEVELS='{"cosalette._runners._command_runner": "DEBUG"}'
+    MYAPP_LOGGING__LEVELS='{"cosalette._runners._command_runner": "DEBUG", "cosalette._runners._telemetry_runner": "DEBUG"}'
     ```
 
     The `DEBUG` record can contain the raw input values, so leave it off in

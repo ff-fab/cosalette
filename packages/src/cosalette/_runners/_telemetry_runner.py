@@ -35,11 +35,13 @@ from cosalette._registration import (
     resolve_unavailable_on,
 )
 from cosalette._runners._asyncio_utils import _cancel_task
+from cosalette._runners._command_errors import PayloadValidationError
 from cosalette._runners._contracts import normalize_handler_return, parse_payload
 from cosalette._runners._device_trigger import DeviceTrigger
 from cosalette._runners._runner_utils import (
     create_device_store,
     maybe_persist,
+    publish_error_safely,
     save_store_on_shutdown,
 )
 from cosalette._runners._telemetry_types import (
@@ -441,14 +443,21 @@ class TelemetryRunner:
         """Update trigger kwargs and run the handler attempt.
 
         Returns ``(None, last_error_type, retry_count)`` when the trigger
-        update fails — the caller should skip to the next cycle.
+        input is rejected or the trigger update fails — the caller should
+        skip to the next cycle.
         Returns ``(rr, last_error_type, rr.retry_count)`` on success.
         ``asyncio.CancelledError`` propagates unchanged.
         """
         try:
-            self._update_trigger_kwargs(
-                trigger_slot, trigger_info, kwargs, woke_by_trigger
-            )
+            if not await self._bind_trigger_input(
+                reg,
+                trigger_slot,
+                trigger_info,
+                kwargs,
+                woke_by_trigger,
+                error_publisher,
+            ):
+                return None, last_error_type, retry_count
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -545,6 +554,54 @@ class TelemetryRunner:
         return None
 
     @staticmethod
+    def _has_trigger_input(
+        trigger_slot: _TriggerSlot | None, woke_by_trigger: bool
+    ) -> bool:
+        """Whether this cycle consumes a pending trigger payload.
+
+        See :meth:`_update_trigger_kwargs` for when a set event is consumed.
+        """
+        return (
+            trigger_slot is not None
+            and trigger_slot.event.is_set()
+            and (woke_by_trigger or trigger_slot.min_interval is None)
+        )
+
+    async def _bind_trigger_input(
+        self,
+        reg: _TelemetryRegistration,
+        trigger_slot: _TriggerSlot | None,
+        trigger_info: tuple[str, Any, type | None] | None,
+        kwargs: dict[str, Any],
+        woke_by_trigger: bool,
+        error_publisher: ErrorPublisher,
+    ) -> bool:
+        """Bind this cycle's trigger value, or reject it and return ``False``.
+
+        A trigger payload the framework cannot parse is operator input, not
+        a device fault: it is published, logged once at WARNING without
+        traceback (cause at DEBUG), and leaves the failure streak and device
+        status untouched (ADR-082).  A binding failure on a scheduled run is
+        an app fault and propagates.
+        """
+        triggered = self._has_trigger_input(trigger_slot, woke_by_trigger)
+        try:
+            self._update_trigger_kwargs(
+                trigger_slot, trigger_info, kwargs, woke_by_trigger
+            )
+        except PayloadValidationError as exc:
+            if not triggered:
+                raise
+            logger.debug(
+                "Telemetry '%s' rejected trigger input", reg.name, exc_info=exc
+            )
+            await publish_error_safely(
+                error_publisher, exc, reg.name, reg.is_root, log_traceback=False
+            )
+            return False
+        return True
+
+    @staticmethod
     def _update_trigger_kwargs(
         trigger_slot: _TriggerSlot | None,
         trigger_info: tuple[str, Any, type | None] | None,
@@ -581,10 +638,9 @@ class TelemetryRunner:
         if trigger_slot is None:
             return
 
-        consume = woke_by_trigger or trigger_slot.min_interval is None
         payload = (
             trigger_slot.consume()  # clear the event
-            if consume and trigger_slot.event.is_set()
+            if TelemetryRunner._has_trigger_input(trigger_slot, woke_by_trigger)
             else None
         )
         TelemetryRunner._bind_trigger_kwarg(trigger_info, kwargs, payload)
@@ -1542,15 +1598,10 @@ class TelemetryRunner:
             reg = registrations[idx]
             ctx = contexts[reg.name]
 
-            if self._circuit_breaker_skip(reg, health_reporter):
+            if not await self._group_member_ready(
+                reg, gs, idx, idx in released, error_publisher, health_reporter
+            ):
                 continue
-
-            self._update_trigger_kwargs(
-                gs.trigger_slots[idx],
-                gs.trigger_infos[idx],
-                gs.kwargs_arr[idx],
-                idx in released,
-            )
             self._end_deferral(reg.name)
             since = self._connect_generation()
             rr = await self._attempt_with_retry(
@@ -1608,6 +1659,27 @@ class TelemetryRunner:
                 self._circuit_breaker_record(reg, rr)
             if self._outage_deferred(reg.name, rr):
                 self._defer(reg.name, since, self._group_waker(gs, idx))
+
+    async def _group_member_ready(
+        self,
+        reg: _TelemetryRegistration,
+        gs: _GroupState,
+        idx: int,
+        released: bool,
+        error_publisher: ErrorPublisher,
+        health_reporter: HealthReporter,
+    ) -> bool:
+        """Whether member *idx* runs: circuit closed and trigger input accepted."""
+        if self._circuit_breaker_skip(reg, health_reporter):
+            return False
+        return await self._bind_trigger_input(
+            reg,
+            gs.trigger_slots[idx],
+            gs.trigger_infos[idx],
+            gs.kwargs_arr[idx],
+            released,
+            error_publisher,
+        )
 
     @staticmethod
     def _group_waker(gs: _GroupState, idx: int) -> Callable[[], None]:
