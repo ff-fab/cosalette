@@ -167,6 +167,9 @@ def build_error_payload(
         # fall back to the class name so consumers still learn what failed.
         text = str(error) or type(error).__name__
         message = redact(text) if redact is not None else text
+        # A redactor may remove the entire message; preserve the non-empty
+        # contract after redaction as well.
+        message = message or type(error).__name__
     return ErrorPayload(
         error_type=error_type,
         message=message,
