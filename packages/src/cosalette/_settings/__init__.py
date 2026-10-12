@@ -160,11 +160,15 @@ class MqttSettings(BaseModel):
         default=False,
         description=(
             "When True, published error payloads include the raw exception "
-            "message (str(error)), which may carry sensitive data from "
-            "downstream handlers. When False (the default), only the "
-            "exception class name is published and the full message plus "
-            "traceback are logged locally. Error topics are broker-visible, "
-            "so keep this off on shared/unauthenticated brokers."
+            "message (str(error)) of every error, which may carry sensitive "
+            "data from downstream handlers. Takes effect only if the app "
+            "allows it with App(allow_error_publish_verbose=True); otherwise "
+            "it is ignored with a startup warning (ADR-091). When False (the "
+            "default), only messages of types listed in "
+            "App(disclose_messages_for=...) are published, every other error "
+            "publishes its class name, and the full message plus traceback "
+            "are logged locally. Error topics are broker-visible, so keep "
+            "this off on shared/unauthenticated brokers."
         ),
     )
     max_inbound_payload_bytes: Annotated[int, Field(gt=0)] = Field(

@@ -8,7 +8,7 @@ Test Techniques Used:
     - Equivalence Partitioning: the accepted ``redact`` forms (None, callable,
       patterns, an existing Redactor) against the rejected ones (bare str,
       bytes, wrong member type, invalid regex).
-    - Decision Table: payload disclosure (verbose / disclose set / legacy map
+    - Decision Table: payload disclosure (verbose / disclose set / mapped only
       / undisclosed) x redactor set — the redactor runs only on disclosed text.
     - Error Guessing: a redactor that raises or returns a non-string, logged
       once per process; a single string mistaken for a pattern list.
@@ -505,8 +505,8 @@ class TestErrorPayloadRedaction:
             ),
             pytest.param(
                 {"error_type_map": {SensorError: "sensor"}},
-                f"login {REDACTED}",
-                id="legacy-map",
+                "SensorError",
+                id="mapped-only",
             ),
             pytest.param({}, "SensorError", id="undisclosed"),
             pytest.param(

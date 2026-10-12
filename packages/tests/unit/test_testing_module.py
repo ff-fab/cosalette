@@ -1360,6 +1360,19 @@ class TestAppHarness:
         assert harness.app._name == "mybridge"
         assert harness.app._version == "2.3.0"
 
+    def test_create_forwards_verbose_publish_opt_in(self) -> None:
+        """The harness forwards the validated app security gate."""
+        harness = AppHarness.create(allow_error_publish_verbose=True)
+
+        assert harness.app.allow_error_publish_verbose is True
+
+    def test_create_rejects_non_bool_verbose_publish_opt_in(self) -> None:
+        """A truthy non-bool cannot enable verbose publishing via the harness."""
+        with pytest.raises(
+            TypeError, match="allow_error_publish_verbose must be a bool"
+        ):
+            AppHarness.create(allow_error_publish_verbose="false")  # ty: ignore[invalid-argument-type]
+
     def test_create_settings_overrides(self) -> None:
         """Settings overrides are forwarded to make_settings.
 

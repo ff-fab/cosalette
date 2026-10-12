@@ -73,7 +73,7 @@ rationale, and consequences.
 | [ADR-058](ADR-058-ha-availability-keys-and-per-device-device-modelling-in-discovery.md) | HA Availability Keys and Per-Device Device Modelling in Discovery | Accepted | 2026-08-11 |
 | [ADR-059](ADR-059-runtime-home-assistant-discovery-publication-with-enrichment-hook.md) | Runtime Home Assistant Discovery Publication with Enrichment Hook | Accepted | 2026-08-11 |
 | [ADR-060](ADR-060-bounded-handler-execution-defaults.md) | Bounded Handler Execution Defaults | Accepted | 2026-08-25 |
-| [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Accepted | 2026-08-26 |
+| [ADR-061](ADR-061-decoupled-error-message-disclosure.md) | Decoupled Error-Message Disclosure | Superseded by ADR-091 | 2026-08-26 |
 | [ADR-062](ADR-062-default-mqtt-tls-to-enabled-at-the-next-0-x-minor-release.md) | Default MQTT TLS to Enabled at the Next 0.x Minor Release | Accepted | 2026-08-27 |
 | [ADR-063](ADR-063-optional-hmac-signed-retained-cleanup-snapshots.md) | Optional HMAC-Signed Retained-Cleanup Snapshots | Accepted | 2026-08-27 |
 | [ADR-064](ADR-064-local-in-process-trigger-source-for-triggerable-telemetry.md) | Local (in-process) trigger source for triggerable telemetry | Accepted | 2026-08-31 |
@@ -103,3 +103,4 @@ rationale, and consequences.
 | [ADR-088](ADR-088-opt-in-event-loop-stall-watchdog-with-exit-code-6.md) | Opt-in event-loop stall watchdog with exit code 6 | Accepted | 2026-10-05 |
 | [ADR-089](ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md) | Opt-in instance identity for HA discovery and openHAB output | Accepted | 2026-10-05 |
 | [ADR-090](ADR-090-keep-devcontainer-tool-checksums-current-under-renovate.md) | Keep devcontainer tool checksums current under Renovate | Accepted | 2026-10-10 |
+| [ADR-091](ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md) | Labelling-Only Error Type Map and Secure-by-Default Message Disclosure | Accepted | 2026-10-12 |

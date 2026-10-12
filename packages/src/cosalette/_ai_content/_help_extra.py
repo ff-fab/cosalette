@@ -523,7 +523,10 @@ Validation Errors:
   Both are caught by the framework and published to the error topic.
   Framework labels (invalid_json, missing_sub_key, unknown_sub_command,
   invalid_payload, timeout) win over app error_type_map entries; a
-  different app label logs one startup WARNING (ADR-011).
+  different app label logs one startup WARNING (ADR-011). The payload
+  message is the class name unless the type is listed in
+  App(disclose_messages_for=...), e.g. cosalette.FRAMEWORK_DISCLOSED_ERRORS
+  (ADR-091).
 
 Decorator Metadata:
   ```python

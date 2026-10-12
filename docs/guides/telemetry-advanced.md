@@ -105,6 +105,11 @@ before the handler runs: it is published as `invalid_payload`, logged once at
 `WARNING`, and leaves the entity's health untouched. See
 [Log Severity for Rejected Input](../concepts/error-handling.md#log-severity-for-rejected-input).
 
+Keep the type optional. A non-optional `Model` cannot bind `None`, so every
+scheduled run of that handler fails before it runs, as a failed cycle
+(`ERROR` with traceback, failure streak, status `"error"`). The task keeps
+running, and in a coalescing group the other members are not affected.
+
 The raw `TriggerPayload` approach (see above) remains available when you only
 need `is_triggered` / `raw` / `data` without a full Pydantic model.
 

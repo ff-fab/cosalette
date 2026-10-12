@@ -73,7 +73,8 @@ async def _await_with_watchdog[T](coro: Awaitable[T], timeout: float | None) -> 
 
     An expired watchdog raises :class:`TimeoutError` with a framework-owned
     message; a ``TimeoutError`` raised by the handler itself propagates
-    unchanged (ADR-061 amendment 2026-10-12).
+    unchanged.  Neither message is published unless the app lists
+    ``TimeoutError`` in ``disclose_messages_for`` (ADR-091).
     """
     if timeout is None:
         return await coro

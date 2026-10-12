@@ -475,6 +475,14 @@ class TestGetWhatsNewContent:
 
         assert content == ""
 
+    def test_get_whats_new_content_0_12_0_describes_secure_disclosure(self):
+        """The 0.12.0 entry flags the disclosure and verbose changes (ADR-091)."""
+        content = get_whats_new_content("0.11.4")
+
+        assert "BREAKING: secure-by-default error disclosure" in content
+        assert "FRAMEWORK_DISCLOSED_ERRORS | {MyError}" in content
+        assert "allow_error_publish_verbose=True" in content
+
     def test_get_whats_new_content_0_12_0_describes_invalid_payload(self):
         """The 0.12.0 entry flags the invalid_payload label as breaking."""
         content = get_whats_new_content("0.11.4")

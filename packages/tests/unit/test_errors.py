@@ -20,7 +20,14 @@ import pytest
 
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._mqtt import MqttNotConnectedError
-from cosalette._runners._command_errors import _FRAMEWORK_ERROR_TYPE_MAP
+from cosalette._runners._command_errors import (
+    _FRAMEWORK_ERROR_TYPE_MAP,
+    FRAMEWORK_DISCLOSED_ERRORS,
+    InvalidJsonError,
+    MissingSubKeyError,
+    PayloadValidationError,
+    UnknownSubCommandError,
+)
 from cosalette.testing import MockMqttClient
 
 pytestmark = pytest.mark.unit
@@ -197,7 +204,7 @@ class TestBuildErrorPayload:
     async def test_disclose_messages_for_discloses_only_listed_types(self) -> None:
         """disclose_messages_for=... discloses only explicitly listed types.
 
-        Technique: Specification-based Testing — F-DP1/ADR-061 decoupling:
+        Technique: Specification-based Testing — F-DP1/ADR-091 decoupling:
         message disclosure is decided independently of error_type_map.
         """
 
@@ -222,7 +229,7 @@ class TestBuildErrorPayload:
         """An explicit empty disclose_messages_for redacts even mapped types.
 
         Technique: Boundary Value Analysis — the empty-set edge case must
-        still fully override error_type_map's legacy disclosure coupling.
+        publish the class name of a mapped type.
         """
 
         class SensorError(Exception): ...
@@ -235,20 +242,103 @@ class TestBuildErrorPayload:
         )
         assert payload.message == "SensorError"
 
-    async def test_disclose_messages_for_none_preserves_legacy_behaviour(
+    @pytest.mark.parametrize(
+        ("mapped", "disclose_set", "verbose", "expected"),
+        [
+            pytest.param(False, None, False, "_AppError", id="unmapped-default"),
+            pytest.param(True, None, False, "_AppError", id="mapped-default"),
+            pytest.param(True, frozenset(), False, "_AppError", id="mapped-empty"),
+            pytest.param(False, {_AppError}, False, "secret=1", id="listed-unmapped"),
+            pytest.param(True, {_AppError}, False, "secret=1", id="listed-mapped"),
+            pytest.param(True, {ValueError}, False, "_AppError", id="other-listed"),
+            pytest.param(False, None, True, "secret=1", id="verbose-default"),
+        ],
+    )
+    async def test_disclosure_decision_table(
         self,
+        mapped: bool,
+        disclose_set: set[type[Exception]] | frozenset[type[Exception]] | None,
+        verbose: bool,
+        expected: str,
     ) -> None:
-        """disclose_messages_for=None (default) keeps map-implies-disclosure."""
+        """Only listing the type (or verbose) discloses; the map only labels.
 
-        class SensorError(Exception): ...
+        Technique: Decision Table — error_type_map membership x
+        disclose_messages_for (None / empty / listed / other) x verbose
+        (ADR-091).
+        """
+        # Arrange
+        type_map: dict[type[Exception], str] = {_AppError: "app"} if mapped else {}
+        disclose = None if disclose_set is None else frozenset(disclose_set)
 
+        # Act
         payload = build_error_payload(
-            SensorError("sensor offline"),
-            error_type_map={SensorError: "sensor_failure"},
-            disclose_messages_for=None,
+            _AppError("secret=1"),
+            error_type_map=type_map,
+            disclose_messages_for=disclose,
+            verbose=verbose,
             clock=_fixed_clock,
         )
-        assert payload.message == "sensor offline"
+
+        # Assert
+        assert payload.error_type == ("app" if mapped else "error")
+        assert payload.message == expected
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param(InvalidJsonError("Invalid JSON payload"), id="invalid-json"),
+            pytest.param(MissingSubKeyError("missing 'action'"), id="missing-sub"),
+            pytest.param(UnknownSubCommandError("unknown 'x'"), id="unknown-sub"),
+            pytest.param(PayloadValidationError("Payload invalid"), id="payload"),
+            pytest.param(TimeoutError("watchdog"), id="timeout"),
+        ],
+    )
+    async def test_framework_errors_publish_class_name_by_default(
+        self, error: Exception
+    ) -> None:
+        """Framework errors keep their label but not their message by default.
+
+        Technique: Equivalence Partitioning — every framework-labelled type
+        is in the "not disclosed" partition when no set is given (ADR-091).
+        """
+        # Act
+        payload = build_error_payload(
+            error, error_type_map=_FRAMEWORK_ERROR_TYPE_MAP, clock=_fixed_clock
+        )
+
+        # Assert
+        assert payload.error_type == _FRAMEWORK_ERROR_TYPE_MAP[type(error)]
+        assert payload.message == type(error).__name__
+
+    @pytest.mark.parametrize(
+        ("error", "disclosed"),
+        [
+            pytest.param(InvalidJsonError("Invalid JSON"), True, id="invalid-json"),
+            pytest.param(MissingSubKeyError("missing"), True, id="missing-sub"),
+            pytest.param(UnknownSubCommandError("unknown"), True, id="unknown-sub"),
+            pytest.param(PayloadValidationError("invalid"), True, id="payload"),
+            pytest.param(TimeoutError("watchdog"), False, id="timeout-not-listed"),
+        ],
+    )
+    async def test_framework_disclosed_errors_opt_in(
+        self, error: Exception, disclosed: bool
+    ) -> None:
+        """FRAMEWORK_DISCLOSED_ERRORS discloses the framework's own messages.
+
+        Technique: Decision Table — the builtin TimeoutError stays undisclosed
+        because the set does not list it (ADR-091 point 4).
+        """
+        # Act
+        payload = build_error_payload(
+            error,
+            error_type_map=_FRAMEWORK_ERROR_TYPE_MAP,
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,
+            clock=_fixed_clock,
+        )
+
+        # Assert
+        assert payload.message == (str(error) if disclosed else type(error).__name__)
 
     async def test_verbose_overrides_disclose_messages_for(self) -> None:
         """verbose=True always discloses, even with an empty disclosure set."""
@@ -339,7 +429,7 @@ class TestBuildErrorPayload:
     async def test_framework_timeout_with_empty_text_publishes_class_name(
         self,
     ) -> None:
-        """A bare TimeoutError() under the legacy framework map is never ""."""
+        """A bare TimeoutError() under the framework map is never ""."""
         # Act
         payload = build_error_payload(
             TimeoutError(),
@@ -666,11 +756,15 @@ class TestErrorPublisher:
         parsed = json.loads(payload_str)
         assert parsed["message"] == "SensorError"
 
-    async def test_disclose_messages_for_none_preserves_legacy_behaviour(
+    async def test_default_publisher_does_not_disclose_mapped_type(
         self,
         mock_mqtt: MockMqttClient,
     ) -> None:
-        """disclose_messages_for=None (default) keeps map-implies-disclosure."""
+        """disclose_messages_for=None (default) publishes label + class name.
+
+        Technique: Specification-based Testing — the label map never implies
+        disclosure (ADR-091).
+        """
 
         class SensorError(Exception): ...
 
@@ -682,7 +776,9 @@ class TestErrorPublisher:
         )
         await pub.publish(SensorError("sensor offline"))
         _, payload_str, _, _ = mock_mqtt.published[0]
-        assert json.loads(payload_str)["message"] == "sensor offline"
+        parsed = json.loads(payload_str)
+        assert parsed["error_type"] == "sensor_failure"
+        assert parsed["message"] == "SensorError"
 
     async def test_verbose_overrides_publisher_disclose_messages_for(
         self,

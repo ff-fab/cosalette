@@ -145,15 +145,31 @@ class TestResolveCommandTimeouts:
 class TestCommandTimeoutEnforcement:
     """Runtime enforcement via asyncio.timeout inside the command pipeline."""
 
+    @pytest.mark.parametrize(
+        ("disclose", "expected"),
+        [
+            pytest.param(None, "TimeoutError", id="default-undisclosed"),
+            pytest.param(
+                frozenset({TimeoutError}),
+                "command handler exceeded 0.1s watchdog",
+                id="timeout-listed",
+            ),
+        ],
+    )
     async def test_hung_handler_publishes_structured_timeout_error(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
+        disclose: frozenset[type[Exception]] | None,
+        expected: str,
     ) -> None:
         """A handler exceeding its bound is cancelled and surfaces as
         error_type 'timeout' on the device error topic (CWE-400 backstop).
+
+        The watchdog message is published only when the app lists the builtin
+        TimeoutError (ADR-091).
         """
-        app = App(name="testapp", version="1.0.0")
+        app = App(name="testapp", version="1.0.0", disclose_messages_for=disclose)
 
         @app.command("dev", timeout=0.05)
         async def handler(topic: str, payload: str) -> None:
@@ -182,19 +198,23 @@ class TestCommandTimeoutEnforcement:
         assert len(error_msgs) >= 1
         payload = json.loads(error_msgs[0][0])
         assert payload["error_type"] == "timeout"
-        assert payload["message"] == "command handler exceeded 0.1s watchdog"
+        assert payload["message"] == expected
 
     async def test_handler_raised_timeout_keeps_its_own_message(
         self,
         mock_mqtt: MockMqttClient,
         fake_clock: FakeClock,
     ) -> None:
-        """A TimeoutError from handler code is not rewritten (ADR-061).
+        """A TimeoutError from handler code is not rewritten (ADR-091).
 
         Technique: Error Guessing — only the framework's own deadline gets the
-        framework message; the legacy rule still discloses the handler text.
+        framework message; listing TimeoutError discloses the handler text.
         """
-        app = App(name="testapp", version="1.0.0")
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            disclose_messages_for=frozenset({TimeoutError}),
+        )
 
         @app.command("dev", timeout=5.0)
         async def handler(topic: str, payload: str) -> None:

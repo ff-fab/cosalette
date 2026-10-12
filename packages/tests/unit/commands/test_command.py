@@ -18,6 +18,7 @@ from typing import Protocol, runtime_checkable
 
 import pytest
 
+from cosalette import FRAMEWORK_DISCLOSED_ERRORS
 from cosalette._app import App
 from cosalette._context import DeviceContext
 from cosalette._injection import build_injection_plan
@@ -1092,7 +1093,12 @@ class TestSubDispatchCommand:
 
         Technique: Error Isolation — verify error handling without handler crashes.
         """
-        app = App(name="testapp", version="1.0.0")
+        # The message is asserted, so opt into the framework's own (ADR-091).
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,
+        )
 
         @app.command("device", sub="on")
         async def handle_on(topic: str, payload: str) -> None: ...
@@ -1133,7 +1139,12 @@ class TestSubDispatchCommand:
 
         Technique: Error Isolation — verify graceful unknown command handling.
         """
-        app = App(name="testapp", version="1.0.0")
+        # The message is asserted, so opt into the framework's own (ADR-091).
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,
+        )
 
         @app.command("device", sub="on")
         async def handle_on(topic: str, payload: str) -> None: ...
@@ -1268,7 +1279,12 @@ class TestSubDispatchCommand:
         Covers: null, list, string, number — all valid JSON but not dicts.
         Technique: Boundary-value — verifies the non-dict guard added to _sub_proxy.
         """
-        app = App(name="testapp", version="1.0.0")
+        # The message is asserted, so opt into the framework's own (ADR-091).
+        app = App(
+            name="testapp",
+            version="1.0.0",
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,
+        )
 
         @app.command("device", sub="on")
         async def handle_on(topic: str, payload: str) -> None: ...

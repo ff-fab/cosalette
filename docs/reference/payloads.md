@@ -39,7 +39,7 @@ name is known) to `{prefix}/{device}/error`. Defined in
 ```json
 {
     "error_type": "invalid_command",
-    "message": "Human-readable error description",
+    "message": "InvalidCommandError",
     "device": "blind",
     "timestamp": "2026-02-14T12:34:56+00:00",
     "details": {}
@@ -51,7 +51,7 @@ name is known) to `{prefix}/{device}/error`. Defined in
 | Field | Type | Description |
 |---|---|---|
 | `error_type` | `str` | Machine-readable error category. Determined by the `error_type_map` — unmapped exceptions fall back to `"error"`. |
-| `message` | `str` | Human-readable description (`str(exception)`). |
+| `message` | `str` | The exception class name. The raw `str(exception)` only for exact types listed in `App(disclose_messages_for=...)`, or under verbose publishing (`App(allow_error_publish_verbose=True)` plus `MQTT__ERROR_PUBLISH_VERBOSE`); `App(redact=...)` applies to it ([ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md)). |
 | `device` | `str | null` | Device name if the error is device-scoped, otherwise `null`. |
 | `timestamp` | `str` | ISO 8601 timestamp with timezone (e.g. `"2026-02-14T12:34:56+00:00"`). |
 | `details` | `object` | Optional dict of additional context. Defaults to `{}` when not provided. Telemetry errors carry `count` (consecutive failed cycles) and `first_seen` (ISO 8601 UTC time of the first one); a repeat of the same error is published only as a reminder (ADR-082). |
@@ -60,7 +60,8 @@ name is known) to `{prefix}/{device}/error`. Defined in
 
 The `error_type` field is resolved from the `error_type_map` dict passed
 to the `ErrorPublisher`. The map keys are **exact exception classes** (no
-subclass matching). Unmapped exceptions produce `"error"` as the type.
+subclass matching). Unmapped exceptions produce `"error"` as the type. The map
+only assigns labels; it never discloses a message.
 
 ```python
 error_type_map = {
@@ -86,7 +87,10 @@ overridden, with a startup warning when its label differs.
 `ReturnValidationError` (a handler returned a value that does not match its
 return contract) is an application fault and keeps the generic `error` label.
 
-Examples (messages as published under the default disclosure rule):
+By default every one of these payloads publishes the exception class name as
+`message` (for example `"message": "InvalidJsonError"`). The examples below
+show the messages published when the app lists the type, for example with
+`App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {TimeoutError})`:
 
 ```text
 # Invalid JSON

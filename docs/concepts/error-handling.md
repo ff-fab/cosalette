@@ -31,7 +31,8 @@ class ErrorPayload:
 ```
 
 1. Machine-readable type string (e.g. `"invalid_command"`, `"timeout"`, `"error"`).
-2. Human-readable error description from `str(exception)`.
+2. Exception class name by default; `str(exception)` only when the type is
+   disclosed (see [Message Disclosure](#message-disclosure)).
 3. Device name when the error is device-scoped, `None` for global errors.
 4. Wall-clock ISO 8601 timestamp: `"2026-02-14T12:34:56+00:00"`.
 5. Optional dict of additional context (default: empty).
@@ -41,7 +42,7 @@ class ErrorPayload:
 ```json
 {
     "error_type": "invalid_command",
-    "message": "Position must be 0-100, got 150",
+    "message": "InvalidCommandError",
     "device": "blind",
     "timestamp": "2026-02-14T12:34:56+00:00",
     "details": {"raw_payload": "150"}
@@ -131,7 +132,8 @@ wrong shape is an application fault.
 Typed telemetry trigger parameters using `Annotated[T, Payload()]` use the
 same validation exception, so their failures also change to `invalid_payload`
 in 0.12.0. Their message follows the same disclosure rules as typed command
-validation; under the legacy default it contains a sanitized summary.
+validation: with `PayloadValidationError` listed in `disclose_messages_for` it
+contains a sanitized summary, otherwise the class name.
 
 The app's `error_type_map` is merged with these entries and the **framework
 entries win**. When an app maps one of these types to a different label, the
@@ -177,7 +179,9 @@ Exceptions raised by **handler code** are unchanged: an `ERROR` line plus the
 `WARNING` with the traceback. That includes a `PayloadValidationError` the
 handler or an application dependency raises itself, for example while
 validating a nested payload. For telemetry, such an exception is a failed cycle
-as before. Unknown sub-command warnings include only the value's type, length
+as before, and so is a typed trigger parameter that fails to bind on a
+scheduled run (a non-optional `T` bound to `None`); in a coalescing group only
+that member's cycle fails. Unknown sub-command warnings include only the value's type, length
 and non-reversible fingerprint, so raw values stay out of local logs. The error
 topic payload is unchanged; only the local log and health differ.
 
@@ -186,34 +190,30 @@ topic payload is unchanged; only the local log and health differ.
 `error_type` labeling and **whether the raw `str(error)` is published** are two
 separate decisions. Because error topics are broker-visible, an unredacted
 exception message can leak secrets — credentials embedded in a URL, a filesystem
-path, a hostname. `build_error_payload()` resolves disclosure in this order:
+path, a hostname. Nothing is disclosed by default: every error payload, the
+framework's own included, carries its `error_type` label and the exception
+class name as `message`. `build_error_payload()` discloses a message in exactly
+two cases:
 
-1. **`verbose=True`** (`MqttSettings.error_publish_verbose` /
-   `App(error_publish_verbose=...)`) — always discloses every exception's
-   message, regardless of the other two settings. The blunt, process-wide
-   escape hatch.
-2. **`disclose_messages_for`** (a `frozenset[type[Exception]] | None`) — when
-   not `None`, it **fully and independently** defines disclosure: a type's
-   message is published only if that exact type is a member of the set.
-   `error_type_map` membership is irrelevant once this is provided —
-   framework-mapped types are not implicitly added to it.
-3. **`error_type_map` (legacy default, `disclose_messages_for=None`)** —
-   membership in `error_type_map` alone implies disclosure. This is the
-   original ADR-011 LEAK-01 behaviour, preserved for backward compatibility.
+1. **Verbose publishing** — discloses every exception's message. It takes
+   effect only when the app allows it with
+   `App(allow_error_publish_verbose=True)` **and** the operator sets
+   `MqttSettings.error_publish_verbose` (`MQTT__ERROR_PUBLISH_VERBOSE=true`).
+   When the operator sets it on an app that does not allow it, the setting is
+   ignored and one `WARNING` is logged at startup.
+2. **`disclose_messages_for`** (a `frozenset[type[Exception]] | None`) — a
+   type's message is published only if that exact type is a member of the
+   set; subclasses are not matched. `None` (the default) behaves like
+   `frozenset()`: nothing is disclosed.
+
+`error_type_map` only assigns labels. Mapping a type never publishes its
+message.
 
 ```python
-# Legacy conflated behaviour (disclose_messages_for=None, the default):
-# labeling an exception type also discloses its message.
+# Default: label + class name for every error.
 app = cosalette.App(
     name="caldates2mqtt",
     error_type_map={CalDavConnectionError: "caldav_connection_error"},
-)
-
-# F-DP1 decoupled opt-in: label without disclosing.
-app = cosalette.App(
-    name="caldates2mqtt",
-    error_type_map={CalDavConnectionError: "caldav_connection_error"},
-    disclose_messages_for=frozenset(),  # explicit: disclose nothing
 )
 
 # Keep the framework's own sanitised messages, disclose one app type.
@@ -225,30 +225,28 @@ app = cosalette.App(
 )
 ```
 
-An explicit set does not inherit the framework's disclosures. Start from
 `cosalette.FRAMEWORK_DISCLOSED_ERRORS` (`InvalidJsonError`,
-`MissingSubKeyError`, `UnknownSubCommandError`, `PayloadValidationError`) to
-keep the messages the framework builds and sanitises itself, including typed
-telemetry trigger validation. The builtin
-`TimeoutError` is deliberately not in it: library code raises it too, with
-text the framework does not control. Command watchdog timeouts carry the
-framework message `command handler exceeded N.Ns watchdog`; a `TimeoutError`
-raised inside a handler keeps its own text. Under the legacy default every
-`TimeoutError` message is still published (an accepted risk, see ADR-061).
+`MissingSubKeyError`, `UnknownSubCommandError`, `PayloadValidationError`)
+lists the messages the framework builds and sanitises itself, including typed
+telemetry trigger validation. The builtin `TimeoutError` is deliberately not in
+it: library code raises it too, with text the framework does not control.
+Command watchdog timeouts carry the framework message
+`command handler exceeded N.Ns watchdog`; a `TimeoutError` raised inside a
+handler keeps its own text. Either is published only when the app lists
+`TimeoutError` itself.
 
-Unlisted (or, under the legacy default, unmapped) exception types always fall
-back to publishing the class name only — the full message and traceback are
-still logged locally under a correlation id. See
-[ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md) for the full
-rationale and the planned default flip, targeted for the next 0.x minor
-release (0.7.0) per ADR-061.
+Undisclosed exception types publish the class name only — the full message
+and traceback are still logged locally under a correlation id. See
+[ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md)
+for the rationale.
 
 ### Redacting Disclosed Messages
 
 Disclosure is all or nothing per type: once a type is disclosed, its whole
 message is published. When a disclosed message can still carry a token, a
 MAC address or a URL with credentials, pass `App(redact=...)`. It is applied
-**after** the disclosure decision, so it never widens what is published:
+**after** the disclosure decision, verbose publishing included, so it never
+widens what is published:
 
 ```python
 import re
@@ -576,7 +574,7 @@ disable it for legitimately long-running handlers. See the
 - [Device Archetypes](device-archetypes.md) — error isolation per device type
 - [Logging](logging.md) — errors are also logged at ERROR level
 - [ADR-011 — Error Handling and Publishing](../adr/ADR-011-error-handling-and-publishing.md)
-- [ADR-061 — Decoupled Error-Message Disclosure](../adr/ADR-061-decoupled-error-message-disclosure.md)
+- [ADR-091 — Labelling-Only Error Type Map and Secure-by-Default Message Disclosure](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md)
 - [ADR-085 — Optional Redaction Hook for Logs and Disclosed Error Messages](../adr/ADR-085-optional-redaction-hook-for-logs-and-disclosed-error-messages.md)
 - [ADR-024 — Telemetry Retry/Backoff](../adr/ADR-024-telemetry-retry-backoff.md)
 - [ADR-081 — Supervision of Framework-Started Tasks](../adr/ADR-081-supervision-of-framework-started-tasks-with-an-on-task-failure-policy.md)

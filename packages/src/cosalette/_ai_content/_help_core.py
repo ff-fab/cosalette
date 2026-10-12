@@ -863,14 +863,18 @@ Default Retry Behavior:
     App(error_reminder_interval=3600); None = onset only)
 
 Error Disclosure + Redaction:
-  • Error payloads publish only the class name unless a type is disclosed
-    (disclose_messages_for=..., legacy error_type_map, or verbose) — ADR-061
-  • An explicit set replaces the legacy rule; keep the framework's sanitised
-    messages with disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS
-    | {MyError} (InvalidJsonError, MissingSubKeyError,
-    UnknownSubCommandError, PayloadValidationError; builtin TimeoutError is
-    excluded — list it yourself to disclose watchdog timeouts, whose message
-    is "command handler exceeded N.Ns watchdog")
+  • Error payloads publish label + class name for every error, framework
+    errors included, unless the exact type is listed in
+    App(disclose_messages_for=...) — ADR-091. error_type_map only labels
+  • Keep the framework's sanitised messages plus your own with
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}
+    (InvalidJsonError, MissingSubKeyError, UnknownSubCommandError,
+    PayloadValidationError; builtin TimeoutError is excluded — list it
+    yourself to disclose watchdog timeouts, whose message is
+    "command handler exceeded N.Ns watchdog")
+  • Verbose (every message) needs App(allow_error_publish_verbose=True) AND
+    MQTT__ERROR_PUBLISH_VERBOSE=true; the setting alone is ignored with one
+    startup WARNING
   • App(redact=[r"token=[^&\\s]+", re.compile(...)]) or App(redact=fn) scrubs
     disclosed messages and every log line on cosalette's handlers (message,
     traceback, stack info); each pattern match becomes [REDACTED] (ADR-085)

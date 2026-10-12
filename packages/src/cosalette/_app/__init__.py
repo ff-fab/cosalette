@@ -135,8 +135,8 @@ def _validate_disclose_messages_for(
 ) -> frozenset[type[Exception]] | None:
     """Validate the app-provided ``disclose_messages_for`` set.
 
-    ``None`` means "not provided" and preserves legacy behaviour, so it is
-    passed through unchanged.  Otherwise every member must be an
+    ``None`` means "not provided" (nothing is disclosed), so it is passed
+    through unchanged.  Otherwise every member must be an
     :class:`Exception` class — a non-exception member would silently never
     match at publish time, the same quiet-degradation failure mode
     ``_validate_error_type_map`` guards against.
@@ -151,6 +151,14 @@ def _validate_disclose_messages_for(
             )
             raise TypeError(msg)
     return frozenset(disclose_messages_for)
+
+
+def _validate_bool_option(name: str, value: bool) -> bool:
+    """Reject dynamically supplied non-bool values for boolean App options."""
+    if not isinstance(value, bool):
+        msg = f"{name} must be a bool, got {value!r}"
+        raise TypeError(msg)
+    return value
 
 
 class App(
@@ -210,6 +218,7 @@ class App(
         sustained_health_reset: float = 300.0,
         error_type_map: dict[type[Exception], str] | None = None,
         disclose_messages_for: frozenset[type[Exception]] | None = None,
+        allow_error_publish_verbose: bool = False,
         on_task_failure: TaskFailurePolicy = "restart",
         task_max_restarts: int = DEFAULT_TASK_MAX_RESTARTS,
         task_restart_window: float = DEFAULT_TASK_RESTART_WINDOW,
@@ -302,35 +311,34 @@ class App(
                 ``(impl, dry_run)`` tuple.  Entries are registered via
                 :meth:`adapter` and coexist with later imperative calls.
             error_type_map: Optional mapping from app-owned exception types to
-                machine-readable ``error_type`` strings.  Registering a type
-                opts it back into full-message error publishing under the
-                LEAK-01 default-deny: an exception whose type is in the map has
-                its ``str(error)`` published on the broker-visible error topic,
-                while unlisted (downstream/unexpected) exceptions keep having
-                their message redacted to the class name.  Framework labels
+                machine-readable ``error_type`` strings.  It only assigns
+                labels; it never publishes a message (see
+                *disclose_messages_for*).  Framework labels
                 (``invalid_json``, ``missing_sub_key``,
                 ``unknown_sub_command``, ``invalid_payload`` for
                 :class:`PayloadValidationError`, ``timeout``) remain
                 authoritative; an entry overriding one with a different label
-                logs a startup warning.  See ADR-011.
-
-                Security note: mapping a type is a **message-disclosure
-                decision**, not just labeling.  Only register exceptions whose
-                messages are guaranteed free of secrets, filesystem paths,
-                hostnames, or credentials — exception text frequently embeds
-                URLs with userinfo or absolute paths.
-            disclose_messages_for: Explicit set of exception types whose
-                ``str(error)`` may be published, decoupled from
-                ``error_type_map`` labeling (F-DP1).  When given, it **fully
-                defines** the disclosure policy — a type must be listed here
-                to have its message published, regardless of whether it is
-                also in ``error_type_map`` (framework-mapped types included).
-                Pass ``cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}`` to
-                keep the framework's own sanitised command error messages
-                (the builtin ``TimeoutError`` is not included).
-                ``None`` (default) preserves the legacy conflated behaviour:
-                registering a type in ``error_type_map`` alone discloses its
-                message.  See ADR-061.
+                logs a startup warning.  See ADR-011 and ADR-091.
+            disclose_messages_for: The exception types whose ``str(error)``
+                is published on the broker-visible error topics (F-DP1),
+                exact classes only.  ``None`` (default) discloses nothing:
+                every error, the framework's own included, publishes its
+                ``error_type`` label and the exception class name as
+                ``message``.  Pass
+                ``cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}`` to
+                publish the framework's sanitised command error messages
+                plus your own (the builtin ``TimeoutError`` is disclosed only
+                when listed).  Only list exceptions whose messages are free
+                of secrets, filesystem paths, hostnames or credentials.  See
+                ADR-091.
+            allow_error_publish_verbose: Allow verbose error publishing,
+                which discloses the message of **every** error.  It takes
+                effect only when the operator also sets
+                ``MqttSettings.error_publish_verbose``
+                (``MQTT__ERROR_PUBLISH_VERBOSE=true``); if the setting is on
+                and this is ``False``, the setting is ignored and one WARNING
+                is logged at startup.  *redact* still applies to every
+                disclosed message.  Defaults to False.  See ADR-091.
             on_task_failure: What happens when a framework-started task
                 (device, telemetry entity, coalescing group, periodic or
                 stream handler) dies.  ``"restart"`` (default) re-creates it
@@ -377,8 +385,8 @@ class App(
                 per stale episode.  Needs *health_check_interval*.
                 Defaults to False.  See ADR-084.
             redact: Scrubs secrets from text that leaves the process: the
-                message of a disclosed error payload (``disclose_messages_for``,
-                legacy ``error_type_map`` disclosure, ``error_publish_verbose``)
+                message of a disclosed error payload (``disclose_messages_for``
+                or verbose publishing)
                 and every record on the log handlers cosalette installs.
                 ``None`` (default) is off; a callable ``str -> str`` is used
                 as is; an iterable of regular expressions (``str`` or
@@ -445,10 +453,12 @@ class App(
         self._error_reminder_interval = error_reminder_interval
         _validate_positive_interval("exit_after_stale", exit_after_stale)
         self._exit_after_stale = exit_after_stale
-        if not isinstance(restart_on_stale, bool):
-            msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
-            raise TypeError(msg)
-        self._restart_on_stale = restart_on_stale
+        self._restart_on_stale = _validate_bool_option(
+            "restart_on_stale", restart_on_stale
+        )
+        self._allow_error_publish_verbose = _validate_bool_option(
+            "allow_error_publish_verbose", allow_error_publish_verbose
+        )
         self._redactor = build_redactor(redact)
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
@@ -702,12 +712,20 @@ class App(
         """App-registered message-disclosure set (read-only), or ``None``.
 
         Returns the value passed as ``disclose_messages_for=`` to
-        :class:`App`.  When not ``None``, it fully defines which exception
-        types' ``str(error)`` is published, independent of
-        ``error_type_map``.  ``None`` means the legacy conflated behaviour
-        is in effect (map membership implies disclosure).  See ADR-061.
+        :class:`App`: the exception types whose ``str(error)`` is published,
+        independent of ``error_type_map``.  ``None`` discloses nothing.  See
+        ADR-091.
         """
         return self._disclose_messages_for
+
+    @property
+    def allow_error_publish_verbose(self) -> bool:
+        """Whether the app allows verbose error publishing (read-only).
+
+        Verbose publishing takes effect only when this is ``True`` and the
+        operator also sets ``MqttSettings.error_publish_verbose``.  See ADR-091.
+        """
+        return self._allow_error_publish_verbose
 
     @override
     @property

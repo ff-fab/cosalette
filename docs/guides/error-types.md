@@ -285,29 +285,31 @@ telemetry trigger input.
     Remove the entry and update consumers that filter on `"error"` or on your
     old label.
 
-!!! warning "Labeling an exception type also discloses its message (legacy default)"
+!!! warning "Labeling an exception type does not disclose its message"
 
-    Registering an exception type in `error_type_map` (via `App(error_type_map=...)`)
-    both assigns its `error_type` label **and** — by default — opts its raw
-    `str(error)` into publication on broker-visible error topics. If you want a
-    readable label without disclosing the message, pass `App(disclose_messages_for=...)`
-    to decouple the two decisions (F-DP1, [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)).
+    `App(error_type_map=...)` only assigns the `error_type` label. By default
+    every error payload, the framework's own included, carries the label and
+    the exception class name as `message`; the raw `str(error)` is published
+    only for exact types you list in `App(disclose_messages_for=...)`
+    (F-DP1, [ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md)).
     See [Message Disclosure](../concepts/error-handling.md#message-disclosure) for details.
 
-### Moving to an explicit disclosure set
+### Migrating to 0.12.0 disclosure
 
-An explicit `disclose_messages_for` replaces the legacy rule entirely, so list
-everything whose message you still want published. Start from the framework's
-own sanitised errors, then add the app types you mapped before:
+Before 0.12.0, mapping a type in `error_type_map` also published its message,
+and so did the framework's own errors. Both now publish the class name unless
+you list the type. List everything whose message you still want published:
+start from the framework's own sanitised errors, then add the app types you
+mapped before:
 
 ```python
-# Before: mapping implies disclosure (legacy rule)
+# Before 0.12.0: mapping implied disclosure
 app = cosalette.App(
     name="wallpanel",
     error_type_map={SshCommandError: "ssh_command"},
 )
 
-# After: labels and disclosure are separate decisions
+# 0.12.0: labels and disclosure are separate decisions
 app = cosalette.App(
     name="wallpanel",
     error_type_map={SshCommandError: "ssh_command"},
@@ -317,6 +319,10 @@ app = cosalette.App(
 
 `FRAMEWORK_DISCLOSED_ERRORS` leaves out the builtin `TimeoutError`, so watchdog
 timeouts publish `"TimeoutError"` as the message unless you add it yourself.
+
+`MQTT__ERROR_PUBLISH_VERBOSE=true` alone no longer publishes every message: the
+app must also pass `App(allow_error_publish_verbose=True)`. Otherwise the
+setting is ignored with one startup warning.
 
 ## How Error Publication Works
 
@@ -355,7 +361,7 @@ Every error is published as a JSON object with this schema:
 ```json title="ErrorPayload example"
 {
     "error_type": "sensor_timeout",
-    "message": "Serial read timed out after 5s",
+    "message": "SensorTimeoutError",
     "device": "counter",
     "timestamp": "2026-02-18T10:30:00+00:00",
     "details": {}
@@ -365,7 +371,7 @@ Every error is published as a JSON object with this schema:
 | Field        | Type             | Description                                       |
 | ------------ | ---------------- | ------------------------------------------------- |
 | `error_type` | `str`            | Machine-readable error classification              |
-| `message`    | `str`            | Human-readable description (`str(exception)`)      |
+| `message`    | `str`            | Exception class name; `str(exception)` only for types in `disclose_messages_for` |
 | `device`     | `str | null`     | Device name, or `null` for non-device errors       |
 | `timestamp`  | `str` (ISO 8601) | When the error occurred                            |
 | `details`    | `dict`           | Additional context (empty by default)              |
@@ -567,8 +573,8 @@ app.run()
 ```
 
 1. Wrap low-level exceptions in domain exceptions. When the framework catches
-   these, it publishes with the generic `"error"` type — but the domain exception
-   class name appears in the `message` field for debugging.
+   these, it publishes with the generic `"error"` type and the domain exception
+   class name in the `message` field; the full text is logged locally.
 2. Validate readings and raise domain exceptions for invalid data. The framework
    catches these, publishes the error, and continues the polling loop.
 
@@ -577,7 +583,7 @@ The framework's automatic error publication produces payloads like:
 ```json title="Framework auto-published error (generic type)"
 {
     "error_type": "error",
-    "message": "Read timed out: Serial read timeout",
+    "message": "SensorTimeoutError",
     "device": "counter",
     "timestamp": "2026-02-18T10:30:00+00:00",
     "details": {}
@@ -592,7 +598,7 @@ error type map in a manual try/except — see Step 3 above for the API.
     ```json
     {
         "error_type": "sensor_timeout",
-        "message": "Read timed out: Serial read timeout",
+        "message": "SensorTimeoutError",
         "device": "counter",
         "timestamp": "2026-02-18T10:30:00+00:00",
         "details": {}
@@ -604,7 +610,7 @@ error type map in a manual try/except — see Step 3 above for the API.
     ```json
     {
         "error_type": "error",
-        "message": "Read timed out: Serial read timeout",
+        "message": "SensorTimeoutError",
         "device": "counter",
         "timestamp": "2026-02-18T10:30:00+00:00",
         "details": {}
@@ -616,7 +622,7 @@ error type map in a manual try/except — see Step 3 above for the API.
     ```json
     {
         "error_type": "error",
-        "message": "something unexpected",
+        "message": "RuntimeError",
         "device": "counter",
         "timestamp": "2026-02-18T10:30:10+00:00",
         "details": {}

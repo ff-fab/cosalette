@@ -1,32 +1,37 @@
-"""Integration tests — consumer error_type_map opt-in.
+"""Integration tests — error labels, message disclosure and verbose gating.
 
-Validates the LEAK-01 targeted opt-in end-to-end: an app that registers a
-domain exception via ``App(error_type_map=...)`` gets that exception's full
-message published on the broker-visible error topic, while an unregistered
-exception keeps having its message redacted to the class name.  Rejected
-typed-command input carries the framework label ``invalid_payload``.
+Validates ADR-091 end-to-end: ``App(error_type_map=...)`` only assigns the
+``error_type`` label, a message is published only for the exact types listed
+in ``App(disclose_messages_for=...)``, and verbose publishing needs both
+``App(allow_error_publish_verbose=True)`` and the ``mqtt.error_publish_verbose``
+setting.  Rejected typed-command input carries the framework label
+``invalid_payload``.
 
 Test Techniques Used:
     - Integration Testing: full lifecycle via AppHarness (real create_services).
-    - Equivalence Partitioning: registered vs unregistered exception types.
+    - Equivalence Partitioning: registered vs unregistered exception types;
+      ``disclose_messages_for=None`` vs ``frozenset()`` (same partition).
     - Decision Table: disclosure mode x rejected-input kind for typed commands;
-      error source x ``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` membership.
+      error source x ``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` membership;
+      app verbose permission x operator verbose setting.
 
 See Also:
-    ADR-011 — Error handling and publishing (pluggable + LEAK-01 opt-in).
+    ADR-011 — Error handling and publishing.
+    ADR-091 — Labelling-only error type map, secure-by-default disclosure.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Callable
-from typing import Annotated, Literal
+from typing import Annotated, Literal, override
 
 import pytest
 from pydantic import BaseModel
 
-from cosalette import FRAMEWORK_DISCLOSED_ERRORS, Payload
+from cosalette import FRAMEWORK_DISCLOSED_ERRORS, App, MqttSettings, Payload
 from cosalette._context import DeviceContext
 from cosalette.testing import AppHarness
 
@@ -127,18 +132,21 @@ def _error_type(harness: AppHarness) -> str:
     return error_type
 
 
-class TestErrorTypeMapOptIn:
-    """Registered domain exceptions publish full messages; others are redacted."""
+class TestErrorTypeMapLabelsOnly:
+    """error_type_map assigns the label only; it never discloses (ADR-091)."""
 
-    async def test_registered_exception_publishes_full_message(self) -> None:
-        """A registered domain type keeps its (safe) message on the error topic."""
+    async def test_registered_exception_publishes_label_and_class_name(
+        self,
+    ) -> None:
+        """A registered domain type gets its label but not its message."""
         harness = AppHarness.create(
             error_type_map={CalDavConnectionError: "caldav_connection_error"},
         )
 
         await _run_command_raising(harness, CalDavConnectionError("server unreachable"))
 
-        assert _error_message(harness) == "server unreachable"
+        assert _error_type(harness) == "caldav_connection_error"
+        assert _error_message(harness) == "CalDavConnectionError"
 
     async def test_unregistered_exception_is_redacted(self) -> None:
         """Without registration the message is redacted to the class name."""
@@ -150,11 +158,7 @@ class TestErrorTypeMapOptIn:
 
 
 class TestDiscloseMessagesForOptIn:
-    """disclose_messages_for decouples disclosure from error_type_map (F-DP1).
-
-    See Also:
-        ADR-061 — Decoupled error-message disclosure.
-    """
+    """disclose_messages_for alone decides disclosure (F-DP1, ADR-091)."""
 
     async def test_disclose_messages_for_publishes_full_message(self) -> None:
         """A type listed in disclose_messages_for keeps its message, mapped or not."""
@@ -170,11 +174,9 @@ class TestDiscloseMessagesForOptIn:
     async def test_mapped_type_redacted_when_not_in_disclose_messages_for(
         self,
     ) -> None:
-        """A mapped type is still redacted when disclose_messages_for excludes it.
+        """A mapped type is redacted when disclose_messages_for excludes it.
 
-        This is the crux of the F-DP1 decoupling: registering a label via
-        error_type_map no longer implies disclosure once disclose_messages_for
-        is explicitly provided.
+        Registering a label via error_type_map never implies disclosure.
         """
         harness = AppHarness.create(
             error_type_map={CalDavConnectionError: "caldav_connection_error"},
@@ -235,13 +237,13 @@ class TestRedactHook:
 class TestRejectedTypedCommandInput:
     """Rejected typed-command input is labelled ``invalid_payload`` (ADR-011).
 
-    Technique: Decision Table — disclosure mode (legacy rule / explicit empty
-    set) x input kind (schema failure / bad JSON).
+    Technique: Decision Table — disclosure mode (framework errors listed /
+    default / explicit empty set) x input kind (schema failure / bad JSON).
     """
 
     async def test_schema_failure_publishes_sanitised_summary(self) -> None:
-        """Legacy rule: framework label plus the summary, never the input value."""
-        harness = AppHarness.create()
+        """Listed: framework label plus the summary, never the input value."""
+        harness = AppHarness.create(disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS)
 
         await _deliver(
             harness,
@@ -257,8 +259,8 @@ class TestRejectedTypedCommandInput:
         assert "secret-ajar" not in message
 
     async def test_bad_json_publishes_sanitised_message(self) -> None:
-        """Legacy rule: a JSON decode failure is ``invalid_payload`` too."""
-        harness = AppHarness.create()
+        """Listed: a JSON decode failure is ``invalid_payload`` too."""
+        harness = AppHarness.create(disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS)
 
         await _deliver(
             harness,
@@ -272,15 +274,30 @@ class TestRejectedTypedCommandInput:
         assert message.startswith("MQTT payload is not valid JSON (parameter 'cmd')")
         assert "secret-not-json" not in message
 
-    async def test_empty_disclosure_set_publishes_class_name_only(self) -> None:
-        """Explicit empty set: the label changes, the message stays the class."""
-        harness = AppHarness.create(disclose_messages_for=frozenset())
+    @pytest.mark.parametrize(
+        ("disclose", "payload"),
+        [
+            pytest.param(None, '{"state": "secret-ajar"}', id="default-schema"),
+            pytest.param(None, "secret-not-json{", id="default-bad-json"),
+            pytest.param(frozenset(), '{"state": "secret-ajar"}', id="empty-schema"),
+            pytest.param(frozenset(), "secret-not-json{", id="empty-bad-json"),
+        ],
+    )
+    async def test_unlisted_framework_error_publishes_class_name_only(
+        self, disclose: frozenset[type[Exception]] | None, payload: str
+    ) -> None:
+        """Default and empty set alike: the label, never the message.
+
+        Technique: Equivalence Partitioning — omitting disclose_messages_for
+        behaves exactly like an explicit empty set (ADR-091 point 2).
+        """
+        harness = AppHarness.create(disclose_messages_for=disclose)
 
         await _deliver(
             harness,
             lambda: _register_typed_command(harness),
             "testapp/valve/set",
-            '{"state": "secret-ajar"}',
+            payload,
         )
 
         assert _error_type(harness) == "invalid_payload"
@@ -319,7 +336,12 @@ class TestTelemetryTriggerValidation:
     @pytest.mark.parametrize(
         ("disclose_messages_for", "expected_message"),
         [
-            pytest.param(None, "Payload validation failed", id="legacy-disclosure"),
+            pytest.param(
+                FRAMEWORK_DISCLOSED_ERRORS,
+                "Payload validation failed",
+                id="framework-listed",
+            ),
+            pytest.param(None, "PayloadValidationError", id="default"),
             pytest.param(frozenset(), "PayloadValidationError", id="explicit-empty"),
         ],
     )
@@ -374,7 +396,7 @@ class TestFrameworkDisclosedErrors:
 
     Technique: Decision Table — error source x set membership. The set keeps
     replace semantics: unlisted types, including the builtin TimeoutError,
-    publish the class name only (ADR-061 amendment 2026-10-12).
+    publish the class name only (ADR-091 point 4).
     """
 
     @pytest.mark.parametrize(
@@ -441,3 +463,93 @@ class TestFrameworkDisclosedErrors:
         message = _error_message(harness)
         assert message.startswith(message_prefix)
         assert "secret" not in message
+
+
+class _Recorder(logging.Handler):
+    """Collect records; configure_logging() replaces root handlers."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+_VERBOSE_IGNORED = "MQTT__ERROR_PUBLISH_VERBOSE is set but this app does not allow"
+
+
+class TestVerboseGating:
+    """Verbose publishing needs the app opt-in and the setting (ADR-091 point 5).
+
+    Technique: Decision Table — ``App(allow_error_publish_verbose=...)`` x
+    ``mqtt.error_publish_verbose``; only the row with both on discloses, and
+    only the row with the setting alone warns.
+    """
+
+    @pytest.mark.parametrize(
+        ("allow", "setting", "expected_message", "warns"),
+        [
+            pytest.param(False, False, "_UnlistedError", False, id="neither"),
+            pytest.param(True, False, "_UnlistedError", False, id="app-only"),
+            pytest.param(False, True, "_UnlistedError", True, id="setting-only"),
+            pytest.param(True, True, "boom detail", False, id="both"),
+        ],
+    )
+    async def test_verbose_needs_app_and_setting(
+        self, allow: bool, setting: bool, expected_message: str, warns: bool
+    ) -> None:
+        # Arrange
+        harness = AppHarness.create(
+            allow_error_publish_verbose=allow,
+            mqtt=MqttSettings(error_publish_verbose=setting),
+        )
+        recorder = _Recorder()
+        logger = logging.getLogger("cosalette")
+        logger.addHandler(recorder)
+
+        # Act
+        try:
+            await _deliver(
+                harness,
+                lambda: _register_raising(harness, _UnlistedError("boom detail")),
+                "testapp/valve/set",
+                "go",
+            )
+        finally:
+            logger.removeHandler(recorder)
+
+        # Assert
+        assert _error_message(harness) == expected_message
+        ignored = [
+            r
+            for r in recorder.records
+            if r.levelno == logging.WARNING and _VERBOSE_IGNORED in r.getMessage()
+        ]
+        assert len(ignored) == (1 if warns else 0)
+
+    async def test_verbose_message_is_still_redacted(self) -> None:
+        """Verbose discloses every message, but App(redact=...) still applies."""
+        # Arrange
+        harness = AppHarness.create(
+            allow_error_publish_verbose=True,
+            mqtt=MqttSettings(error_publish_verbose=True),
+            redact=[r"token=\S+"],
+        )
+
+        # Act
+        await _deliver(
+            harness,
+            lambda: _register_raising(harness, _UnlistedError("failed token=abc")),
+            "testapp/valve/set",
+            "go",
+        )
+
+        # Assert
+        assert _error_message(harness) == "failed [REDACTED]"
+
+    def test_verbose_is_off_by_default(self) -> None:
+        """Both switches default to off (secure by default)."""
+        assert App(name="testapp", version="1.0.0").allow_error_publish_verbose is False
+        assert MqttSettings().error_publish_verbose is False

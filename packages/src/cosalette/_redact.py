@@ -1,7 +1,7 @@
 """Optional redaction of disclosed error messages and log output.
 
 An app passes ``App(redact=...)`` to scrub secrets from the text that
-leaves the process: the message of a *disclosed* error payload (ADR-061)
+leaves the process: the message of a *disclosed* error payload (ADR-091)
 and every record written by the log handlers cosalette installs.  The
 hook is a safety net on top of the default-deny disclosure policy, not a
 replacement for it.
