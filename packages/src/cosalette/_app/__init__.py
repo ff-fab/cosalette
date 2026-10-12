@@ -153,6 +153,14 @@ def _validate_disclose_messages_for(
     return frozenset(disclose_messages_for)
 
 
+def _validate_bool_option(name: str, value: bool) -> bool:
+    """Reject dynamically supplied non-bool values for boolean App options."""
+    if not isinstance(value, bool):
+        msg = f"{name} must be a bool, got {value!r}"
+        raise TypeError(msg)
+    return value
+
+
 class App(
     _RegistrationViewsMixin,
     _ConfigureMixin,
@@ -445,17 +453,12 @@ class App(
         self._error_reminder_interval = error_reminder_interval
         _validate_positive_interval("exit_after_stale", exit_after_stale)
         self._exit_after_stale = exit_after_stale
-        if not isinstance(restart_on_stale, bool):
-            msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
-            raise TypeError(msg)
-        self._restart_on_stale = restart_on_stale
-        if not isinstance(allow_error_publish_verbose, bool):
-            msg = (
-                "allow_error_publish_verbose must be a bool, "
-                f"got {allow_error_publish_verbose!r}"
-            )
-            raise TypeError(msg)
-        self._allow_error_publish_verbose = allow_error_publish_verbose
+        self._restart_on_stale = _validate_bool_option(
+            "restart_on_stale", restart_on_stale
+        )
+        self._allow_error_publish_verbose = _validate_bool_option(
+            "allow_error_publish_verbose", allow_error_publish_verbose
+        )
         self._redactor = build_redactor(redact)
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
