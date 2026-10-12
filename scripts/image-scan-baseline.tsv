@@ -253,7 +253,10 @@ debian	HIGH	CVE-2026-96889	librsvg2-2	2.60.0+dfsg-1	-	debian_pending
 debian	HIGH	CVE-2026-96889	librsvg2-common	2.60.0+dfsg-1	-	debian_pending
 debian	HIGH	CVE-2026-97528	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-98222	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-98320	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-98323	linux-libc-dev	6.12.111-1	-	kernel_headers
 debian	HIGH	CVE-2026-98364	linux-libc-dev	6.12.111-1	-	kernel_headers
+debian	HIGH	CVE-2026-98378	linux-libc-dev	6.12.111-1	-	kernel_headers
 usr/bin/gh	HIGH	CVE-2026-78667	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
 usr/bin/gh	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
 usr/bin/gh	HIGH	CVE-2026-78669	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
