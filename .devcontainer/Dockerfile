@@ -2,7 +2,7 @@
 # Python 3.14 + uv + common dev tools
 
 # renovate: datasource=docker depName=mcr.microsoft.com/devcontainers/python versioning=docker
-FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:3b3c45535947751e9dfcd513ef5bee858d221844f55e278e92d1cd8f5b1f2972
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:28835c112fd097cb6d2fe1e195b660d66ae051859070a9b871fa2308f35897d3
 
 # Set shell options for robust RUN commands
 # -e: exit on error
@@ -353,10 +353,10 @@ RUN set -eux; \
 
 # Install opencode (AI coding agent — https://opencode.ai)
 # renovate: datasource=github-releases depName=anomalyco/opencode
-ARG OPENCODE_VERSION=v1.18.32
+ARG OPENCODE_VERSION=v1.18.34
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG OPENCODE_SHA256_AMD64=3046e0404fdc60fb80307e7a47824ba07477364178a4d09baa8548496dd6d43b
-ARG OPENCODE_SHA256_ARM64=568461b7d4d8c19865c97e9a1102e613049c6039d01fe772154de873c1865840
+ARG OPENCODE_SHA256_AMD64=0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a
+ARG OPENCODE_SHA256_ARM64=bbdb3f00c2c51e42e315525233151309724226a8776da8e9145e3b0fa3d5310f
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -381,7 +381,7 @@ RUN set -eux; \
 # Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
 # is trusted rather than checksum-pinned.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.285
+ARG CLAUDE_CODE_VERSION=2.1.290
 # Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
 # Default to installing it (local devcontainer builds via VS Code / `devcontainer
 # up` get it out of the box); the CI devcontainer-build workflows set
