@@ -25,7 +25,7 @@
     "go_binaries": {
       "owner": "cos-nxu6",
       "expires": "2026-11-02",
-      "reason": "Temporary acceptance of exact Go standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. CVE-2026-78667, CVE-2026-78669 and CVE-2026-97031 and affected binary versions are reviewed in .devcontainer/security-review-2026-10-10.md. Docker Engine was updated to 29.9.0, removing its findings; other tools remain exposed to crafted input. Update pins as soon as fixed releases ship; expires 2026-11-02."
+      "reason": "Temporary acceptance of exact Go standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. CVE-2026-78667, CVE-2026-78669 and CVE-2026-97031 and affected binary versions are reviewed in .devcontainer/security-review-2026-10-10.md. Docker Buildx 0.38.0-1 adds exact x/net v0.59.0 fingerprint CVE-2026-78669; reviewed in .devcontainer/security-review-2026-10-12.md because the release predates disclosure and no later stable Buildx release is available. Docker Engine was updated to 29.9.0, removing its findings; other tools remain exposed to crafted input. Update pins as soon as fixed releases ship; expires 2026-11-02."
     }
   }
 }
