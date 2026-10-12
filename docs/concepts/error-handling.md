@@ -122,11 +122,16 @@ configuration:
 | `invalid_json` | `InvalidJsonError` | A sub-command payload is not valid JSON |
 | `missing_sub_key` | `MissingSubKeyError` | A sub-command payload lacks its routing key |
 | `unknown_sub_command` | `UnknownSubCommandError` | The routing value is not registered |
-| `invalid_payload` | `PayloadValidationError` | A typed command payload is not valid JSON or fails schema validation |
+| `invalid_payload` | `PayloadValidationError` | A typed command payload or typed telemetry trigger payload is not valid JSON or fails schema validation |
 | `timeout` | `TimeoutError` | A command handler exceeds its watchdog bound (ADR-060) |
 
 `ReturnValidationError` stays unlabelled (`error`): a handler that returns the
 wrong shape is an application fault.
+
+Typed telemetry trigger parameters using `Annotated[T, Payload()]` use the
+same validation exception, so their failures also change to `invalid_payload`
+in 0.12.0. Their message follows the same disclosure rules as typed command
+validation; under the legacy default it contains a sanitized summary.
 
 The app's `error_type_map` is merged with these entries and the **framework
 entries win**. When an app maps one of these types to a different label, the
@@ -187,7 +192,8 @@ app = cosalette.App(
 An explicit set does not inherit the framework's disclosures. Start from
 `cosalette.FRAMEWORK_DISCLOSED_ERRORS` (`InvalidJsonError`,
 `MissingSubKeyError`, `UnknownSubCommandError`, `PayloadValidationError`) to
-keep the messages the framework builds and sanitises itself. The builtin
+keep the messages the framework builds and sanitises itself, including typed
+telemetry trigger validation. The builtin
 `TimeoutError` is deliberately not in it: library code raises it too, with
 text the framework does not control. Command watchdog timeouts carry the
 framework message `command handler exceeded N.Ns watchdog`; a `TimeoutError`

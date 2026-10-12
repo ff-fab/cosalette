@@ -98,8 +98,8 @@ Examples (messages as published under the default disclosure rule):
 # Unknown sub-command: only type, length and a SHA-256 fingerprint of the value
 {"error_type": "unknown_sub_command", "message": "Unknown sub-command for 'light' (type=str, len=5, fp=e14a51fd)", "device": "light"}
 
-# Rejected typed-command input: field locations and pydantic error codes only
-{"error_type": "invalid_payload", "message": "Payload validation failed (parameter 'cmd'): state: type=literal_error", "device": "light"}
+# Rejected typed-command or typed telemetry trigger input: redacted locations and pydantic error codes only
+{"error_type": "invalid_payload", "message": "Payload validation failed (parameter 'cmd'): [field]: type=literal_error", "device": "light"}
 
 # Command watchdog expired (a TimeoutError raised by handler code keeps its own text)
 {"error_type": "timeout", "message": "command handler exceeded 30.0s watchdog", "device": "light"}

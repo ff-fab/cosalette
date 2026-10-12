@@ -661,10 +661,10 @@ class _LiteralCmd(BaseModel):
 
 
 class TestValidationSummaryLocation:
-    """Validation summaries render an empty pydantic loc as ``__root__``.
+    """Validation summaries redact string locations and name empty locs.
 
     Technique: Equivalence Partitioning on ``loc`` — empty partition (one
-    representative per error source) vs non-empty partition (unchanged),
+    representative per error source) vs string components redacted,
     plus Error Guessing for the OWASP A03 guard.
     """
 
@@ -692,13 +692,13 @@ class TestValidationSummaryLocation:
             pytest.param(
                 '{"state": "maybe"}',
                 _LiteralCmd,
-                "(parameter 'cmd'): state: type=literal_error",
+                "(parameter 'cmd'): [field]: type=literal_error",
                 id="non-empty-loc-field-error",
             ),
             pytest.param(
                 '{"inner": {"state": "off", "level": 5}}',
                 _Outer,
-                "(parameter 'cmd'): inner: type=value_error",
+                "(parameter 'cmd'): [field].[field]: type=value_error",
                 id="non-empty-loc-nested-model-validator",
             ),
         ],
@@ -749,6 +749,17 @@ class TestValidationSummaryLocation:
         assert _INPUT_SENTINEL not in message
         assert "): : type=" not in message
         assert "__root__: type=value_error" in message
+
+    def test_dynamic_mapping_key_is_redacted(self) -> None:
+        """A caller-controlled mapping key is not disclosed in a summary."""
+        sentinel = "dynamic-field-marker-xyz"
+
+        with pytest.raises(PayloadValidationError) as exc_info:
+            parse_payload('{"dynamic-field-marker-xyz": "invalid"}', dict[str, int])
+
+        message = str(exc_info.value)
+        assert sentinel not in message
+        assert "[field]: type=int_parsing" in message
 
 
 # ---------------------------------------------------------------------------

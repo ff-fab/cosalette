@@ -278,3 +278,19 @@ Merge precedence is unchanged: `create_services` builds `{**app_map, **_FRAMEWOR
 
 - Error-topic payloads for rejected typed-command input change for every app, which requires a breaking-change release (0.12.0) and may require consumer filter updates.
 - Under the legacy disclosure rule the sanitised validation summary of rejected input becomes broker-visible for every app, not only for apps that registered `PayloadValidationError` themselves.
+
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** The shared PayloadValidationError is also used for typed telemetry trigger input, and validation locations can contain caller-controlled mapping keys or extra-field names. The public disclosure rules need to record both the telemetry impact and the stronger sanitization boundary.
+
+### Additional Sub-Decision: Validation summaries redact string location components
+
+`_safe_error_summary` replaces every string component of a Pydantic location with `[field]` while retaining integer sequence indexes and framework-owned error type codes. A string location may be a declared model field, but it may also be an untrusted mapping key or extra-field name, and the validator does not have enough schema context to distinguish these safely. This preserves actionable error categories without echoing input-controlled names to broker-visible topics. The `invalid_payload` label and disclosure behavior also apply to typed `Annotated[T, Payload()]` parameters on triggerable telemetry handlers, because those handlers use the same `PayloadValidationError` and `ErrorPublisher` path.
+
+### Additional Positive Consequences
+
+- Broker-visible typed validation summaries no longer expose caller-controlled object keys through Pydantic locations.
+
+### Additional Negative Consequences
+
+- Field names are no longer included in validation summaries; every string location component appears as `[field]`, which reduces diagnostic specificity.

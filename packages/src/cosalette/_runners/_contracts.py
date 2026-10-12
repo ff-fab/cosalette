@@ -135,12 +135,10 @@ def _decode_json(raw: str, param: str | None, handler: str | None) -> Any:
 def _safe_error_summary(exc: ValidationError) -> str:
     """Summarise *exc* using only framework-owned data.
 
-    Sanitize: build error text ONLY from framework-owned data (field
-    location codes + Pydantic error type codes) — never from ``'msg'``
-    text, which can embed the rejected value when custom validators
-    raise ``ValueError(f"bad: {value}")``.  Publishing ``msg`` verbatim
-    would echo user-controlled data to every MQTT error-topic subscriber
-    (OWASP A03 — Injection).
+    Sanitize: build error text ONLY from framework-owned data (redacted
+    location markers + Pydantic error type codes) — never from ``'msg'``
+    text or string location components. Mapping keys and extra-field names
+    are input-controlled and can otherwise leak to MQTT error subscribers.
 
     Root-level errors (a ``model_validator`` failure, or a whole-value type
     mismatch such as ``[1]`` for a model or ``"x"`` for ``int``) carry an
@@ -154,8 +152,14 @@ def _safe_error_summary(exc: ValidationError) -> str:
 
 
 def _format_loc(loc: tuple[int | str, ...]) -> str:
-    """Join a pydantic error *loc*, or return ``__root__`` when it is empty."""
-    return ".".join(str(loc_part) for loc_part in loc) or "__root__"
+    """Redact string parts of a pydantic *loc*, or return ``__root__``.
+
+    String parts can be model fields, but can also be attacker-controlled
+    mapping keys or extra-field names; without the schema here, they cannot
+    be distinguished safely. Integer parts are sequence indexes.
+    """
+    safe_parts = ("[field]" if isinstance(part, str) else str(part) for part in loc)
+    return ".".join(safe_parts) or "__root__"
 
 
 def _annotation_label(annotation: Any) -> str:
@@ -334,8 +338,8 @@ def validate_state_payload(
     Raises:
         ReturnValidationError: If *payload* does not conform to
             *state_model*, or if serialisation of the validated value
-            fails.  The message names the offending field paths, the
-            model, and the handler.
+            fails. The message includes redacted field markers, the model,
+            and the handler; string location components are not disclosed.
 
     See Also:
         ADR-046 — ``state_model`` drives runtime validation.

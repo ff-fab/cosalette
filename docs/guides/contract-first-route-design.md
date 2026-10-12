@@ -327,8 +327,8 @@ Scope and caveats:
   archetype, so an absent optional field is an omitted key, not an explicit `null` —
   the conditional-key idiom survives validation.
 - **Extra keys are dropped.** A key that is not on the model does not reach the wire.
-- **Errors are safe to log.** They name the offending field paths, the model, and the
-  handler, and never echo the rejected payload.
+- **Errors are safe to log.** They include redacted field markers, the model, and the
+  handler, and never echo the rejected payload or caller-controlled object keys.
 - **`state_model=None` (the default) skips the path entirely** — no `TypeAdapter` is
   built and nothing is added per publish.
 

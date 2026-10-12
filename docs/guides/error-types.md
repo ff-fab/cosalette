@@ -270,11 +270,12 @@ built-in error isolation publishes your exceptions with `error_type="error"` —
 custom classification lets you distinguish error categories in downstream
 subscribers. Errors the framework raises itself already carry a label (see
 [Framework Error Types](../concepts/error-handling.md#framework-error-types)),
-for example `invalid_payload` for rejected typed-command input.
+for example `invalid_payload` for rejected typed-command input and typed
+telemetry trigger input.
 
 !!! note "Migrating from an app-side `PayloadValidationError` mapping (0.12.0)"
 
-    Before 0.12.0, rejected typed-command input was published as
+    Before 0.12.0, rejected typed-command or typed telemetry trigger input was published as
     `error_type: "error"` with the message `"PayloadValidationError"`, and
     apps mapped `cosalette.PayloadValidationError` themselves to get a label.
     The framework now labels it `invalid_payload`. Its label overrides yours:

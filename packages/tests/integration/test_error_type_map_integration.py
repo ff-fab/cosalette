@@ -253,7 +253,7 @@ class TestRejectedTypedCommandInput:
         assert _error_type(harness) == "invalid_payload"
         message = _error_message(harness)
         assert message.startswith("Payload validation failed (parameter 'cmd')")
-        assert message.endswith("state: type=literal_error")
+        assert message.endswith("[field]: type=literal_error")
         assert "secret-ajar" not in message
 
     async def test_bad_json_publishes_sanitised_message(self) -> None:
@@ -311,6 +311,47 @@ class TestRejectedTypedCommandInput:
         await _deliver(harness, register, "testapp/valve/set", "not json{")
 
         assert _error_type(harness) == "invalid_json"
+
+
+class TestTelemetryTriggerValidation:
+    """Typed telemetry trigger failures share ``PayloadValidationError``."""
+
+    @pytest.mark.parametrize(
+        ("disclose_messages_for", "expected_message"),
+        [
+            pytest.param(None, "Payload validation failed", id="legacy-disclosure"),
+            pytest.param(frozenset(), "PayloadValidationError", id="explicit-empty"),
+        ],
+    )
+    async def test_trigger_validation_is_invalid_payload(
+        self,
+        disclose_messages_for: frozenset[type[Exception]] | None,
+        expected_message: str,
+    ) -> None:
+        """Trigger validation follows the same label and disclosure rules."""
+        harness = AppHarness.create(disclose_messages_for=disclose_messages_for)
+
+        @harness.app.telemetry("sensor", interval=3600, triggerable=True)
+        async def sensor(
+            value: Annotated[dict[str, int] | None, Payload()] = None,
+        ) -> dict[str, object]:
+            return {"value": value}
+
+        async def _simulate() -> None:
+            await asyncio.sleep(0.02)
+            await harness.mqtt.deliver(
+                "testapp/sensor/set", '{"dynamic-field-marker-xyz": "invalid"}'
+            )
+            await _wait_for_error(harness)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith(expected_message)
+        assert "dynamic-field-marker-xyz" not in message
 
 
 class _UnlistedError(Exception):
