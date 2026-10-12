@@ -9,7 +9,7 @@ tags: [error-handling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-07-24 | Amended **Date:** 2026-10-01
+Accepted **Date:** 2026-02-14 | Amended **Date:** 2026-07-24 | Amended **Date:** 2026-10-01 | Amended **Date:** 2026-10-12
 
 ## Context
 
@@ -246,3 +246,35 @@ Keep raising and document that device handlers must catch MqttNotConnectedError 
 
 - A device or stream that publishes only on change loses the update made during the outage until it next publishes; retained sub-entity availability is not re-asserted until the sub-entity is re-entered.
 - Code that constructs DeviceContext directly (custom harnesses, tests) gets the strict raising behaviour unless it passes tolerate_not_connected=True.
+
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** Rejected typed-command input (a payload that fails JSON decoding or schema validation and raises the public `PayloadValidationError`) had no framework error type, so it was published as `error_type: "error"` with the class name as message, the same shape as a crash in handler code. The framework owns both this exception and its sanitised summary, so it also owns the label. Putting a public exception type into the framework map makes the merge-precedence rule of the 2026-07-24 amendment reachable in practice, so a shadowed app entry needs a visible signal. Tracked as cos-ked4.3 (epic cos-ked4).
+
+### Additional Sub-Decision: Framework label for rejected typed-command input: invalid_payload
+
+The framework error map contains the public exception type `PayloadValidationError` with the label `invalid_payload`, next to `InvalidJsonError` → `invalid_json`, `MissingSubKeyError` → `missing_sub_key`, `UnknownSubCommandError` → `unknown_sub_command` and the builtin `TimeoutError` → `timeout`. Both schema failures and JSON decode failures on typed `@app.command` payloads raise `PayloadValidationError` and are therefore published as `invalid_payload`. Map membership has the usual disclosure effect: under the legacy rule (no `disclose_messages_for`) the sanitised validation summary from `_safe_error_summary` is published; under an explicit `disclose_messages_for` set the message is disclosed only if the set contains `PayloadValidationError` (see ADR-061). The summary never contains pydantic `msg` text or input values (ADR-045/046).
+
+### Additional Sub-Decision: ReturnValidationError stays unlabelled
+
+`ReturnValidationError` (a handler returned a value that does not match its declared return contract) is not added to the framework map. It signals an application fault and keeps the generic `error` label and class-name message, like any other unmapped exception.
+
+### Additional Sub-Decision: Shadowed app entries produce a startup warning
+
+Merge precedence is unchanged: `create_services` builds `{**app_map, **_FRAMEWORK_ERROR_TYPE_MAP}` and framework entries win. Before merging, it logs one `WARNING` per app `error_type_map` key that is also a framework key with a **different** label, naming the exception type, the app label and the framework label (for example `error_type_map entry PayloadValidationError -> 'validation' is overridden by the framework label 'invalid_payload'`). An app entry with the same label as the framework entry is harmless and produces no warning. The warning is emitted once at startup, not per published error.
+
+!!! note "Editorial note (2026-10-12)"
+    Correction to the 2026-07-24 amendment, sub-decision 'Merge precedence — framework entries authoritative': the framework command exception types and `_FRAMEWORK_ERROR_TYPE_MAP` live in `cosalette._runners._command_errors` (kept apart from the command runner so the error publisher can map them without loading it, cos-8jxg.5), not in `cosalette._runners._command_runner`. With `PayloadValidationError` in the framework map, a conflict between an app entry and a framework entry is reachable; the statements that such a conflict is 'practically unreachable' and that the framework mapping 'silently prevails' are replaced by the sub-decisions of this amendment. Framework entries remain authoritative.
+
+!!! note "Editorial note (2026-10-12)"
+    Breaking change (0.12.0): every app's error-topic payload for rejected typed-command input changes from `error_type: "error"` / `message: "PayloadValidationError"` to `error_type: "invalid_payload"`, with the message governed by the disclosure rules of ADR-061. Consumers that filter on `error_type == "error"` no longer see these events.
+
+### Additional Positive Consequences
+
+- Consumers can tell rejected command input (`invalid_payload`) apart from handler crashes (`error`) without app-specific configuration, and typed commands and sub-command groups both get a framework label for bad input.
+- Apps that mapped `PayloadValidationError` themselves get an explicit startup signal that their entry is overridden and can be removed.
+
+### Additional Negative Consequences
+
+- Error-topic payloads for rejected typed-command input change for every app, which requires a breaking-change release (0.12.0) and may require consumer filter updates.
+- Under the legacy disclosure rule the sanitised validation summary of rejected input becomes broker-visible for every app, not only for apps that registered `PayloadValidationError` themselves.
