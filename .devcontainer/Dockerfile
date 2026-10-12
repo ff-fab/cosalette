@@ -71,7 +71,7 @@ RUN set -eux; \
 # renovate: datasource=deb depName=docker-ce extractVersion=^5:(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
 ARG DOCKER_VERSION=29.9.0-1
 # renovate: datasource=deb depName=containerd.io extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG CONTAINERD_VERSION=2.3.6-1
+ARG CONTAINERD_VERSION=2.4.1-2
 # renovate: datasource=deb depName=docker-buildx-plugin extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
 ARG BUILDX_VERSION=0.37.1-1
 # RootlessKit is pinned above Docker's bundled binary, which still links vulnerable
