@@ -1,5 +1,5 @@
 ---
-status: Accepted
+status: Superseded by ADR-091
 date: 2026-08-26
 impact: moderate
 tags: [security, error-handling, mqtt]
@@ -9,7 +9,9 @@ tags: [security, error-handling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-08-26 | Amended **Date:** 2026-10-12
+Superseded by ADR-091 **Date:** 2026-08-26 | Amended **Date:** 2026-10-12
+
+**Superseded by:** [ADR-091](ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md) — `error_type_map` now only assigns labels. Without `disclose_messages_for`, no message is disclosed, and that includes framework errors. Verbose error publishing requires the app to opt in with `App(allow_error_publish_verbose=True)`. These parts of this ADR remain valid: the `disclose_messages_for` parameter and its replace semantics, the exact-type matching, `cosalette.FRAMEWORK_DISCLOSED_ERRORS` (without the builtin `TimeoutError`), the framework-owned watchdog timeout message, the class-name fallback for empty disclosed messages, and the redaction of every disclosed message (ADR-085).
 
 ## Context
 
