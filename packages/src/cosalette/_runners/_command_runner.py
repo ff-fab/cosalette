@@ -34,6 +34,7 @@ from cosalette._registration import (
 from cosalette._runners._command_errors import (
     InvalidJsonError,
     MissingSubKeyError,
+    PayloadValidationError,
     UnknownSubCommandError,
 )
 from cosalette._runners._contracts import normalize_handler_return
@@ -201,6 +202,30 @@ class CommandRunner:
             kwargs["payload"] = payload
         return kwargs, providers
 
+    async def _bind_command_input(
+        self,
+        reg: _CommandRegistration,
+        ctx: DeviceContext,
+        topic: str,
+        payload: str,
+        error_publisher: ErrorPublisher,
+    ) -> tuple[dict[str, Any], dict[type, Any]] | None:
+        """Bind the payload to handler kwargs, or reject it and return ``None``.
+
+        Input the framework rejects is expected, not a fault: one WARNING
+        without traceback, with the chained cause at DEBUG (ADR-011).
+        """
+        try:
+            return self.prepare_command_kwargs(reg, ctx, topic, payload)
+        except PayloadValidationError as exc:
+            if not exc._framework_rejected:
+                raise
+            logger.debug("Command '%s' rejected input", reg.name, exc_info=exc)
+            await publish_error_safely(
+                error_publisher, exc, reg.name, reg.is_root, log_traceback=False
+            )
+            return None
+
     async def _auto_recover_if_needed(self, ctx: DeviceContext) -> None:
         """Publish 'online' if the device was previously marked unavailable."""
         if ctx._is_unavailable and ctx._health_reporter is not None:
@@ -298,7 +323,12 @@ class CommandRunner:
     ) -> None:
         """Dispatch a single command to a ``@app.command`` handler."""
         try:
-            kwargs, providers = self.prepare_command_kwargs(reg, ctx, topic, payload)
+            bound = await self._bind_command_input(
+                reg, ctx, topic, payload, error_publisher
+            )
+            if bound is None:
+                return
+            kwargs, providers = bound
             await self._invoke_handler(
                 reg, ctx, kwargs, providers, error_publisher, reactors
             )
@@ -511,18 +541,24 @@ class CommandRunner:
                 # the interpreter recursion limit; surface as invalid JSON
                 # instead of leaking an unstructured error (CWE-674).
                 wrapped_exc = InvalidJsonError("payload nesting too deep")
-                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                await publish_error_safely(
+                    _ep, wrapped_exc, _group_name, _is_root, log_traceback=False
+                )
                 return
             except JSONDecodeError as exc:
                 wrapped_exc = InvalidJsonError(str(exc))
-                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                await publish_error_safely(
+                    _ep, wrapped_exc, _group_name, _is_root, log_traceback=False
+                )
                 return
 
             if not isinstance(data, dict):
                 wrapped_exc = InvalidJsonError(
                     f"Command payload must be a JSON object, got {type(data).__name__}"
                 )
-                await publish_error_safely(_ep, wrapped_exc, _group_name, _is_root)
+                await publish_error_safely(
+                    _ep, wrapped_exc, _group_name, _is_root, log_traceback=False
+                )
                 return
 
             sub_value = data.get(_sub_key)
@@ -530,7 +566,9 @@ class CommandRunner:
                 exc = MissingSubKeyError(
                     f"Missing field '{_sub_key}' in command payload"
                 )
-                await publish_error_safely(_ep, exc, _group_name, _is_root)
+                await publish_error_safely(
+                    _ep, exc, _group_name, _is_root, log_traceback=False
+                )
                 return
 
             reg = _handlers.get(str(sub_value))
@@ -547,11 +585,15 @@ class CommandRunner:
                     f"fp={fingerprint})"
                 )
                 logger.warning(
-                    "Unknown sub-command %r for '%s'",
-                    sub_repr,
+                    "Unknown sub-command for '%s' (type=%s, len=%d, fp=%s)",
                     _group_name,
+                    type(sub_value).__name__,
+                    len(sub_repr),
+                    fingerprint,
                 )
-                await publish_error_safely(_ep, exc, _group_name, _is_root)
+                await publish_error_safely(
+                    _ep, exc, _group_name, _is_root, log_traceback=False
+                )
                 return
 
             await runner.run_command(reg, _ctx, topic, payload, _ep, _reactors)

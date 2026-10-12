@@ -129,6 +129,7 @@ def _decode_json(raw: str, param: str | None, handler: str | None) -> Any:
             param=param,
             handler=handler,
             cause=exc,
+            _framework_rejected=True,
         ) from exc
 
 
@@ -193,6 +194,7 @@ def _validate_python_value(
             param=param,
             handler=handler,
             cause=exc,
+            _framework_rejected=True,
         ) from exc
 
 

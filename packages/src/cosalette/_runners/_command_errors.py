@@ -39,10 +39,12 @@ class PayloadValidationError(Exception):
         param: str | None = None,
         handler: str | None = None,
         cause: BaseException | None = None,
+        _framework_rejected: bool = False,
     ) -> None:
         super().__init__(message)
         self.param = param
         self.handler = handler
+        self._framework_rejected = _framework_rejected
         if cause is not None:
             self.__cause__ = cause
 
