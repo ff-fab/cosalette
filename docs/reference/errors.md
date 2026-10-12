@@ -566,7 +566,9 @@ accepted by `App`, `ErrorPublisher`, `build_error_payload()`,
 | `frozenset()` | Discloses nothing — every exception, mapped or not, publishes only its class name |
 
 `verbose=True` (`MqttSettings.error_publish_verbose`) still overrides both and
-discloses every message unconditionally.
+discloses every message unconditionally. A disclosed exception whose
+`str(error)` is empty (such as a bare `TimeoutError()`) publishes its class
+name instead, so `message` is never `""`.
 
 ```python
 app = cosalette.App(

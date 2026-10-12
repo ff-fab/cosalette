@@ -19,10 +19,10 @@ import asyncio
 import dataclasses
 import warnings
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 import cosalette
 from cosalette._injection import (
@@ -37,6 +37,7 @@ from cosalette._runners._contracts import (
     ReturnValidationError,
     normalize_return,
     parse_payload,
+    validate_state_payload,
 )
 from cosalette._runners._telemetry_runner import (
     TelemetryRunner,
@@ -623,6 +624,131 @@ class TestParsePayload:
         with pytest.raises(ReturnValidationError) as exc_info:
             normalize_return("not-a-model", _ThermoState)
         assert exc_info.value.__cause__ is not None
+
+
+# ---------------------------------------------------------------------------
+# 8b. Validation summary — root-level (empty loc) errors
+# ---------------------------------------------------------------------------
+
+_MSG_SENTINEL = "SENTINEL_MSG_q7v2"
+_INPUT_SENTINEL = "SENTINEL_INPUT_k4p9"
+
+
+class _DisplayCmd(BaseModel):
+    """Command model whose cross-field rule is a model_validator."""
+
+    state: str
+    level: int | None = None
+
+    @model_validator(mode="after")
+    def _check_constraints(self) -> _DisplayCmd:
+        if self.state == "off" and self.level is not None:
+            msg = f"level not allowed when off {_MSG_SENTINEL}"
+            raise ValueError(msg)
+        return self
+
+
+class _Outer(BaseModel):
+    """Wraps a model_validator model so its error gets a non-empty loc."""
+
+    inner: _DisplayCmd
+
+
+class _LiteralCmd(BaseModel):
+    """Model with a Literal field for a field-level error."""
+
+    state: Literal["on", "off"]
+
+
+class TestValidationSummaryLocation:
+    """Validation summaries render an empty pydantic loc as ``__root__``.
+
+    Technique: Equivalence Partitioning on ``loc`` — empty partition (one
+    representative per error source) vs non-empty partition (unchanged),
+    plus Error Guessing for the OWASP A03 guard.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "annotation", "expected"),
+        [
+            pytest.param(
+                '{"state": "off", "level": 5}',
+                _DisplayCmd,
+                "(parameter 'cmd'): __root__: type=value_error",
+                id="empty-loc-model-validator",
+            ),
+            pytest.param(
+                "[1]",
+                _DisplayCmd,
+                "(parameter 'cmd'): __root__: type=model_type",
+                id="empty-loc-root-model-mismatch",
+            ),
+            pytest.param(
+                '"x"',
+                int,
+                "(parameter 'cmd'): __root__: type=int_parsing",
+                id="empty-loc-primitive-mismatch",
+            ),
+            pytest.param(
+                '{"state": "maybe"}',
+                _LiteralCmd,
+                "(parameter 'cmd'): state: type=literal_error",
+                id="non-empty-loc-field-error",
+            ),
+            pytest.param(
+                '{"inner": {"state": "off", "level": 5}}',
+                _Outer,
+                "(parameter 'cmd'): inner: type=value_error",
+                id="non-empty-loc-nested-model-validator",
+            ),
+        ],
+    )
+    def test_payload_summary_location(
+        self, raw: str, annotation: Any, expected: str
+    ) -> None:
+        """PayloadValidationError renders the loc partition as specified."""
+        # Act
+        with pytest.raises(PayloadValidationError) as exc_info:
+            parse_payload(raw, annotation, param="cmd")
+
+        # Assert
+        message = str(exc_info.value)
+        assert message == f"Payload validation failed {expected}"
+        assert "): : type=" not in message
+
+    def test_state_model_root_mismatch_renders_root(self) -> None:
+        """validate_state_payload (ReturnValidationError) uses ``__root__`` too."""
+        # Arrange
+        payload: dict[str, object] = {"state": "off", "level": 5}
+
+        # Act
+        with pytest.raises(ReturnValidationError) as exc_info:
+            validate_state_payload(payload, _DisplayCmd, handler="display")
+
+        # Assert
+        message = str(exc_info.value)
+        assert message.endswith(": __root__: type=value_error")
+        assert ": : type=" not in message
+
+    def test_root_error_never_echoes_msg_or_input(self) -> None:
+        """Neither the validator's msg nor the input appears (OWASP A03).
+
+        Technique: Error Guessing — security regression guard for the
+        empty-loc branch.
+        """
+        # Arrange
+        raw = f'{{"state": "off", "level": 5, "note": "{_INPUT_SENTINEL}"}}'
+
+        # Act
+        with pytest.raises(PayloadValidationError) as exc_info:
+            parse_payload(raw, _DisplayCmd, param="cmd", handler="h")
+
+        # Assert
+        message = str(exc_info.value)
+        assert _MSG_SENTINEL not in message
+        assert _INPUT_SENTINEL not in message
+        assert "): : type=" not in message
+        assert "__root__: type=value_error" in message
 
 
 # ---------------------------------------------------------------------------

@@ -128,6 +128,8 @@ def build_error_payload(
         verbose: When ``True``, ``message`` carries the raw ``str(error)``.
             When ``False`` (default), ``message`` is only the exception class
             name so sensitive downstream exception text is never published.
+            A disclosed message whose ``str(error)`` is empty falls back to
+            the exception class name, so ``message`` is never ``""``.
         correlation_id: Optional id echoed into the payload so a broker
             consumer can match it to the full locally-logged error.
         disclose_messages_for: Explicit set of exception types whose
@@ -160,10 +162,14 @@ def build_error_payload(
         disclose = type(error) in resolved_map
     if not disclose:
         message = type(error).__name__
-    elif redact is not None:
-        message = redact(str(error))
     else:
-        message = str(error)
+        # An empty str(error) (e.g. a bare TimeoutError()) would publish "";
+        # fall back to the class name so consumers still learn what failed.
+        text = str(error) or type(error).__name__
+        message = redact(text) if redact is not None else text
+        # A redactor may remove the entire message; preserve the non-empty
+        # contract after redaction as well.
+        message = message or type(error).__name__
     return ErrorPayload(
         error_type=error_type,
         message=message,

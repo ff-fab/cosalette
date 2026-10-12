@@ -165,11 +165,21 @@ def _safe_error_summary(exc: ValidationError) -> str:
     raise ``ValueError(f"bad: {value}")``.  Publishing ``msg`` verbatim
     would echo user-controlled data to every MQTT error-topic subscriber
     (OWASP A03 — Injection).
+
+    Root-level errors (a ``model_validator`` failure, or a whole-value type
+    mismatch such as ``[1]`` for a model or ``"x"`` for ``int``) carry an
+    empty ``loc``.  They render as the fixed framework token ``__root__``
+    (pydantic v1's root-error convention) rather than an empty location.
     """
     return "; ".join(
-        f"{'.'.join(str(loc_part) for loc_part in e['loc'])}: type={e['type']}"
+        f"{_format_loc(e['loc'])}: type={e['type']}"
         for e in exc.errors(include_url=False, include_input=False)
     )
+
+
+def _format_loc(loc: tuple[int | str, ...]) -> str:
+    """Join a pydantic error *loc*, or return ``__root__`` when it is empty."""
+    return ".".join(str(loc_part) for loc_part in loc) or "__root__"
 
 
 def _annotation_label(annotation: Any) -> str:

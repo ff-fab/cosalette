@@ -20,6 +20,7 @@ import pytest
 
 from cosalette._errors import ErrorPayload, ErrorPublisher, build_error_payload
 from cosalette._mqtt import MqttNotConnectedError
+from cosalette._runners._command_errors import _FRAMEWORK_ERROR_TYPE_MAP
 from cosalette.testing import MockMqttClient
 
 pytestmark = pytest.mark.unit
@@ -30,6 +31,10 @@ pytestmark = pytest.mark.unit
 
 FIXED_DT = datetime(2026, 2, 14, 12, 0, 0, tzinfo=UTC)
 FIXED_ISO = FIXED_DT.isoformat()
+
+
+class _AppError(Exception):
+    """App exception used for the empty-message boundary tests."""
 
 
 def _fixed_clock() -> datetime:
@@ -300,6 +305,95 @@ class TestBuildErrorPayload:
             clock=_fixed_clock,
         )
         assert disclosed.message == "sub detail"  # disclosed: SubError ∈ set
+
+    @pytest.mark.parametrize(
+        ("text", "disclose", "expected"),
+        [
+            pytest.param("", True, "_AppError", id="disclosed-empty"),
+            pytest.param("x", True, "x", id="disclosed-one-char"),
+            pytest.param("", False, "_AppError", id="undisclosed-empty"),
+            pytest.param("x", False, "_AppError", id="undisclosed-one-char"),
+        ],
+    )
+    async def test_message_length_boundary_by_disclosure(
+        self, text: str, disclose: bool, expected: str
+    ) -> None:
+        """Disclosed empty messages fall back to the class name.
+
+        Technique: Boundary Value Analysis on message length (0 vs 1)
+        crossed with disclosure state (Decision Table).
+        """
+        # Arrange
+        disclosed_types = frozenset[type[Exception]]({_AppError} if disclose else set())
+
+        # Act
+        payload = build_error_payload(
+            _AppError(text),
+            disclose_messages_for=disclosed_types,
+            clock=_fixed_clock,
+        )
+
+        # Assert
+        assert payload.message == expected
+
+    async def test_framework_timeout_with_empty_text_publishes_class_name(
+        self,
+    ) -> None:
+        """A bare TimeoutError() under the legacy framework map is never ""."""
+        # Act
+        payload = build_error_payload(
+            TimeoutError(),
+            error_type_map=_FRAMEWORK_ERROR_TYPE_MAP,
+            clock=_fixed_clock,
+        )
+
+        # Assert
+        assert payload.error_type == "timeout"
+        assert payload.message == "TimeoutError"
+
+    async def test_disclosed_empty_message_is_redacted_class_name(self) -> None:
+        """Redaction (ADR-085) still runs on the class-name fallback."""
+        # Arrange
+        seen: list[str] = []
+
+        def redact(text: str) -> str:
+            seen.append(text)
+            return text.replace("App", "***")
+
+        # Act
+        payload = build_error_payload(
+            _AppError(),
+            disclose_messages_for=frozenset({_AppError}),
+            redact=redact,
+            clock=_fixed_clock,
+        )
+
+        # Assert
+        assert seen == ["_AppError"]
+        assert payload.message == "_***Error"
+
+    async def test_verbose_empty_message_is_class_name(self) -> None:
+        """verbose=True with an empty str(error) still publishes a message."""
+        # Act
+        payload = build_error_payload(_AppError(), verbose=True, clock=_fixed_clock)
+
+        # Assert
+        assert payload.message == "_AppError"
+
+    @pytest.mark.parametrize("verbose", [False, True])
+    async def test_empty_redacted_message_falls_back_to_class_name(
+        self, verbose: bool
+    ) -> None:
+        """A redactor that removes all text cannot publish an empty message."""
+        payload = build_error_payload(
+            _AppError(),
+            disclose_messages_for=frozenset({_AppError}),
+            verbose=verbose,
+            redact=lambda _: "",
+            clock=_fixed_clock,
+        )
+
+        assert payload.message == "_AppError"
 
     async def test_correlation_id_echoed_into_payload(self) -> None:
         """A supplied correlation id appears in the payload."""
