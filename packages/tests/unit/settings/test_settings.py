@@ -6,12 +6,15 @@ Test Techniques Used:
     - Boundary Value Analysis: Port range, reconnect interval
     - Environment Override: monkeypatch for env var injection
     - Validation Error: pydantic constraint violations
+    - Equivalence Partitioning / Error Guessing: LoggingSettings.levels inputs
 """
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import SettingsError
 
 from cosalette._settings import (
@@ -455,3 +458,73 @@ class TestSettingsNestedDelimiter:
         s = Settings(_env_file=None)
         assert s.mqtt.host == "nested.test"
         assert s.logging.format == "text"
+
+
+type _Level = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class _QuietLoggingSettings(LoggingSettings):
+    """App default from the documented subclass pattern."""
+
+    levels: dict[str, _Level] = Field(default={"asyncssh": "WARNING"})
+
+
+class _QuietSettings(Settings):
+    logging: _QuietLoggingSettings = Field(default_factory=_QuietLoggingSettings)
+
+
+class TestLoggingSettingsLevels:
+    """Per-logger overrides in ``LoggingSettings.levels``.
+
+    Technique: Equivalence Partitioning (valid/invalid level values, env
+    forms) and Error Guessing (non-string values, nested-merge pitfalls).
+    """
+
+    def test_default_is_empty(self) -> None:
+        """No overrides by default, so behaviour is unchanged."""
+        assert LoggingSettings().levels == {}
+
+    def test_lowercase_value_normalised(self) -> None:
+        """Level names are case-insensitive and stored uppercase."""
+        s = LoggingSettings(levels={"asyncssh": "warning"})
+        assert s.levels == {"asyncssh": "WARNING"}
+
+    def test_invalid_level_rejected(self) -> None:
+        """An unknown level name is rejected."""
+        with pytest.raises(ValidationError):
+            LoggingSettings(levels={"asyncssh": "LOUD"})
+
+    def test_numeric_level_rejected(self) -> None:
+        """Numeric levels are not supported."""
+        with pytest.raises(ValidationError):
+            LoggingSettings(levels={"asyncssh": 10})
+
+    def test_json_env_form_preserves_key_case(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The JSON env form keeps logger names exactly as written."""
+        monkeypatch.setenv("LOGGING__LEVELS", '{"Foo.Bar": "debug"}')
+        s = Settings(_env_file=None)
+        assert s.logging.levels == {"Foo.Bar": "DEBUG"}
+
+    def test_nested_env_form_lowercases_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The nested env form lowercases logger names (documented pitfall)."""
+        monkeypatch.setenv("LOGGING__LEVELS__Foo", "DEBUG")
+        s = Settings(_env_file=None)
+        assert s.logging.levels == {"foo": "DEBUG"}
+
+    def test_subclass_default_survives_other_logging_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A LoggingSettings subclass default is kept when LOGGING__LEVEL is set."""
+        monkeypatch.setenv("LOGGING__LEVEL", "DEBUG")
+        s = _QuietSettings(_env_file=None)
+        assert s.logging.level == "DEBUG"
+        assert s.logging.levels == {"asyncssh": "WARNING"}
+
+    def test_subclass_keeps_value_normalisation(self) -> None:
+        """A subclass that redeclares levels still uppercases values."""
+        s = _QuietLoggingSettings(levels={"bleak": "error"})
+        assert s.levels == {"bleak": "ERROR"}

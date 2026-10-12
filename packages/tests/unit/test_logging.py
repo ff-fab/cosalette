@@ -4,6 +4,7 @@ Test Techniques Used:
     - Specification-based Testing: JsonFormatter output schema
     - State Inspection: Root logger handler/level after configure
     - Fixture Isolation: Save/restore root logger state
+    - State Transition Testing: Per-logger overrides across reconfiguration
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import override
 
 import pytest
 
+from cosalette import _logging
 from cosalette._logging import JsonFormatter, configure_logging
 from cosalette._settings import LoggingSettings
 
@@ -227,3 +230,85 @@ class TestConfigureLogging:
         rotating = [h for h in root.handlers if isinstance(h, RotatingFileHandler)]
         assert len(rotating) == 1
         assert rotating[0].maxBytes == 25 * 1024 * 1024
+
+
+class _ListHandler(logging.Handler):
+    """Collect every record that reaches it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def _restore_level_overrides(_restore_root_logger: None) -> Iterator[None]:
+    """Reset per-logger overrides and the module-level record after a test."""
+    yield
+    for name in _logging._applied_level_overrides:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    _logging._applied_level_overrides.clear()
+
+
+@pytest.mark.usefixtures("_restore_level_overrides")
+class TestConfigureLoggingLevelOverrides:
+    """Tests for per-logger overrides from ``LoggingSettings.levels``.
+
+    Technique: State Transition Testing — overrides applied, replaced and
+    removed across repeated configure_logging() calls.
+    """
+
+    def test_override_applied(self) -> None:
+        """A configured logger gets its override while root keeps its level."""
+        # Arrange
+        settings = LoggingSettings(levels={"asyncssh": "WARNING"})
+
+        # Act
+        configure_logging(settings, service="test")
+
+        # Assert
+        assert logging.getLogger("asyncssh").level == logging.WARNING
+        assert logging.getLogger().level == logging.INFO
+
+    def test_reconfigure_with_empty_mapping_resets_to_notset(self) -> None:
+        """A removed override is undone on the next call."""
+        # Arrange
+        configure_logging(LoggingSettings(levels={"a": "DEBUG"}), service="test")
+
+        # Act
+        configure_logging(LoggingSettings(), service="test")
+
+        # Assert
+        assert logging.getLogger("a").level == logging.NOTSET
+
+    def test_reconfigure_with_other_mapping_replaces_overrides(self) -> None:
+        """Only the latest mapping is in effect after reconfiguration."""
+        # Arrange
+        configure_logging(LoggingSettings(levels={"a": "DEBUG"}), service="test")
+
+        # Act
+        configure_logging(LoggingSettings(levels={"b": "ERROR"}), service="test")
+
+        # Assert
+        assert logging.getLogger("a").level == logging.NOTSET
+        assert logging.getLogger("b").level == logging.ERROR
+
+    def test_debug_child_under_info_root_emits(self) -> None:
+        """A DEBUG override emits under an INFO root; other loggers stay quiet."""
+        # Arrange
+        configure_logging(
+            LoggingSettings(level="INFO", levels={"chatty.debug": "DEBUG"}),
+            service="test",
+        )
+        capture = _ListHandler()
+        logging.getLogger().addHandler(capture)
+
+        # Act
+        logging.getLogger("chatty.debug").debug("shown")
+        logging.getLogger("not.overridden").debug("hidden")
+
+        # Assert
+        assert [r.getMessage() for r in capture.records] == ["shown"]

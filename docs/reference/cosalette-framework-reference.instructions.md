@@ -85,7 +85,7 @@ build still needs Rust for the existing PyO3 extension.
 | ----------------- | ------------- | -------------------------------------------------- |
 | `Settings`        | BaseSettings  | Root settings (mqtt + logging sub-models)          |
 | `MqttSettings`    | BaseModel     | host, port, username, password (`SecretStr`), TLS, client_id, prefix |
-| `LoggingSettings` | BaseModel     | level, format, file, rotation                      |
+| `LoggingSettings` | BaseModel     | level, levels, format, file, rotation              |
 
 > **Credentials:** `MqttSettings.password` uses `SecretStr` — never log or
 > serialize it directly. Use `.get_secret_value()` only where needed.

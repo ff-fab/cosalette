@@ -206,6 +206,7 @@ changing either setting.
 | Variable | Settings Field | Default | Description |
 | --- | --- | --- | --- |
 | `MYAPP_LOGGING__LEVEL` | `logging.level` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `MYAPP_LOGGING__LEVELS` | `logging.levels` | `{}` | Per-logger levels as JSON, e.g. `{"asyncssh":"WARNING"}` ([details](../concepts/logging.md#per-logger-levels)) |
 | `MYAPP_LOGGING__FORMAT` | `logging.format` | `json` | Output format (`json` or `text`) |
 | `MYAPP_LOGGING__FILE` | `logging.file` | `None` | Log file path (usually unset in containers) |
 | `MYAPP_LOGGING__MAX_FILE_SIZE_MB` | `logging.max_file_size_mb` | `10` | Max log file size before rotation |
