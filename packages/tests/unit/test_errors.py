@@ -380,6 +380,21 @@ class TestBuildErrorPayload:
         # Assert
         assert payload.message == "_AppError"
 
+    @pytest.mark.parametrize("verbose", [False, True])
+    async def test_empty_redacted_message_falls_back_to_class_name(
+        self, verbose: bool
+    ) -> None:
+        """A redactor that removes all text cannot publish an empty message."""
+        payload = build_error_payload(
+            _AppError(),
+            disclose_messages_for=frozenset({_AppError}),
+            verbose=verbose,
+            redact=lambda _: "",
+            clock=_fixed_clock,
+        )
+
+        assert payload.message == "_AppError"
+
     async def test_correlation_id_echoed_into_payload(self) -> None:
         """A supplied correlation id appears in the payload."""
         payload = build_error_payload(
