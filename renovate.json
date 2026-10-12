@@ -8,7 +8,7 @@
   ],
   "labels": ["dependencies"],
   "timezone": "Europe/Berlin",
-  "schedule": ["before 9am on monday"],
+  "schedule": ["on monday"],
   "semanticCommits": "enabled",
   "semanticCommitType": "chore",
   "semanticCommitScope": "deps",
@@ -71,7 +71,7 @@
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": false,
-    "schedule": ["before 9am on monday"]
+    "schedule": ["on monday"]
   },
   "pip_requirements": {
     "description": "Track the hash-pinned CI build-tool requirements (e.g. maturin)",
