@@ -604,3 +604,19 @@ class TestErrorTypeMap:
                 store=None,
                 error_type_map={_DomainError: 123},  # ty: ignore[invalid-argument-type]
             )
+
+
+class TestAllowErrorPublishVerbose:
+    """The app verbose-publishing security gate is strictly boolean."""
+
+    @pytest.mark.parametrize("value", [1, "false", None])
+    def test_rejects_non_bool(self, value: object) -> None:
+        """Truthy non-bools must not accidentally enable verbose publishing."""
+        with pytest.raises(
+            TypeError, match="allow_error_publish_verbose must be a bool"
+        ):
+            App(
+                name="test",
+                store=None,
+                allow_error_publish_verbose=value,  # ty: ignore[invalid-argument-type]
+            )

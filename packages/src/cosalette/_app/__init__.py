@@ -449,6 +449,13 @@ class App(
             msg = f"restart_on_stale must be a bool, got {restart_on_stale!r}"
             raise TypeError(msg)
         self._restart_on_stale = restart_on_stale
+        if not isinstance(allow_error_publish_verbose, bool):
+            msg = (
+                "allow_error_publish_verbose must be a bool, "
+                f"got {allow_error_publish_verbose!r}"
+            )
+            raise TypeError(msg)
+        self._allow_error_publish_verbose = allow_error_publish_verbose
         self._redactor = build_redactor(redact)
         self._lifespan: LifespanFunc = (
             lifespan if lifespan is not None else _noop_lifespan
@@ -474,7 +481,6 @@ class App(
         self._disclose_messages_for = _validate_disclose_messages_for(
             disclose_messages_for
         )
-        self._allow_error_publish_verbose = allow_error_publish_verbose
         self._apply_store_arg(store)
         self._configure_hooks: list[Callable[..., Any]] = []
 
