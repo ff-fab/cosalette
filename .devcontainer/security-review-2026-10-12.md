@@ -43,12 +43,12 @@ endpoints, so a hostile HTTP/2 peer could cause denial of service when that code
 exercised. Current CI builds use trusted registry and builder endpoints; this is
 exposure context, not proof that the vulnerable code is unreachable. The exact Buildx
 `v0.59.0` fingerprint is temporarily covered by the existing `go_binaries` acceptance,
-owned by `cos-nxu6` and expiring 2026-11-02. PR #537 upgraded Buildx from `v0.37.0` to
-`v0.38.0`; its rebuilt-image scan reports `x/net` `v0.59.0` and no longer reports
-`v0.58.0`. The stale Buildx `v0.58.0` baseline row has been removed. Separate `v0.58.0`
-fingerprints for `gh`, `rootlesskit`, `bd`, and `dolt` remain covered by their existing
-entries. Replace the remaining Buildx acceptance with the first fixed release and
-require the rebuilt-image scan to verify `x/net` `v0.60.0` or newer.
+owned by `cos-nxu6` and expiring 2026-11-02. PR #537 upgraded Buildx from package
+`0.37.1-1` to `0.38.0-1`; its rebuilt-image scan reports `x/net` `v0.59.0` and no longer
+reports `v0.58.0`. The stale Buildx `v0.58.0` baseline row has been removed. Separate
+`v0.58.0` fingerprints for `gh`, `rootlesskit`, `bd`, and `dolt` remain covered by their
+existing entries. Replace the remaining Buildx acceptance with the first fixed release
+and require the rebuilt-image scan to verify `x/net` `v0.60.0` or newer.
 
 ## Remove unused librsvg packages
 
