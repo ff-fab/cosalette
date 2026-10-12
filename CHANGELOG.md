@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.12.0](https://github.com/ff-fab/cosalette/compare/v0.11.4...v0.12.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **errors:** error_type_map no longer discloses messages. Without disclose_messages_for the error topic publishes the label and the exception class name for every error, framework errors included. Migrate with disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError} (add TimeoutError to disclose command watchdog messages). MQTT__ERROR_PUBLISH_VERBOSE only takes effect when the app sets App(allow_error_publish_verbose=True); otherwise it is ignored with a startup WARNING.
+* **errors:** rejected typed-command input (bad JSON or a schema failure) is published with error_type `invalid_payload` instead of `error`, so consumers filtering on `error` no longer see these events. Remove any app error_type_map entry for PayloadValidationError (it is overridden with a startup warning) and update consumer filters. To keep framework rejection messages under an explicit disclosure set, use disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}.
+
+### Features
+
+* **errors:** export FRAMEWORK_DISCLOSED_ERRORS and give command watchdog timeouts a framework message ([3521114](https://github.com/ff-fab/cosalette/commit/35211149d1f86571c089ae016cca7d6cccd718a0))
+* **errors:** label rejected typed-command input as invalid_payload ([3521114](https://github.com/ff-fab/cosalette/commit/35211149d1f86571c089ae016cca7d6cccd718a0))
+* **errors:** secure-by-default error message disclosure (ADR-091) ([b3804b4](https://github.com/ff-fab/cosalette/commit/b3804b48635af6407357b4a909e181261396fd19))
+* **logging:** log framework-rejected command input once at WARNING without traceback ([#527](https://github.com/ff-fab/cosalette/issues/527)) ([28354ad](https://github.com/ff-fab/cosalette/commit/28354ade88ba028e69268551dc1556336533e38c))
+* **logging:** per-logger level overrides via LoggingSettings.levels ([#526](https://github.com/ff-fab/cosalette/issues/526)) ([c1c3cd7](https://github.com/ff-fab/cosalette/commit/c1c3cd79e95b61dc46ce31505e719709c9a3ee4c))
+
+
+### Bug Fixes
+
+* render __root__ for empty validation locs and fall back to class name for empty error messages ([#523](https://github.com/ff-fab/cosalette/issues/523)) ([d28ded6](https://github.com/ff-fab/cosalette/commit/d28ded66332882d6a83e46d88c9652c3ed5c7c9f))
+* **telemetry:** contain trigger binding failures to the failing cycle ([b3804b4](https://github.com/ff-fab/cosalette/commit/b3804b48635af6407357b4a909e181261396fd19))
+* **telemetry:** do not count rejected trigger input as a telemetry failure ([#528](https://github.com/ff-fab/cosalette/issues/528)) ([cbb53c1](https://github.com/ff-fab/cosalette/commit/cbb53c180632ac02570037e92d112bfde9dd3711))
+
 ## [0.11.4](https://github.com/ff-fab/cosalette/compare/v0.11.3...v0.11.4) (2026-10-10)
 
 
