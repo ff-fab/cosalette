@@ -9,7 +9,8 @@ typed-command input carries the framework label ``invalid_payload``.
 Test Techniques Used:
     - Integration Testing: full lifecycle via AppHarness (real create_services).
     - Equivalence Partitioning: registered vs unregistered exception types.
-    - Decision Table: disclosure mode x rejected-input kind for typed commands.
+    - Decision Table: disclosure mode x rejected-input kind for typed commands;
+      error source x ``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` membership.
 
 See Also:
     ADR-011 — Error handling and publishing (pluggable + LEAK-01 opt-in).
@@ -25,7 +26,7 @@ from typing import Annotated, Literal
 import pytest
 from pydantic import BaseModel
 
-from cosalette import Payload
+from cosalette import FRAMEWORK_DISCLOSED_ERRORS, Payload
 from cosalette._context import DeviceContext
 from cosalette.testing import AppHarness
 
@@ -310,3 +311,92 @@ class TestRejectedTypedCommandInput:
         await _deliver(harness, register, "testapp/valve/set", "not json{")
 
         assert _error_type(harness) == "invalid_json"
+
+
+class _UnlistedError(Exception):
+    """App-owned exception that is not in the disclosure set."""
+
+
+def _register_sub_commands(harness: AppHarness) -> None:
+    @harness.app.command("valve", sub="open")
+    async def handle(payload: str) -> None: ...
+
+
+def _register_raising(harness: AppHarness, exc: Exception) -> None:
+    @harness.app.command("valve")
+    async def handle(payload: str) -> None:
+        raise exc
+
+
+class TestFrameworkDisclosedErrors:
+    """``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` keeps framework messages.
+
+    Technique: Decision Table — error source x set membership. The set keeps
+    replace semantics: unlisted types, including the builtin TimeoutError,
+    publish the class name only (ADR-061 amendment 2026-10-12).
+    """
+
+    @pytest.mark.parametrize(
+        ("register", "payload", "error_type", "message_prefix"),
+        [
+            pytest.param(
+                _register_typed_command,
+                '{"state": "ajar"}',
+                "invalid_payload",
+                "Payload validation failed",
+                id="PayloadValidationError",
+            ),
+            pytest.param(
+                _register_sub_commands,
+                '{"command": on}',
+                "invalid_json",
+                "unexpected character",
+                id="InvalidJsonError",
+            ),
+            pytest.param(
+                _register_sub_commands,
+                '{"command": "blink"}',
+                "unknown_sub_command",
+                "Unknown sub-command for 'valve'",
+                id="UnknownSubCommandError",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, CalDavConnectionError("unreachable")),
+                "go",
+                "error",
+                "unreachable",
+                id="listed-app-error",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, _UnlistedError("secret")),
+                "go",
+                "error",
+                "_UnlistedError",
+                id="unlisted-app-error",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, TimeoutError("http://secret")),
+                "go",
+                "timeout",
+                "TimeoutError",
+                id="handler-TimeoutError",
+            ),
+        ],
+    )
+    async def test_disclosure_decision(
+        self,
+        register: Callable[[AppHarness], None],
+        payload: str,
+        error_type: str,
+        message_prefix: str,
+    ) -> None:
+        harness = AppHarness.create(
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS | {CalDavConnectionError},
+        )
+
+        await _deliver(harness, lambda: register(harness), "testapp/valve/set", payload)
+
+        assert _error_type(harness) == error_type
+        message = _error_message(harness)
+        assert message.startswith(message_prefix)
+        assert "secret" not in message

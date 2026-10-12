@@ -293,6 +293,30 @@ for example `invalid_payload` for rejected typed-command input.
     to decouple the two decisions (F-DP1, [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)).
     See [Message Disclosure](../concepts/error-handling.md#message-disclosure) for details.
 
+### Moving to an explicit disclosure set
+
+An explicit `disclose_messages_for` replaces the legacy rule entirely, so list
+everything whose message you still want published. Start from the framework's
+own sanitised errors, then add the app types you mapped before:
+
+```python
+# Before: mapping implies disclosure (legacy rule)
+app = cosalette.App(
+    name="wallpanel",
+    error_type_map={SshCommandError: "ssh_command"},
+)
+
+# After: labels and disclosure are separate decisions
+app = cosalette.App(
+    name="wallpanel",
+    error_type_map={SshCommandError: "ssh_command"},
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {SshCommandError},
+)
+```
+
+`FRAMEWORK_DISCLOSED_ERRORS` leaves out the builtin `TimeoutError`, so watchdog
+timeouts publish `"TimeoutError"` as the message unless you add it yourself.
+
 ## How Error Publication Works
 
 When a device function (telemetry or command) raises an exception:

@@ -136,7 +136,8 @@ def build_error_payload(
             ``str(error)`` may be published (F-DP1, ADR-061).  When given, it
             **fully defines** the disclosure policy — map membership no longer
             implies disclosure, and framework-map entries must be re-listed
-            here to keep their messages.  ``None`` (default) preserves the
+            here to keep their messages (start from
+            ``cosalette.FRAMEWORK_DISCLOSED_ERRORS``).  ``None`` (default) preserves the
             legacy conflated behaviour: mapping a type discloses its message.
             Note: ``verbose=True`` takes precedence and discloses every message
             regardless of this set.

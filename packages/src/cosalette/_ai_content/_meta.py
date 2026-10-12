@@ -849,6 +849,16 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "another label gets one startup WARNING and should drop the entry; "
         "consumers filtering on error_type == 'error' no longer see these "
         "events (see: docs/concepts/error-handling.md, ADR-011).",
+        "cosalette.FRAMEWORK_DISCLOSED_ERRORS: frozenset of the framework "
+        "exceptions whose messages it sanitises itself (InvalidJsonError, "
+        "MissingSubKeyError, UnknownSubCommandError, PayloadValidationError). "
+        "Adopt an explicit disclosure set without private imports: "
+        "App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | "
+        "{MyError}). The builtin TimeoutError is excluded; command watchdog "
+        "timeouts now carry the message 'command handler exceeded N.Ns "
+        "watchdog' (label 'timeout'), while a TimeoutError raised by handler "
+        "code keeps its own text (see: docs/concepts/error-handling.md, "
+        "ADR-061).",
     ],
 }
 

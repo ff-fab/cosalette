@@ -325,6 +325,9 @@ class App(
                 defines** the disclosure policy — a type must be listed here
                 to have its message published, regardless of whether it is
                 also in ``error_type_map`` (framework-mapped types included).
+                Pass ``cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}`` to
+                keep the framework's own sanitised command error messages
+                (the builtin ``TimeoutError`` is not included).
                 ``None`` (default) preserves the legacy conflated behaviour:
                 registering a type in ``error_type_map`` alone discloses its
                 message.  See ADR-061.

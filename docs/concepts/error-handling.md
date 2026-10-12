@@ -174,7 +174,25 @@ app = cosalette.App(
     error_type_map={CalDavConnectionError: "caldav_connection_error"},
     disclose_messages_for=frozenset(),  # explicit: disclose nothing
 )
+
+# Keep the framework's own sanitised messages, disclose one app type.
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={CalDavConnectionError: "caldav_connection_error"},
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS
+    | {CalDavConnectionError},
+)
 ```
+
+An explicit set does not inherit the framework's disclosures. Start from
+`cosalette.FRAMEWORK_DISCLOSED_ERRORS` (`InvalidJsonError`,
+`MissingSubKeyError`, `UnknownSubCommandError`, `PayloadValidationError`) to
+keep the messages the framework builds and sanitises itself. The builtin
+`TimeoutError` is deliberately not in it: library code raises it too, with
+text the framework does not control. Command watchdog timeouts carry the
+framework message `command handler exceeded N.Ns watchdog`; a `TimeoutError`
+raised inside a handler keeps its own text. Under the legacy default every
+`TimeoutError` message is still published (an accepted risk, see ADR-061).
 
 Unlisted (or, under the legacy default, unmapped) exception types always fall
 back to publishing the class name only — the full message and traceback are

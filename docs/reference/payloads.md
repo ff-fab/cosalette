@@ -100,6 +100,9 @@ Examples (messages as published under the default disclosure rule):
 
 # Rejected typed-command input: field locations and pydantic error codes only
 {"error_type": "invalid_payload", "message": "Payload validation failed (parameter 'cmd'): state: type=literal_error", "device": "light"}
+
+# Command watchdog expired (a TimeoutError raised by handler code keeps its own text)
+{"error_type": "timeout", "message": "command handler exceeded 30.0s watchdog", "device": "light"}
 ```
 
 The `invalid_payload` message never contains the rejected value or pydantic's

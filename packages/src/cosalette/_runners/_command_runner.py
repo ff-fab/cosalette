@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import logging
 import typing
+from collections.abc import Awaitable
 from typing import Any
 
 from cosalette._command import Command
@@ -66,6 +67,26 @@ def _is_command_handler(handler: CommandHandler) -> bool:
     return hints.get(params[0]) is Command
 
 
+async def _await_with_watchdog[T](coro: Awaitable[T], timeout: float | None) -> T:
+    """Await *coro* under the command watchdog (ADR-060).
+
+    An expired watchdog raises :class:`TimeoutError` with a framework-owned
+    message; a ``TimeoutError`` raised by the handler itself propagates
+    unchanged (ADR-061 amendment 2026-10-12).
+    """
+    if timeout is None:
+        return await coro
+    watchdog = asyncio.timeout(timeout)
+    try:
+        async with watchdog:
+            return await coro
+    except TimeoutError as exc:
+        if not watchdog.expired():
+            raise
+        msg = f"command handler exceeded {timeout:.1f}s watchdog"
+        raise TimeoutError(msg) from exc
+
+
 def _extract_sub_topic(topic: str, base: str) -> str | None:
     """Parse the sub-topic segment from a command topic string."""
     suffix = "/set"
@@ -101,22 +122,9 @@ async def _dispatch_handler(
             )
         else:
             coro = handler(sub_topic, payload)
-        if timeout is not None:
-            async with asyncio.timeout(timeout):
-                await coro
-        else:
-            await coro
+        await _await_with_watchdog(coro, timeout)
     except asyncio.CancelledError:
         raise
-    except TimeoutError:
-        logger.error(
-            "Device '%s' command handler exceeded %.1fs watchdog; cancelled",
-            device_name,
-            timeout,
-        )
-        await publish_error_safely(
-            error_publisher, TimeoutError(), device_name, is_root
-        )
     except Exception as exc:
         logger.error(
             "Device '%s' command handler error: %s",
@@ -251,14 +259,10 @@ class CommandRunner:
     ) -> None:
         """Invoke handler, handle unavailability, auto-recover, and run reactors."""
         try:
-            coro = reg.func(**kwargs)
-            if isinstance(reg.timeout, (int, float)) and not isinstance(
-                reg.timeout, bool
-            ):
-                async with asyncio.timeout(reg.timeout):
-                    result = await coro
-            else:
-                result = await coro
+            timeout = reg.timeout
+            if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
+                timeout = None
+            result = await _await_with_watchdog(reg.func(**kwargs), timeout)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
