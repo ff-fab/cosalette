@@ -22,7 +22,13 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import BaseModel
 
-from cosalette import Depends, LoggingSettings, Payload, PayloadValidationError
+from cosalette import (
+    FRAMEWORK_DISCLOSED_ERRORS,
+    Depends,
+    LoggingSettings,
+    Payload,
+    PayloadValidationError,
+)
 from cosalette._runners._runner_utils import publish_error_safely
 from cosalette.testing import AppHarness
 
@@ -66,8 +72,12 @@ def _recording() -> Iterator[_Recorder]:
 
 
 def _harness() -> AppHarness:
-    # The runner's DEBUG record only exists when its logger allows DEBUG.
-    return AppHarness.create(logging=LoggingSettings(levels={_RUNNER_LOGGER: "DEBUG"}))
+    # The runner's DEBUG record only exists when its logger allows DEBUG. The
+    # tests inspect the sanitised messages, so disclose them (ADR-091).
+    return AppHarness.create(
+        logging=LoggingSettings(levels={_RUNNER_LOGGER: "DEBUG"}),
+        disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,
+    )
 
 
 async def _deliver(

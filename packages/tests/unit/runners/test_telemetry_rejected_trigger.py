@@ -23,7 +23,13 @@ from typing import Annotated, Any, override
 import pytest
 from pydantic import BaseModel, field_validator
 
-from cosalette import CircuitBreaker, LoggingSettings, Payload, PayloadValidationError
+from cosalette import (
+    FRAMEWORK_DISCLOSED_ERRORS,
+    CircuitBreaker,
+    LoggingSettings,
+    Payload,
+    PayloadValidationError,
+)
 from cosalette.testing import AppHarness, ManualClock
 
 pytestmark = pytest.mark.unit
@@ -85,7 +91,9 @@ async def _run(
     """Deliver *payloads* as triggers; return logs, errors and the heartbeat entry."""
     clock = ManualClock()
     harness = AppHarness.create(
-        clock=clock, logging=LoggingSettings(levels={_RUNNER_LOGGER: "DEBUG"})
+        clock=clock,
+        logging=LoggingSettings(levels={_RUNNER_LOGGER: "DEBUG"}),
+        disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS,  # sanitised summary
     )
     calls: list[_Cmd | None] = []
 

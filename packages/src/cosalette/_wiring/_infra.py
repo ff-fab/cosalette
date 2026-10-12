@@ -95,15 +95,19 @@ def create_services(
     The ErrorPublisher's map is the framework command-exception map merged
     with the app-provided *error_type_map*.  **Framework entries are
     authoritative** — an app cannot override or shadow framework error
-    handling; app entries only extend the map for app-owned exception types
-    (LEAK-01 targeted opt-in; see ADR-011).  An app entry that a framework
-    entry overrides with a different label logs one startup warning.
+    handling; app entries only extend the map with labels for app-owned
+    exception types (see ADR-011).  The map never implies message
+    disclosure (ADR-091).  An app entry that a framework entry overrides
+    with a different label logs one startup warning.
 
-    *disclose_messages_for* is passed through as-is, unmerged: unlike
-    *error_type_map* it is an explicit opt-in set that fully replaces the
-    message-disclosure decision (F-DP1, ADR-061), so ``None`` stays ``None``
-    and a caller-provided frozenset is used verbatim — framework entries are
-    not implicitly added to it.
+    *disclose_messages_for* is passed through as-is, unmerged: it is the
+    explicit set of types whose messages are published (F-DP1, ADR-091).
+    ``None`` discloses nothing, and framework entries are not implicitly
+    added to a caller-provided set.
+
+    *error_publish_verbose* is the effective verbose flag: the app wiring
+    passes ``True`` only when the app allows verbose publishing and the
+    operator setting enables it (ADR-091).
 
     *redact* is applied to disclosed error messages (ADR-085).
     """

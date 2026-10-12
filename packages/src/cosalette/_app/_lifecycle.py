@@ -102,6 +102,7 @@ class _LifecycleMixin:
     _lifespan: LifespanFunc
     _error_type_map: dict[type[Exception], str]
     _disclose_messages_for: frozenset[type[Exception]] | None
+    _allow_error_publish_verbose: bool
     _error_reminder_interval: float | None
     _exit_after_stale: float | None
     _restart_on_stale: bool
@@ -320,7 +321,9 @@ class _LifecycleMixin:
             self._version,
             resolved_clock,
             heartbeat_include_version=self._heartbeat_include_version,
-            error_publish_verbose=resolved_settings.mqtt.error_publish_verbose,
+            error_publish_verbose=self._effective_error_publish_verbose(
+                resolved_settings
+            ),
             error_type_map=self._error_type_map,
             disclose_messages_for=self._disclose_messages_for,
             error_reminder_interval=self._error_reminder_interval,
@@ -690,6 +693,26 @@ class _LifecycleMixin:
             _resolve_default_store_path(self._name),
             _normalize_env_name(self._name),
         )
+
+    def _effective_error_publish_verbose(self, settings: Settings) -> bool:
+        """Return whether error payloads publish every message (ADR-091).
+
+        Verbose publishing needs both the app's
+        ``App(allow_error_publish_verbose=True)`` and the operator setting
+        ``MqttSettings.error_publish_verbose``.  When the operator sets it on
+        an app that does not allow it, the setting is ignored and one WARNING
+        is logged so the operator learns why messages stay undisclosed.
+        """
+        requested = settings.mqtt.error_publish_verbose
+        if requested and not self._allow_error_publish_verbose:
+            logger.warning(
+                "MQTT__ERROR_PUBLISH_VERBOSE is set but this app does not allow "
+                "verbose error publishing (App(allow_error_publish_verbose=True)); "
+                "ignoring it. Error payloads publish only messages listed in "
+                "disclose_messages_for."
+            )
+            return False
+        return requested
 
     def _resolve_intervals(self, settings: Settings) -> None:
         """Resolve any callable intervals to concrete floats.

@@ -158,6 +158,7 @@ class AppHarness:
         run_streams: bool = False,
         error_type_map: dict[type[Exception], str] | None = None,
         disclose_messages_for: frozenset[type[Exception]] | None = None,
+        allow_error_publish_verbose: bool = False,
         retained_cleanup_snapshot_key: SecretStr | None = None,
         clock: ClockPort | None = None,
         redact: RedactSpec = None,
@@ -181,12 +182,14 @@ class AppHarness:
                 False (default), streams are suppressed and
                 :meth:`inject_stream` is the seam for handler-logic tests
                 (see ADR-045).
-            error_type_map: Optional app-level exception → ``error_type`` map
-                forwarded to :class:`App`, so tests can exercise the LEAK-01
-                targeted opt-in end-to-end (see ADR-011).
+            error_type_map: Optional app-level exception → ``error_type``
+                label map forwarded to :class:`App` (see ADR-011).
             disclose_messages_for: Optional app-level message-disclosure set
                 forwarded to :class:`App`, so tests can exercise the F-DP1
-                decoupled opt-in end-to-end (see ADR-061).
+                opt-in end-to-end (see ADR-091).
+            allow_error_publish_verbose: Forwarded to :class:`App`; verbose
+                publishing also needs the ``mqtt`` setting
+                ``error_publish_verbose`` (see ADR-091).  Defaults to False.
             retained_cleanup_snapshot_key: Optional ADR-048 retained-cleanup
                 snapshot HMAC signing key forwarded to :class:`App`, so tests
                 can exercise the F-DP3 opt-in signing/verification end-to-end
@@ -218,6 +221,7 @@ class AppHarness:
                 store=store,
                 error_type_map=error_type_map,
                 disclose_messages_for=disclose_messages_for,
+                allow_error_publish_verbose=allow_error_publish_verbose,
                 retained_cleanup_snapshot_key=retained_cleanup_snapshot_key,
                 redact=redact,
             ),

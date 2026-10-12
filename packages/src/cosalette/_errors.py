@@ -20,24 +20,22 @@ Payload schema::
         "details": {}
     }
 
-For **unmapped** (i.e. downstream/unexpected) exceptions, ``message`` is the
-exception class name only — the raw ``str(error)`` is NOT published, because a
-downstream handler's exception text can carry credentials/payloads and the
-error topics are broker-visible. The framework's own mapped errors are already
-sanitised and keep their message. The full message and traceback are always
-logged locally under the correlation ``id``.
+By default ``message`` is the exception class name only, for **every** error,
+the framework's own included: the raw ``str(error)`` is NOT published, because
+exception text can carry credentials, hosts or payloads and the error topics
+are broker-visible (F-DP1). The full message and traceback are always logged
+locally under the correlation ``id``.
 
-To opt **specific** app-owned exception types back into full-message
-publishing without un-redacting everything, pass ``App(error_type_map=...)``;
-the framework merges it into this publisher's map (framework entries stay
-authoritative — see ADR-011). Note that under this legacy coupling a map
-entry is both a label and a **message-disclosure decision** (F-DP1): to
-register labels without opting into message publication, pass
-``App(disclose_messages_for={...})`` — an explicit set that fully defines
-which exception types' ``str(error)`` is published, independent of the
-label map (see ADR-061). As a blunt alternative, set
-``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``)
-to publish the raw message for **every** error.
+``App(error_type_map=...)`` only assigns ``error_type`` labels; the framework
+merges it into this publisher's map (framework entries stay authoritative,
+see ADR-011). Message disclosure is a separate, explicit opt-in:
+``App(disclose_messages_for=...)`` is the set of exception types whose
+``str(error)`` is published, for example
+``cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}`` (ADR-091). Verbose
+publishing of **every** message needs both
+``App(allow_error_publish_verbose=True)`` and the operator setting
+``MqttSettings.error_publish_verbose`` (env ``MQTT__ERROR_PUBLISH_VERBOSE``).
+Every disclosed message passes through the redaction hook (ADR-085).
 
 Publication behaviour:
 
@@ -52,7 +50,7 @@ back to the generic ``"error"`` type.
 
 See Also:
     ADR-011 — Error handling and publishing.
-    ADR-061 — Decoupled error-message disclosure (F-DP1).
+    ADR-091 — Labelling-only error type map, secure-by-default disclosure.
     ADR-006 — Protocol-based ports (MqttPort).
 """
 
@@ -125,22 +123,21 @@ def build_error_payload(
             Defaults to an empty dict when ``None``.
         clock: Optional callable returning a :class:`~datetime.datetime`.
             Defaults to ``datetime.now(UTC)``.
-        verbose: When ``True``, ``message`` carries the raw ``str(error)``.
-            When ``False`` (default), ``message`` is only the exception class
-            name so sensitive downstream exception text is never published.
-            A disclosed message whose ``str(error)`` is empty falls back to
-            the exception class name, so ``message`` is never ``""``.
+        verbose: When ``True``, ``message`` carries the raw ``str(error)``
+            for every error.  When ``False`` (default), only the types in
+            *disclose_messages_for* disclose their message.  A disclosed
+            message whose ``str(error)`` is empty falls back to the exception
+            class name, so ``message`` is never ``""``.
         correlation_id: Optional id echoed into the payload so a broker
             consumer can match it to the full locally-logged error.
-        disclose_messages_for: Explicit set of exception types whose
-            ``str(error)`` may be published (F-DP1, ADR-061).  When given, it
-            **fully defines** the disclosure policy — map membership no longer
-            implies disclosure, and framework-map entries must be re-listed
-            here to keep their messages (start from
-            ``cosalette.FRAMEWORK_DISCLOSED_ERRORS``).  ``None`` (default) preserves the
-            legacy conflated behaviour: mapping a type discloses its message.
-            Note: ``verbose=True`` takes precedence and discloses every message
-            regardless of this set.
+        disclose_messages_for: The exception types whose ``str(error)`` is
+            published (F-DP1, ADR-091); exact classes only, like the label
+            lookup.  ``None`` (default) or an empty set discloses nothing:
+            ``message`` is the exception class name.  Membership in
+            *error_type_map* never implies disclosure; to keep the
+            framework's sanitised messages, start from
+            ``cosalette.FRAMEWORK_DISCLOSED_ERRORS``.  ``verbose=True``
+            discloses every message regardless of this set.
         redact: Optional ``str -> str`` function applied to a **disclosed**
             message before it is published (ADR-085).  The class-name-only
             message of an undisclosed error is never passed to it.
@@ -151,16 +148,10 @@ def build_error_payload(
     resolved_map = error_type_map or {}
     error_type = resolved_map.get(type(error), "error")
     now = clock() if clock is not None else datetime.now(UTC)
-    # Mapped exceptions are the framework's own, already-sanitised errors — keep
-    # their message. Unmapped (downstream) exception text can carry secrets, so
-    # publish only the class name unless verbose output is explicitly enabled.
-    # disclose_messages_for decouples that decision from labeling (F-DP1).
-    if verbose:
-        disclose = True
-    elif disclose_messages_for is not None:
-        disclose = type(error) in disclose_messages_for
-    else:
-        disclose = type(error) in resolved_map
+    # Exception text can carry secrets, so publish only the class name unless
+    # the app listed the type or allowed verbose output (F-DP1, ADR-091). The
+    # label map never implies disclosure.
+    disclose = verbose or type(error) in (disclose_messages_for or frozenset())
     if not disclose:
         message = type(error).__name__
     else:
@@ -203,15 +194,14 @@ class ErrorPublisher:
         clock: Optional callable returning a :class:`~datetime.datetime`
             for deterministic testing.
         verbose: When ``True``, ``message`` in the MQTT payload carries the
-            raw ``str(error)``.  Keep ``False`` on broker-visible topics
-            — downstream exception text can carry credentials (LEAK-01).
-        disclose_messages_for: Explicit set of exception types whose
-            ``str(error)`` may be published (F-DP1, ADR-061).  When given, it
-            **fully defines** the disclosure policy, independent of
-            ``error_type_map``.  ``None`` (default) preserves the legacy
-            conflated behaviour: mapping a type discloses its message.
-            Note: ``verbose=True`` takes precedence and discloses every message
-            regardless of this set.
+            raw ``str(error)`` of every error.  Keep ``False`` on
+            broker-visible topics — downstream exception text can carry
+            credentials (LEAK-01).  The app wiring passes ``True`` only when
+            the app allows it and the operator enables it (ADR-091).
+        disclose_messages_for: The exception types whose ``str(error)`` is
+            published (F-DP1, ADR-091), independent of ``error_type_map``.
+            ``None`` (default) discloses nothing.  ``verbose=True`` discloses
+            every message regardless of this set.
         redact: Optional ``str -> str`` function applied to disclosed
             messages before publishing (ADR-085).  Build it with
             ``App(redact=...)``; the local log line is redacted by the
@@ -276,7 +266,7 @@ class ErrorPublisher:
 
         global_topic = f"{self.topic_prefix}/error"
         # Log the full error (message + traceback) locally; the broker payload
-        # carries only the type unless error_publish_verbose is set (LEAK-01).
+        # carries the message only when disclosed (LEAK-01, ADR-091).
         # exc_info=error passes the BaseException instance directly.
         # Python ≥3.2 logging converts it to (type, e, e.__traceback__)
         # automatically, so the real traceback is captured even outside an

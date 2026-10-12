@@ -74,5 +74,5 @@ FRAMEWORK_DISCLOSED_ERRORS: frozenset[type[Exception]] = frozenset(
 Keep their messages under an explicit disclosure set with
 ``App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError})``.
 The builtin :class:`TimeoutError` is excluded: library and application code
-raise it too, with text the framework does not control (ADR-061).
+raise it too, with text the framework does not control (ADR-091).
 """

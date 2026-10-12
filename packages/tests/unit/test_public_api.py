@@ -163,7 +163,7 @@ class TestCosalettePublicAPI:
 
 
 class TestFrameworkDisclosedErrors:
-    """``cosalette.FRAMEWORK_DISCLOSED_ERRORS`` (ADR-061 amendment 2026-10-12)."""
+    """``cosalette.FRAMEWORK_DISCLOSED_ERRORS`` (ADR-091)."""
 
     def test_contains_exactly_the_framework_sanitised_types(self) -> None:
         """Technique: Specification-based — the four framework-owned messages."""

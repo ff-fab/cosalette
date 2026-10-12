@@ -839,11 +839,11 @@ VERSION_FEATURES: dict[str, list[str]] = {
     "0.12.0": [
         "BREAKING: rejected typed-command input (a payload that is not JSON or "
         "fails schema validation, raising cosalette.PayloadValidationError) is "
-        "published as error_type 'invalid_payload' instead of 'error'. Under "
-        "the default disclosure rule the message is the sanitised summary, "
-        "e.g. \"Payload validation failed (parameter 'cmd'): state: "
-        'type=literal_error", never the input value; under '
-        "disclose_messages_for=frozenset() it stays the class name. "
+        "published as error_type 'invalid_payload' instead of 'error'. When "
+        "PayloadValidationError is listed in disclose_messages_for the message "
+        'is the sanitised summary, e.g. "Payload validation failed '
+        "(parameter 'cmd'): state: type=literal_error\", never the input "
+        "value; otherwise it is the class name. "
         "ReturnValidationError keeps 'error'. Framework labels win over app "
         "error_type_map entries: an app that maps PayloadValidationError to "
         "another label gets one startup WARNING and should drop the entry; "
@@ -852,13 +852,31 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "cosalette.FRAMEWORK_DISCLOSED_ERRORS: frozenset of the framework "
         "exceptions whose messages it sanitises itself (InvalidJsonError, "
         "MissingSubKeyError, UnknownSubCommandError, PayloadValidationError). "
-        "Adopt an explicit disclosure set without private imports: "
+        "Disclose them without private imports: "
         "App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | "
         "{MyError}). The builtin TimeoutError is excluded; command watchdog "
         "timeouts now carry the message 'command handler exceeded N.Ns "
         "watchdog' (label 'timeout'), while a TimeoutError raised by handler "
         "code keeps its own text (see: docs/concepts/error-handling.md, "
-        "ADR-061).",
+        "ADR-091).",
+        "BREAKING: secure-by-default error disclosure (ADR-091, supersedes "
+        "ADR-061). App(error_type_map=...) only assigns error_type labels and "
+        "never publishes a message. Without App(disclose_messages_for=...) "
+        "every error payload, the framework's own included, carries its label "
+        "and the exception class name as 'message'. Migration: keep the "
+        "framework's sanitised command error messages and your own with "
+        "App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | "
+        "{MyError}); list the builtin TimeoutError yourself to disclose "
+        "watchdog timeouts (see: docs/concepts/error-handling.md).",
+        "BREAKING: MQTT__ERROR_PUBLISH_VERBOSE takes effect only when the app "
+        "opts in with App(allow_error_publish_verbose=True). On an app that "
+        "does not allow it the setting is ignored and one startup WARNING is "
+        "logged; App(redact=...) still scrubs every disclosed message "
+        "(see: docs/reference/settings.md, ADR-085, ADR-091).",
+        "Grouped telemetry contains a trigger-binding failure to the failing "
+        "member's cycle, as single telemetry does: a non-optional typed "
+        "trigger parameter fails each scheduled run as one failed cycle "
+        "instead of ending the task (see: docs/guides/telemetry-advanced.md).",
     ],
 }
 

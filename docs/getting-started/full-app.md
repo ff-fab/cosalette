@@ -385,17 +385,21 @@ framework's error isolation catches it and publishes:
 ```json title="gas2mqtt/counter/error"
 {
     "error_type": "error",
-    "message": "Negative impulse count: -3",
+    "message": "InvalidReadingError",
     "device": "counter",
     "timestamp": "2026-02-18T10:30:00+00:00",
     "details": {}
 }
 ```
 
-The framework uses the generic `"error"` type for all auto-caught exceptions.
-To get domain-specific types like `"invalid_reading"`, use `build_error_payload()`
-manually — see [Custom Error Types](../guides/error-types.md)
-for the full guide.
+The framework uses the generic `"error"` type for auto-caught exceptions that
+no `error_type_map` labels. To get domain-specific types like
+`"invalid_reading"`, pass `App(error_type_map=error_type_map)` or use
+`build_error_payload()` manually — see [Custom Error Types](../guides/error-types.md)
+for the full guide. The `message` is the exception class name: error topics
+are broker-visible, so the raw text (`"Negative impulse count: -3"`) is only
+logged locally. To publish it, list the type in
+`App(disclose_messages_for=frozenset({InvalidReadingError}))`.
 
 ## 10. App Assembly
 

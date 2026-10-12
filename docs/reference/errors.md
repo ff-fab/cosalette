@@ -541,7 +541,9 @@ MQTT: {prefix}/{device}/error     (per-device, when device known)
 
 The `error_type_map` is a `dict[type[Exception], str]` that maps
 **exact exception classes** (no subclass matching) to machine-readable
-`error_type` strings. Unmapped exceptions produce `"error"` as the type.
+`error_type` strings. Unmapped exceptions produce `"error"` as the type. The
+map only assigns labels: it never publishes a message (see
+`disclose_messages_for` below).
 
 ```python
 error_type_map: dict[type[Exception], str] = {
@@ -569,16 +571,16 @@ is used. `cosalette.ReturnValidationError` stays unlabelled (`error`).
 
 ### `disclose_messages_for` Pattern
 
-`disclose_messages_for` (`frozenset[type[Exception]] | None = None`) decouples
-**message disclosure** from `error_type_map`'s labeling (F-DP1,
-[ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)). It is
+`disclose_messages_for` (`frozenset[type[Exception]] | None = None`) is the only
+**message disclosure** opt-in; `error_type_map` only assigns labels (F-DP1,
+[ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md)). It is
 accepted by `App`, `ErrorPublisher`, `build_error_payload()`,
 `AppHarness.create()`, and `create_services()`.
 
 | Value | Behaviour |
 |---|---|
-| `None` (default) | Legacy behaviour: `error_type_map` membership alone implies message disclosure |
-| `frozenset({...})` | Fully replaces the disclosure decision: only listed exact types have their `str(error)` published, independent of `error_type_map` — framework-mapped types are **not** auto-added |
+| `None` (default) | Discloses nothing, like `frozenset()`: every exception, framework errors included, publishes its label and class name |
+| `frozenset({...})` | Only listed exact types (no subclasses) have their `str(error)` published, independent of `error_type_map` — framework-mapped types are **not** auto-added |
 | `cosalette.FRAMEWORK_DISCLOSED_ERRORS \| {...}` | Same, starting from the framework's own sanitised command errors |
 | `frozenset()` | Discloses nothing — every exception, mapped or not, publishes only its class name |
 
@@ -592,8 +594,12 @@ URLs or credentials. The command watchdog raises it with the framework message
 yourself to disclose that message, accepting that a handler's own
 `TimeoutError` text is then disclosed too.
 
-`verbose=True` (`MqttSettings.error_publish_verbose`) still overrides both and
-discloses every message unconditionally. A disclosed exception whose
+Verbose publishing discloses every message regardless of the set. The app
+wiring enables it only when the app passes
+`App(allow_error_publish_verbose=True)` **and** the operator sets
+`MqttSettings.error_publish_verbose` (`MQTT__ERROR_PUBLISH_VERBOSE=true`);
+the setting alone is ignored with one startup `WARNING`. `App(redact=...)`
+still applies to every disclosed message. A disclosed exception whose
 `str(error)` is empty (such as a bare `TimeoutError()`) publishes its class
 name instead, so `message` is never `""`.
 
@@ -601,8 +607,7 @@ name instead, so `message` is never `""`.
 app = cosalette.App(
     name="caldates2mqtt",
     error_type_map={CalDavConnectionError: "caldav_connection_error"},
-    disclose_messages_for=frozenset(),  # label it, but keep the message redacted
-)
+)  # default: label it, publish "CalDavConnectionError" as the message
 
 # Keep the framework's sanitised messages and disclose one app type
 app = cosalette.App(
@@ -641,5 +646,5 @@ duplicating the same error on both topics.
   error class, and how to use `build_error_payload()` with custom exceptions
 - [ADR-011](../adr/ADR-011-error-handling-and-publishing.md) — architecture
   decision record
-- [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md) — decoupled
-  `disclose_messages_for` message-disclosure policy
+- [ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md) — labelling-only
+  error type map and secure-by-default message disclosure

@@ -83,6 +83,7 @@ myapp --env-file /etc/myapp/production.env
 | `MQTT__INSTANCE_ID` | `str` | `""` | Identity of this instance in Home Assistant discovery and openHAB output. Start with a lowercase letter; use lowercase letters, digits, and single underscores between nonempty segments (for example `wiz_attic`). Empty = uses `App(name=...)`. Set a distinct value per instance when several instances of one app share a broker ([ADR-089](../adr/ADR-089-opt-in-instance-identity-for-ha-discovery-and-openhab-output.md)) |
 | `MQTT__PROTOCOL_VERSION` | `"3.1.1" \| "5"` | `"3.1.1"` | MQTT protocol version. Set `5` to enable retained-message expiry; TOML/JSON may use integer `5`, not `5.0` |
 | `MQTT__MESSAGE_EXPIRY_INTERVAL` | `int` | `86400` | MQTT 5 retained-message and WILL expiry in seconds (3-4294967295); invalid when explicitly set under MQTT 3.1.1 |
+| `MQTT__ERROR_PUBLISH_VERBOSE` | `bool` | `false` | Publish the raw message of **every** error on the broker-visible error topics. Takes effect only when the app also passes `App(allow_error_publish_verbose=True)`; otherwise it is ignored with one startup `WARNING`. `App(redact=...)` still applies ([ADR-091](../adr/ADR-091-labelling-only-error-type-map-and-secure-by-default-message-disclosure.md), [Message Disclosure](../concepts/error-handling.md#message-disclosure)) |
 
 MQTT 5 expiry configuration is captured when the client starts. Changes to
 `mqtt.protocol_version` or `mqtt.message_expiry_interval` while it runs take effect
