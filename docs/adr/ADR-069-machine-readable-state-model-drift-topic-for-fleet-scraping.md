@@ -9,7 +9,7 @@ tags: [mqtt, serialization, telemetry, error-handling, health]
 
 ## Status
 
-Accepted **Date:** 2026-09-04
+Accepted **Date:** 2026-09-04 | Amended **Date:** 2026-10-12
 
 ## Context
 
@@ -150,4 +150,7 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Records name handler identifiers and model class names on the broker. On an unauthenticated shared broker this is minor reconnaissance value on top of what `_meta/registry` already exposes, and it is mitigated only by broker ACLs, not by anything the framework enforces.
 - Implementation, tests and companion-surface updates (`ai help` topic text, `VERSION_FEATURES` entry, guidance asset) are deferred to cos-kg2u, so until that lands the decision is recorded but the gap ADR-068 identified remains open in shipped code.
 
-_2026-09-04_
+## Amendment (2026-10-12) — Minor
+
+!!! note "Editorial note (2026-10-12)"
+    Implementation note (2026-10-12): runtime ReturnValidationError summaries remain on the error topic, but Pydantic string location components are now redacted as `[field]` because they may be caller-controlled. The error type codes and integer sequence indexes remain available; exact field paths are not published.

@@ -10,7 +10,7 @@ tags: [architecture, lifecycle, di, persistence, testing, devices]
 
 ## Status
 
-Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-09-04 | Amended **Date:** 2026-09-06
+Accepted **Date:** 2026-05-08 | Amended **Date:** 2026-08-07 | Amended **Date:** 2026-08-08 | Amended **Date:** 2026-09-04 | Amended **Date:** 2026-09-06 | Amended **Date:** 2026-10-12
 Amended **Date:** 2026-05-09 — Consolidate to single async `StreamablePort[T]`; supersedes the dual-protocol decision below.
 
 ---
@@ -334,3 +334,8 @@ A stream whose `enabled=` is a *callable* spec is skipped: that spec is resolved
 - run_streams=True costs more setup than inject_stream(): every registered stream needs a StreamablePort double, and item delivery goes through the port's callback rather than being handed to the handler directly — which is why the default stays False
 - The eager port check deliberately skips streams with a callable enabled= spec, so that case keeps the old failure mode (logged at teardown, test hangs) — the fail-fast guarantee is not total
 - The check reads app._streams and the pre-run adapter registry from the harness, so it is coupled to registrations being complete before run() is called; a future change that resolves adapters later would need it revisited
+
+## Amendment (2026-10-12) — Minor
+
+!!! note "Editorial note (2026-10-12)"
+    Implementation note (2026-10-12): Pydantic string location components in validation summaries are redacted as `[field]` because they can be caller-controlled mapping keys or extra-field names. Integer sequence indexes and error type codes remain available; exact string field paths are intentionally omitted to avoid disclosing input-controlled values.

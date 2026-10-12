@@ -516,9 +516,14 @@ Raw Escape Hatch:
   • topic: str              → always raw topic (by name)
 
 Validation Errors:
-  • PayloadValidationError  → inbound payload fails model validation
-  • ReturnValidationError   → return value fails annotation/state_model
+  • PayloadValidationError  → inbound payload is not JSON or fails validation;
+                              published as error_type "invalid_payload"
+  • ReturnValidationError   → return value fails annotation/state_model;
+                              published as error_type "error" (app fault)
   Both are caught by the framework and published to the error topic.
+  Framework labels (invalid_json, missing_sub_key, unknown_sub_command,
+  invalid_payload, timeout) win over app error_type_map entries; a
+  different app label logs one startup WARNING (ADR-011).
 
 Decorator Metadata:
   ```python

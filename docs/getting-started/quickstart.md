@@ -542,8 +542,9 @@ async def set_threshold(cmd: Annotated[SetpointCommand, cosalette.Payload()]) ->
 
 When a message arrives on `weather2mqtt/sensor/set_threshold/set`, cosalette
 deserialises the JSON payload as a `SetpointCommand` instance. If validation fails
-(e.g., `value` is missing or not a float), a `PayloadValidationError` is published to
-`weather2mqtt/sensor/set_threshold/error` automatically.
+(e.g., `value` is missing or not a float), the framework raises a
+`PayloadValidationError` and publishes it to `weather2mqtt/sensor/set_threshold/error`
+automatically, with `error_type: "invalid_payload"`.
 
 ### Typed Returns
 

@@ -71,26 +71,42 @@ error_type_map = {
 
 ### Common Error Types
 
-The framework defines these error types for common scenarios:
+The framework labels these exceptions itself. Framework labels are
+authoritative: an app `error_type_map` entry for one of these types is
+overridden, with a startup warning when its label differs.
 
 | Error Type | Exception | Description |
 |---|---|---|
 | `invalid_json` | `InvalidJsonError` | Command payload is not valid JSON (sub-dispatch) |
 | `missing_sub_key` | `MissingSubKeyError` | Required routing field missing from JSON payload (sub-dispatch) |
 | `unknown_sub_command` | `UnknownSubCommandError` | Sub-command value not registered for topic (sub-dispatch) |
+| `invalid_payload` | `PayloadValidationError` | Typed command payload is not valid JSON or fails schema validation |
+| `timeout` | `TimeoutError` | Command handler exceeded its watchdog bound (ADR-060) |
 
-Sub-dispatch error examples:
+`ReturnValidationError` (a handler returned a value that does not match its
+return contract) is an application fault and keeps the generic `error` label.
+
+Examples (messages as published under the default disclosure rule):
 
 ```text
 # Invalid JSON
-{"error_type": "invalid_json", "message": "Expecting ',' delimiter...", "device": "light"}
+{"error_type": "invalid_json", "message": "unexpected character, expected a JSON value: line 1 column 13 (char 12)", "device": "light"}
 
 # Missing routing field
 {"error_type": "missing_sub_key", "message": "Missing field 'command' in command payload", "device": "light"}
 
-# Unknown sub-command
-{"error_type": "unknown_sub_command", "message": "Unknown sub-command 'blink' for 'light'", "device": "light"}
+# Unknown sub-command: only type, length and a SHA-256 fingerprint of the value
+{"error_type": "unknown_sub_command", "message": "Unknown sub-command for 'light' (type=str, len=5, fp=e14a51fd)", "device": "light"}
+
+# Rejected typed-command or typed telemetry trigger input: redacted locations and pydantic error codes only
+{"error_type": "invalid_payload", "message": "Payload validation failed (parameter 'cmd'): [field]: type=literal_error", "device": "light"}
+
+# Command watchdog expired (a TimeoutError raised by handler code keeps its own text)
+{"error_type": "timeout", "message": "command handler exceeded 30.0s watchdog", "device": "light"}
 ```
+
+The `invalid_payload` message never contains the rejected value or pydantic's
+`msg` text.
 
 See [Error Handling (concept)](../concepts/error-handling.md) for the full
 error pipeline.

@@ -3,11 +3,14 @@
 Validates the LEAK-01 targeted opt-in end-to-end: an app that registers a
 domain exception via ``App(error_type_map=...)`` gets that exception's full
 message published on the broker-visible error topic, while an unregistered
-exception keeps having its message redacted to the class name.
+exception keeps having its message redacted to the class name.  Rejected
+typed-command input carries the framework label ``invalid_payload``.
 
 Test Techniques Used:
     - Integration Testing: full lifecycle via AppHarness (real create_services).
     - Equivalence Partitioning: registered vs unregistered exception types.
+    - Decision Table: disclosure mode x rejected-input kind for typed commands;
+      error source x ``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` membership.
 
 See Also:
     ADR-011 — Error handling and publishing (pluggable + LEAK-01 opt-in).
@@ -17,10 +20,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from typing import Annotated, Literal
 
 import pytest
+from pydantic import BaseModel
 
+from cosalette import FRAMEWORK_DISCLOSED_ERRORS, Payload
 from cosalette._context import DeviceContext
 from cosalette.testing import AppHarness
 
@@ -70,6 +76,33 @@ async def _run_command_raising(
 
     _task = asyncio.create_task(_simulate())
     await asyncio.wait_for(harness.run(), timeout=5.0)
+
+
+async def _deliver(
+    harness: AppHarness, register: Callable[[], object], topic: str, payload: str
+) -> None:
+    """Register ``@app.command`` handlers via *register*, then deliver one message."""
+    register()
+
+    async def _simulate() -> None:
+        await asyncio.sleep(0.02)
+        await harness.mqtt.deliver(topic, payload)
+        await _wait_for_error(harness)
+        harness.trigger_shutdown()
+
+    _task = asyncio.create_task(_simulate())
+    await asyncio.wait_for(harness.run(), timeout=5.0)
+
+
+class _ValveCmd(BaseModel):
+    """Typed command payload; the literal makes rejected values easy to spot."""
+
+    state: Literal["open", "closed"]
+
+
+def _register_typed_command(harness: AppHarness) -> None:
+    @harness.app.command("valve")
+    async def handle(cmd: Annotated[_ValveCmd, Payload()]) -> None: ...
 
 
 def _error_message(harness: AppHarness) -> str:
@@ -197,3 +230,214 @@ class TestRedactHook:
         )
 
         assert _error_message(harness) == "CalDavConnectionError"
+
+
+class TestRejectedTypedCommandInput:
+    """Rejected typed-command input is labelled ``invalid_payload`` (ADR-011).
+
+    Technique: Decision Table — disclosure mode (legacy rule / explicit empty
+    set) x input kind (schema failure / bad JSON).
+    """
+
+    async def test_schema_failure_publishes_sanitised_summary(self) -> None:
+        """Legacy rule: framework label plus the summary, never the input value."""
+        harness = AppHarness.create()
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            '{"state": "secret-ajar"}',
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith("Payload validation failed (parameter 'cmd')")
+        assert message.endswith("[field]: type=literal_error")
+        assert "secret-ajar" not in message
+
+    async def test_bad_json_publishes_sanitised_message(self) -> None:
+        """Legacy rule: a JSON decode failure is ``invalid_payload`` too."""
+        harness = AppHarness.create()
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            "secret-not-json{",
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith("MQTT payload is not valid JSON (parameter 'cmd')")
+        assert "secret-not-json" not in message
+
+    async def test_empty_disclosure_set_publishes_class_name_only(self) -> None:
+        """Explicit empty set: the label changes, the message stays the class."""
+        harness = AppHarness.create(disclose_messages_for=frozenset())
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            '{"state": "secret-ajar"}',
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        assert _error_message(harness) == "PayloadValidationError"
+
+    async def test_return_validation_error_stays_generic(self) -> None:
+        """A handler returning the wrong shape is an app fault: ``error``."""
+        harness = AppHarness.create()
+
+        def register() -> None:
+            @harness.app.command("valve")
+            async def handle(payload: str) -> _ValveCmd:
+                return {"state": "ajar"}  # ty: ignore[invalid-return-type]
+
+        await _deliver(harness, register, "testapp/valve/set", "go")
+
+        assert _error_type(harness) == "error"
+        assert _error_message(harness) == "ReturnValidationError"
+
+    async def test_sub_command_bad_json_stays_invalid_json(self) -> None:
+        """Regression: sub-command routing failures keep ``invalid_json``."""
+        harness = AppHarness.create()
+
+        def register() -> None:
+            @harness.app.command("valve", sub="open")
+            async def handle(payload: str) -> None: ...
+
+        await _deliver(harness, register, "testapp/valve/set", "not json{")
+
+        assert _error_type(harness) == "invalid_json"
+
+
+class TestTelemetryTriggerValidation:
+    """Typed telemetry trigger failures share ``PayloadValidationError``."""
+
+    @pytest.mark.parametrize(
+        ("disclose_messages_for", "expected_message"),
+        [
+            pytest.param(None, "Payload validation failed", id="legacy-disclosure"),
+            pytest.param(frozenset(), "PayloadValidationError", id="explicit-empty"),
+        ],
+    )
+    async def test_trigger_validation_is_invalid_payload(
+        self,
+        disclose_messages_for: frozenset[type[Exception]] | None,
+        expected_message: str,
+    ) -> None:
+        """Trigger validation follows the same label and disclosure rules."""
+        harness = AppHarness.create(disclose_messages_for=disclose_messages_for)
+
+        @harness.app.telemetry("sensor", interval=3600, triggerable=True)
+        async def sensor(
+            value: Annotated[dict[str, int] | None, Payload()] = None,
+        ) -> dict[str, object]:
+            return {"value": value}
+
+        async def _simulate() -> None:
+            await asyncio.sleep(0.02)
+            await harness.mqtt.deliver(
+                "testapp/sensor/set", '{"dynamic-field-marker-xyz": "invalid"}'
+            )
+            await _wait_for_error(harness)
+            harness.trigger_shutdown()
+
+        _task = asyncio.create_task(_simulate())
+        await asyncio.wait_for(harness.run(), timeout=5.0)
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith(expected_message)
+        assert "dynamic-field-marker-xyz" not in message
+
+
+class _UnlistedError(Exception):
+    """App-owned exception that is not in the disclosure set."""
+
+
+def _register_sub_commands(harness: AppHarness) -> None:
+    @harness.app.command("valve", sub="open")
+    async def handle(payload: str) -> None: ...
+
+
+def _register_raising(harness: AppHarness, exc: Exception) -> None:
+    @harness.app.command("valve")
+    async def handle(payload: str) -> None:
+        raise exc
+
+
+class TestFrameworkDisclosedErrors:
+    """``FRAMEWORK_DISCLOSED_ERRORS | {AppError}`` keeps framework messages.
+
+    Technique: Decision Table — error source x set membership. The set keeps
+    replace semantics: unlisted types, including the builtin TimeoutError,
+    publish the class name only (ADR-061 amendment 2026-10-12).
+    """
+
+    @pytest.mark.parametrize(
+        ("register", "payload", "error_type", "message_prefix"),
+        [
+            pytest.param(
+                _register_typed_command,
+                '{"state": "ajar"}',
+                "invalid_payload",
+                "Payload validation failed",
+                id="PayloadValidationError",
+            ),
+            pytest.param(
+                _register_sub_commands,
+                '{"command": on}',
+                "invalid_json",
+                "unexpected character",
+                id="InvalidJsonError",
+            ),
+            pytest.param(
+                _register_sub_commands,
+                '{"command": "blink"}',
+                "unknown_sub_command",
+                "Unknown sub-command for 'valve'",
+                id="UnknownSubCommandError",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, CalDavConnectionError("unreachable")),
+                "go",
+                "error",
+                "unreachable",
+                id="listed-app-error",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, _UnlistedError("secret")),
+                "go",
+                "error",
+                "_UnlistedError",
+                id="unlisted-app-error",
+            ),
+            pytest.param(
+                lambda h: _register_raising(h, TimeoutError("http://secret")),
+                "go",
+                "timeout",
+                "TimeoutError",
+                id="handler-TimeoutError",
+            ),
+        ],
+    )
+    async def test_disclosure_decision(
+        self,
+        register: Callable[[AppHarness], None],
+        payload: str,
+        error_type: str,
+        message_prefix: str,
+    ) -> None:
+        harness = AppHarness.create(
+            disclose_messages_for=FRAMEWORK_DISCLOSED_ERRORS | {CalDavConnectionError},
+        )
+
+        await _deliver(harness, lambda: register(harness), "testapp/valve/set", payload)
+
+        assert _error_type(harness) == error_type
+        message = _error_message(harness)
+        assert message.startswith(message_prefix)
+        assert "secret" not in message

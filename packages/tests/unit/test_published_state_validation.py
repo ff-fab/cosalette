@@ -302,18 +302,17 @@ class TestValidateStatePayloadRejects:
 
         # Assert
         message = str(excinfo.value)
-        assert "value" in message, message
+        assert "[field]" in message, message
         assert "Reading" in message, message
         assert "pkg.mod.rx" in message, message
 
     def test_error_names_every_failing_field(self) -> None:
-        """All offending field paths appear, not just the first."""
+        """Every failing string location is represented, without the key."""
         with pytest.raises(ReturnValidationError) as excinfo:
             validate_state_payload({}, Reading)
 
         message = str(excinfo.value)
-        assert "sensor" in message
-        assert "value" in message
+        assert message.count("[field]") == 2
 
     def test_error_omits_handler_context_when_not_supplied(self) -> None:
         """Without a handler name the message carries no empty 'in handler' clause."""

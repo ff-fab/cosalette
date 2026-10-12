@@ -266,8 +266,24 @@ app = App(adapters={MqttPort: my_mqtt_client})
 
 The rest of this guide covers how to use `build_error_payload()` to create
 domain-specific error types for your own exception handling code. The framework's
-built-in error isolation always publishes with `error_type="error"` — custom
-classification lets you distinguish error categories in downstream subscribers.
+built-in error isolation publishes your exceptions with `error_type="error"` —
+custom classification lets you distinguish error categories in downstream
+subscribers. Errors the framework raises itself already carry a label (see
+[Framework Error Types](../concepts/error-handling.md#framework-error-types)),
+for example `invalid_payload` for rejected typed-command input and typed
+telemetry trigger input.
+
+!!! note "Migrating from an app-side `PayloadValidationError` mapping (0.12.0)"
+
+    Before 0.12.0, rejected typed-command or typed telemetry trigger input was published as
+    `error_type: "error"` with the message `"PayloadValidationError"`, and
+    apps mapped `cosalette.PayloadValidationError` themselves to get a label.
+    The framework now labels it `invalid_payload`. Its label overrides yours:
+    an entry such as `{cosalette.PayloadValidationError: "validation"}` logs a
+    startup warning (`error_type_map entry PayloadValidationError ->
+    'validation' is overridden by the framework label 'invalid_payload'`).
+    Remove the entry and update consumers that filter on `"error"` or on your
+    old label.
 
 !!! warning "Labeling an exception type also discloses its message (legacy default)"
 
@@ -277,6 +293,30 @@ classification lets you distinguish error categories in downstream subscribers.
     readable label without disclosing the message, pass `App(disclose_messages_for=...)`
     to decouple the two decisions (F-DP1, [ADR-061](../adr/ADR-061-decoupled-error-message-disclosure.md)).
     See [Message Disclosure](../concepts/error-handling.md#message-disclosure) for details.
+
+### Moving to an explicit disclosure set
+
+An explicit `disclose_messages_for` replaces the legacy rule entirely, so list
+everything whose message you still want published. Start from the framework's
+own sanitised errors, then add the app types you mapped before:
+
+```python
+# Before: mapping implies disclosure (legacy rule)
+app = cosalette.App(
+    name="wallpanel",
+    error_type_map={SshCommandError: "ssh_command"},
+)
+
+# After: labels and disclosure are separate decisions
+app = cosalette.App(
+    name="wallpanel",
+    error_type_map={SshCommandError: "ssh_command"},
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {SshCommandError},
+)
+```
+
+`FRAMEWORK_DISCLOSED_ERRORS` leaves out the builtin `TimeoutError`, so watchdog
+timeouts publish `"TimeoutError"` as the message unless you add it yourself.
 
 ## How Error Publication Works
 

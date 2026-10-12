@@ -9,7 +9,7 @@ tags: [security, error-handling, mqtt]
 
 ## Status
 
-Accepted **Date:** 2026-08-26
+Accepted **Date:** 2026-08-26 | Amended **Date:** 2026-10-12
 
 ## Context
 
@@ -110,3 +110,40 @@ _Scale: 1 (poor) to 5 (excellent)_
 - Two knobs (error_type_map, disclose_messages_for) exist simultaneously until the 0.7.0 default flip, adding a documentation and mental-model burden for app authors and framework maintainers
 - Apps adopting disclose_messages_for must remember to re-list any framework-mapped exception types they still want disclosed, since the set does not inherit error_type_map's framework-merge behaviour
 - The legacy conflated behaviour (None) remains the default, so F-DP1 is mitigated rather than fully closed until 0.7.0 ships
+
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** Once an app passes `disclose_messages_for`, the framework's own sanitised command errors fall back to class-name-only messages unless the app lists their types, and three of those types were only importable from a private module. Apps therefore had no supported way to keep framework messages while adopting an explicit disclosure set. The framework watchdog also raised a bare `TimeoutError()`, so its published message carried no information. Tracked as cos-ked4.4 (epic cos-ked4).
+
+### Additional Sub-Decision: Public FRAMEWORK_DISCLOSED_ERRORS set
+
+The framework exports `cosalette.FRAMEWORK_DISCLOSED_ERRORS`, a `frozenset[type[Exception]]` containing exactly `InvalidJsonError`, `MissingSubKeyError`, `UnknownSubCommandError` and `PayloadValidationError` — the framework exceptions whose messages the framework builds and sanitises itself. It is the supported way for an app to keep framework messages under an explicit disclosure set: `App(disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError})`. The replace semantics of `disclose_messages_for` are unchanged: the set still fully and independently defines disclosure, framework types are not added implicitly, and `frozenset()` still means 'disclose nothing'.
+
+```python
+app = cosalette.App(
+    name="my-app",
+    error_type_map={MyError: "my_error"},
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError},
+)
+```
+
+### Additional Sub-Decision: Builtin TimeoutError excluded; framework watchdog timeouts carry a framework message
+
+The builtin `TimeoutError` is not a member of `FRAMEWORK_DISCLOSED_ERRORS`, because library and application code raise it too and its text is not controlled by the framework. Timeouts raised by the framework's command watchdog (ADR-060) carry a framework-owned message of the form `command handler exceeded N.Ns watchdog`, and keep the `timeout` label. A `TimeoutError` raised inside the handler body is not rewritten. Under an explicit `disclose_messages_for` set, the watchdog message is disclosed only if the app lists `TimeoutError` itself.
+
+### Additional Sub-Decision: Legacy rule for the builtin TimeoutError unchanged (accepted risk)
+
+Under the legacy rule (`disclose_messages_for=None`), the builtin `TimeoutError` stays in the framework error map with the label `timeout`, so the message of **any** `TimeoutError` — including one raised by a library or by application code — is still published. This is recorded as an accepted risk for the 0.x line. Whether to narrow it is an open question owned by the pending decision on the ADR-061 default flip (cos-f9dr); this amendment does not change the default-flip statement of the original decision.
+
+!!! note "Editorial note (2026-10-12)"
+    A disclosed message whose `str(error)` is empty is published as the exception class name instead of an empty string (cos-ked4.2).
+
+### Additional Positive Consequences
+
+- Apps can adopt an explicit disclosure set without importing private framework modules and without losing the framework's sanitised command error messages.
+- Watchdog timeouts publish an informative, framework-controlled message instead of an empty one.
+
+### Additional Negative Consequences
+
+- `FRAMEWORK_DISCLOSED_ERRORS` is public API; adding a framework-sanitised exception type later changes what apps using the set disclose.
+- Until the default-flip decision lands, apps on the legacy rule continue to publish the text of any `TimeoutError`, which may carry hostnames, URLs or credentials from library code.

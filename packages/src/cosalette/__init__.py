@@ -80,10 +80,11 @@ if TYPE_CHECKING:
         LinearBackoff,
     )
     from cosalette._router import Router
-    from cosalette._runners._contracts import (
+    from cosalette._runners._command_errors import (
+        FRAMEWORK_DISCLOSED_ERRORS,
         PayloadValidationError,
-        ReturnValidationError,
     )
+    from cosalette._runners._contracts import ReturnValidationError
     from cosalette._runners._device_trigger import DeviceTrigger
     from cosalette._runners._notifier import (
         EntityNotifier,
@@ -182,6 +183,7 @@ __all__ = [
     # Errors
     "ErrorPayload",
     "ErrorPublisher",
+    "FRAMEWORK_DISCLOSED_ERRORS",
     "build_error_payload",
     # Task supervision (ADR-081)
     "TaskSupervisionError",
@@ -318,10 +320,11 @@ _EXPORTS: dict[str, tuple[str, ...]] = {
         "LinearBackoff",
     ),
     "cosalette._router": ("Router",),
-    "cosalette._runners._contracts": (
+    "cosalette._runners._command_errors": (
+        "FRAMEWORK_DISCLOSED_ERRORS",
         "PayloadValidationError",
-        "ReturnValidationError",
     ),
+    "cosalette._runners._contracts": ("ReturnValidationError",),
     "cosalette._runners._device_trigger": ("DeviceTrigger",),
     "cosalette._runners._notifier": (
         "EntityNotifier",

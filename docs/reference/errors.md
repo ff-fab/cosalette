@@ -551,6 +551,22 @@ error_type_map: dict[type[Exception], str] = {
 }
 ```
 
+The framework merges its own entries into this map, and they are
+authoritative:
+
+| `error_type` | Exception |
+|---|---|
+| `invalid_json` | `InvalidJsonError` |
+| `missing_sub_key` | `MissingSubKeyError` |
+| `unknown_sub_command` | `UnknownSubCommandError` |
+| `invalid_payload` | `cosalette.PayloadValidationError` |
+| `timeout` | `TimeoutError` |
+
+An app entry for one of these types with a different label logs one startup
+`WARNING` (`error_type_map entry PayloadValidationError -> 'validation' is
+overridden by the framework label 'invalid_payload'`) and the framework label
+is used. `cosalette.ReturnValidationError` stays unlabelled (`error`).
+
 ### `disclose_messages_for` Pattern
 
 `disclose_messages_for` (`frozenset[type[Exception]] | None = None`) decouples
@@ -563,7 +579,18 @@ accepted by `App`, `ErrorPublisher`, `build_error_payload()`,
 |---|---|
 | `None` (default) | Legacy behaviour: `error_type_map` membership alone implies message disclosure |
 | `frozenset({...})` | Fully replaces the disclosure decision: only listed exact types have their `str(error)` published, independent of `error_type_map` — framework-mapped types are **not** auto-added |
+| `cosalette.FRAMEWORK_DISCLOSED_ERRORS \| {...}` | Same, starting from the framework's own sanitised command errors |
 | `frozenset()` | Discloses nothing — every exception, mapped or not, publishes only its class name |
+
+`cosalette.FRAMEWORK_DISCLOSED_ERRORS` is a `frozenset[type[Exception]]` of the
+framework exceptions whose messages the framework builds and sanitises itself:
+`InvalidJsonError`, `MissingSubKeyError`, `UnknownSubCommandError` and
+`PayloadValidationError`. The builtin `TimeoutError` is **not** a member:
+library and application code raise it too, and its text can carry hostnames,
+URLs or credentials. The command watchdog raises it with the framework message
+`command handler exceeded N.Ns watchdog` (label `timeout`); list `TimeoutError`
+yourself to disclose that message, accepting that a handler's own
+`TimeoutError` text is then disclosed too.
 
 `verbose=True` (`MqttSettings.error_publish_verbose`) still overrides both and
 discloses every message unconditionally. A disclosed exception whose
@@ -575,6 +602,14 @@ app = cosalette.App(
     name="caldates2mqtt",
     error_type_map={CalDavConnectionError: "caldav_connection_error"},
     disclose_messages_for=frozenset(),  # label it, but keep the message redacted
+)
+
+# Keep the framework's sanitised messages and disclose one app type
+app = cosalette.App(
+    name="caldates2mqtt",
+    error_type_map={CalDavConnectionError: "caldav_connection_error"},
+    disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS
+    | {CalDavConnectionError},
 )
 ```
 

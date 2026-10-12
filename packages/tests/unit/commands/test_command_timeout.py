@@ -12,6 +12,8 @@ Test Techniques Used:
 - Error Guessing: hung handler, invalid callable resolution results
 - Adversarial Testing: worker must keep serving queued commands after a
   watchdog cancellation
+- Error Guessing: a TimeoutError raised by the handler itself must not be
+  rewritten into the framework watchdog message
 """
 
 from __future__ import annotations
@@ -26,7 +28,10 @@ from cosalette._context._device_context import DeviceContext
 from cosalette._registration import TimeoutSpec, _Unset
 from cosalette._registration._model import _UNSET
 from cosalette._router import Router
-from cosalette._runners._command_runner import _dispatch_handler
+from cosalette._runners._command_runner import (
+    _await_with_watchdog,
+    _dispatch_handler,
+)
 from cosalette._utils import _DEFAULT_COMMAND_TIMEOUT
 from cosalette._wiring import resolve_timeouts_commands, resolve_timeouts_periodic
 from cosalette.testing import FakeClock, MockMqttClient, make_settings
@@ -177,6 +182,46 @@ class TestCommandTimeoutEnforcement:
         assert len(error_msgs) >= 1
         payload = json.loads(error_msgs[0][0])
         assert payload["error_type"] == "timeout"
+        assert payload["message"] == "command handler exceeded 0.1s watchdog"
+
+    async def test_handler_raised_timeout_keeps_its_own_message(
+        self,
+        mock_mqtt: MockMqttClient,
+        fake_clock: FakeClock,
+    ) -> None:
+        """A TimeoutError from handler code is not rewritten (ADR-061).
+
+        Technique: Error Guessing — only the framework's own deadline gets the
+        framework message; the legacy rule still discloses the handler text.
+        """
+        app = App(name="testapp", version="1.0.0")
+
+        @app.command("dev", timeout=5.0)
+        async def handler(topic: str, payload: str) -> None:
+            raise TimeoutError("upstream timed out")
+
+        shutdown = asyncio.Event()
+
+        async def simulate() -> None:
+            await asyncio.sleep(0.01)
+            await mock_mqtt.deliver("testapp/dev/set", "x")
+            await asyncio.sleep(0.1)
+            shutdown.set()
+
+        asyncio.create_task(simulate())
+        await asyncio.wait_for(
+            app._run_async(
+                settings=make_settings(),
+                shutdown_event=shutdown,
+                mqtt=mock_mqtt,
+                clock=fake_clock,
+            ),
+            timeout=5.0,
+        )
+
+        payload = json.loads(mock_mqtt.get_messages_for("testapp/dev/error")[0][0])
+        assert payload["error_type"] == "timeout"
+        assert payload["message"] == "upstream timed out"
 
     async def test_worker_continues_after_watchdog_kill(
         self,
@@ -468,6 +513,7 @@ class TestDeviceContextOnCommandTimeout:
         assert len(pub.published) == 1
         exc, device, is_root = pub.published[0]
         assert isinstance(exc, TimeoutError)
+        assert str(exc) == "command handler exceeded 0.1s watchdog"
         assert (device, is_root) == ("cam", False)
 
     async def test_dispatch_handler_none_is_unbounded(self) -> None:
@@ -506,6 +552,48 @@ class TestDeviceContextOnCommandTimeout:
             timeout=None,
         )
         assert ran and not pub.published
+
+
+class TestAwaitWithWatchdog:
+    """_await_with_watchdog gives only its own expiry a framework message."""
+
+    @pytest.mark.parametrize(
+        ("timeout", "expected"),
+        [
+            (0.05, "command handler exceeded 0.1s watchdog"),
+            (0.2, "command handler exceeded 0.2s watchdog"),
+        ],
+    )
+    async def test_expiry_message_has_one_decimal(
+        self, timeout: float, expected: str
+    ) -> None:
+        """Technique: Boundary Value Analysis — bound rendered with one decimal."""
+        with pytest.raises(TimeoutError) as info:
+            await _await_with_watchdog(asyncio.sleep(10), timeout)
+
+        assert str(info.value) == expected
+        assert isinstance(info.value.__cause__, TimeoutError)
+
+    async def test_handler_timeout_error_propagates_unchanged(self) -> None:
+        """Technique: Error Guessing — handler-raised TimeoutError is not rewritten."""
+        own = TimeoutError("http://secret")
+
+        async def handler() -> None:
+            raise own
+
+        with pytest.raises(TimeoutError) as info:
+            await _await_with_watchdog(handler(), 5.0)
+
+        assert info.value is own
+
+    async def test_none_is_unbounded_and_returns_result(self) -> None:
+        """Technique: Equivalence Partitioning — disabled watchdog."""
+
+        async def handler() -> int:
+            await asyncio.sleep(0.01)
+            return 42
+
+        assert await _await_with_watchdog(handler(), None) == 42
 
 
 # ---------------------------------------------------------------------------

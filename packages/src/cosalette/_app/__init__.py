@@ -307,9 +307,12 @@ class App(
                 LEAK-01 default-deny: an exception whose type is in the map has
                 its ``str(error)`` published on the broker-visible error topic,
                 while unlisted (downstream/unexpected) exceptions keep having
-                their message redacted to the class name.  Framework command
-                exceptions remain authoritative and cannot be overridden.  See
-                ADR-011.
+                their message redacted to the class name.  Framework labels
+                (``invalid_json``, ``missing_sub_key``,
+                ``unknown_sub_command``, ``invalid_payload`` for
+                :class:`PayloadValidationError`, ``timeout``) remain
+                authoritative; an entry overriding one with a different label
+                logs a startup warning.  See ADR-011.
 
                 Security note: mapping a type is a **message-disclosure
                 decision**, not just labeling.  Only register exceptions whose
@@ -322,6 +325,9 @@ class App(
                 defines** the disclosure policy — a type must be listed here
                 to have its message published, regardless of whether it is
                 also in ``error_type_map`` (framework-mapped types included).
+                Pass ``cosalette.FRAMEWORK_DISCLOSED_ERRORS | {MyError}`` to
+                keep the framework's own sanitised command error messages
+                (the builtin ``TimeoutError`` is not included).
                 ``None`` (default) preserves the legacy conflated behaviour:
                 registering a type in ``error_type_map`` alone discloses its
                 message.  See ADR-061.

@@ -103,6 +103,7 @@ class TestCosalettePublicAPI:
         # Errors
         "ErrorPayload",
         "ErrorPublisher",
+        "FRAMEWORK_DISCLOSED_ERRORS",
         "build_error_payload",
         # Task supervision (ADR-081)
         "TaskSupervisionError",
@@ -159,3 +160,27 @@ class TestCosalettePublicAPI:
         for name in cosalette.__all__:
             obj = getattr(cosalette, name, None)
             assert obj is not None, f"{name!r} listed in __all__ but not importable"
+
+
+class TestFrameworkDisclosedErrors:
+    """``cosalette.FRAMEWORK_DISCLOSED_ERRORS`` (ADR-061 amendment 2026-10-12)."""
+
+    def test_contains_exactly_the_framework_sanitised_types(self) -> None:
+        """Technique: Specification-based — the four framework-owned messages."""
+        from cosalette._runners._command_errors import (
+            InvalidJsonError,
+            MissingSubKeyError,
+            UnknownSubCommandError,
+        )
+
+        assert isinstance(cosalette.FRAMEWORK_DISCLOSED_ERRORS, frozenset)
+        assert {
+            InvalidJsonError,
+            MissingSubKeyError,
+            UnknownSubCommandError,
+            cosalette.PayloadValidationError,
+        } == cosalette.FRAMEWORK_DISCLOSED_ERRORS
+
+    def test_excludes_builtin_timeout_error(self) -> None:
+        """Technique: Error Guessing — library TimeoutError text may leak secrets."""
+        assert TimeoutError not in cosalette.FRAMEWORK_DISCLOSED_ERRORS

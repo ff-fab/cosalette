@@ -865,6 +865,12 @@ Default Retry Behavior:
 Error Disclosure + Redaction:
   • Error payloads publish only the class name unless a type is disclosed
     (disclose_messages_for=..., legacy error_type_map, or verbose) — ADR-061
+  • An explicit set replaces the legacy rule; keep the framework's sanitised
+    messages with disclose_messages_for=cosalette.FRAMEWORK_DISCLOSED_ERRORS
+    | {MyError} (InvalidJsonError, MissingSubKeyError,
+    UnknownSubCommandError, PayloadValidationError; builtin TimeoutError is
+    excluded — list it yourself to disclose watchdog timeouts, whose message
+    is "command handler exceeded N.Ns watchdog")
   • App(redact=[r"token=[^&\\s]+", re.compile(...)]) or App(redact=fn) scrubs
     disclosed messages and every log line on cosalette's handlers (message,
     traceback, stack info); each pattern match becomes [REDACTED] (ADR-085)
