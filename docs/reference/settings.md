@@ -97,10 +97,25 @@ existing topics remain allowed.
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `LOGGING__LEVEL` | `str` | `"INFO"` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `LOGGING__LEVELS` | `dict[str, str]` | `{}` | Per-logger level overrides as JSON, e.g. `'{"asyncssh":"WARNING"}'`. Level names are case-insensitive; logger names are kept as written |
 | `LOGGING__FORMAT` | `str` | `"json"` | Log output format (`json` or `text`) |
 | `LOGGING__FILE` | `str | None` | `None` | Optional log file path — `None` means stderr only |
 | `LOGGING__MAX_FILE_SIZE_MB` | `int` | `10` | Maximum log file size in megabytes before rotation. Only has effect when `file` is set |
 | `LOGGING__BACKUP_COUNT` | `int` | `3` | Number of rotated log files to keep |
+
+!!! warning "Use the JSON form for `LOGGING__LEVELS`"
+
+    Set per-logger levels as one JSON value, which keeps logger names exactly as
+    written:
+
+    ```bash
+    export LOGGING__LEVELS='{"asyncssh": "WARNING", "cosalette.Foo": "DEBUG"}'
+    ```
+
+    The nested form (`LOGGING__LEVELS__asyncssh=WARNING`) also parses, but
+    pydantic-settings **lowercases the key**. Logger names are case-sensitive, so
+    `LOGGING__LEVELS__Foo=DEBUG` configures `foo`, not `Foo`. See
+    [Logging → Per-logger levels](../concepts/logging.md#per-logger-levels).
 
 !!! note "Application prefix"
 

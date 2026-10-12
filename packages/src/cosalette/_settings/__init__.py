@@ -283,11 +283,20 @@ class LoggingSettings(BaseModel):
       line is a complete JSON object with correlation metadata.
     - ``"text"`` — human-readable timestamped format for local
       development and direct terminal use.
+
+    ``levels`` overrides the level of individual loggers (e.g. quiet a chatty
+    library with ``{"asyncssh": "WARNING"}``).  Level names are
+    case-insensitive; numeric levels are not accepted.  Logger names are kept
+    exactly as written.
     """
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO",
         description="Root log level.",
+    )
+    levels: dict[str, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]] = Field(
+        default_factory=dict,
+        description="Per-logger level overrides, e.g. {'asyncssh': 'WARNING'}.",
     )
     format: Literal["json", "text"] = Field(
         default="json",
@@ -314,6 +323,19 @@ class LoggingSettings(BaseModel):
         default=3,
         description="Number of rotated log files to keep.",
     )
+
+    # A field validator (not an Annotated BeforeValidator) so subclasses that
+    # redeclare ``levels`` with an app default keep the normalisation.
+    @field_validator("levels", mode="before")
+    @classmethod
+    def _uppercase_level_values(cls, value: object) -> object:
+        """Normalize levels and reject keys that resolve to the root logger."""
+        if isinstance(value, dict):
+            if any(name in ("", "root") for name in value):
+                msg = "levels must not contain an empty logger name or 'root'"
+                raise ValueError(msg)
+            return {k: v.upper() if isinstance(v, str) else v for k, v in value.items()}
+        return value
 
 
 class SchemaSettings(BaseModel):
