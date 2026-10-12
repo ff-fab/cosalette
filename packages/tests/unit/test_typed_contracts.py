@@ -698,7 +698,7 @@ class TestValidationSummaryLocation:
             pytest.param(
                 '{"inner": {"state": "off", "level": 5}}',
                 _Outer,
-                "(parameter 'cmd'): [field].[field]: type=value_error",
+                "(parameter 'cmd'): [field]: type=value_error",
                 id="non-empty-loc-nested-model-validator",
             ),
         ],

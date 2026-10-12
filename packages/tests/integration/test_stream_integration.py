@@ -348,7 +348,7 @@ class TestStreamStateModelEndToEnd:
             await harness.inject_stream("rx", _StreamItem())
 
         message = str(excinfo.value)
-        assert "value" in message
+        assert "[field]" in message
         assert "_Reading" in message
         assert "rx" in message
 
