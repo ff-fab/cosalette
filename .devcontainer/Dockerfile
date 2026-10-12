@@ -163,6 +163,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         libmagickcore-7.q16-10 libmagickwand-7.q16-10 \
         libmagickcore-7-headers libmagickwand-7-headers \
         libmagickcore-7-arch-config imagemagick-7-common \
+        gir1.2-rsvg-2.0 librsvg2-2 librsvg2-common \
     # The project and retained Python tools use /usr/local Python 3.14. Removing
     # the separate distro interpreter also removes unused Mercurial and graphic
     # development packages; do not autoremove ICU or native-build dependencies.
