@@ -25,3 +25,23 @@ and
 Remove these baseline rows when Debian publishes a fixed Trixie package. Inventory each
 developer and CI host before marking host applicability resolved; the existing
 assessment in `.devcontainer/host-kernel-assessment.md` predates these advisories.
+
+## Docker Buildx dependency finding
+
+The rebuilt image for PR #537 reports one additional exact fingerprint:
+`usr/libexec/docker/cli-plugins/docker-buildx`, HIGH `CVE-2026-78669`,
+`golang.org/x/net` `v0.59.0`, fixed in `v0.60.0`. The official
+[Buildx v0.38.0 release](https://github.com/docker/buildx/releases/tag/v0.38.0) was
+published on 7 October, before the CVE was published on 8 October, and its
+[go.mod pins x/net v0.59.0](https://github.com/docker/buildx/blob/v0.38.0/go.mod). At
+review time the release page has no later stable Buildx release to update to.
+
+The [Go vulnerability record](https://pkg.go.dev/vuln/GO-2026-6611) describes excessive
+CPU use when a peer repeatedly sends HTTP/2 SETTINGS frames across many streams. Buildx
+is retained for container builds and communicates with remote BuildKit/registry
+endpoints, so a hostile HTTP/2 peer could cause denial of service when that code path is
+exercised. Current CI builds use trusted registry and builder endpoints; this is
+exposure context, not proof that the vulnerable code is unreachable. The exact Buildx
+fingerprint is temporarily covered by the existing `go_binaries` acceptance, owned by
+`cos-nxu6` and expiring 2026-11-02. Replace the acceptance with the first fixed Docker
+Buildx package and require the rebuilt-image scan to verify `x/net` `v0.60.0` or newer.

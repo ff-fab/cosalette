@@ -276,6 +276,7 @@ usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-41567	github.com/dock
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-42306	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78667	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78669	golang.org/x/net	v0.59.0	0.60.0	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-78669	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-97031	stdlib	v1.26.8	1.26.9, 1.27.2	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-43871	github.com/apache/thrift	v0.23.0	0.24.0	go_binaries
