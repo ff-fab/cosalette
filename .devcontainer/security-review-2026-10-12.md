@@ -45,3 +45,19 @@ exposure context, not proof that the vulnerable code is unreachable. The exact B
 fingerprint is temporarily covered by the existing `go_binaries` acceptance, owned by
 `cos-nxu6` and expiring 2026-11-02. Replace the acceptance with the first fixed Docker
 Buildx package and require the rebuilt-image scan to verify `x/net` `v0.60.0` or newer.
+
+## Remove unused librsvg packages
+
+The 12 October scan found `CVE-2026-96889` in `librsvg2-2`, `librsvg2-common`, and
+`gir1.2-rsvg-2.0` at Debian version `2.60.0+dfsg-1+deb13u1`. Debian's tracker says
+Trixie is still vulnerable at source version `2.60.0+dfsg-1`; the upstream fix is in
+2.60.3, and no fixed Trixie package was listed at review time. The flaw is a use-after-
+free while parsing SVGs with nested XIncludes and duplicate entities, with potential
+denial of service or code execution.
+
+These packages come from the Python devcontainer base image. The project renders brand
+assets with CairoSVG, which does not depend on librsvg; the Dockerfile also already
+removes the unused ImageMagick stack. Purge the three librsvg packages and remove their
+now-stale baseline rows instead of keeping the vulnerable parser. Debian's security
+tracker records the affected/fixed versions and upstream fix:
+<https://security-tracker.debian.org/tracker/CVE-2026-96889>.
