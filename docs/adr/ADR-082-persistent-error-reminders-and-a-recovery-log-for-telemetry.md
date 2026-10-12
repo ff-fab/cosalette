@@ -9,7 +9,7 @@ tags: [telemetry, error-handling, health, logging]
 
 ## Status
 
-Accepted **Date:** 2026-10-02
+Accepted **Date:** 2026-10-02 | Amended **Date:** 2026-10-12
 
 ## Context
 
@@ -93,4 +93,24 @@ _Scale: 1 (poor) to 5 (excellent)_
 - A streak counts every failed cycle, including a publish or reactor failure in an otherwise successful poll, the same as ADR-080's counter
 - Reminders cover telemetry only; device, command and stream errors keep their existing reporting
 
-_2026-10-02_
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** A typed telemetry trigger payload (`Annotated[T, Payload()]` on a triggerable handler) that fails JSON decoding or schema validation was handled as a failed cycle: it logged ERROR plus a WARNING with the chained traceback, counted toward the failure streak and ADR-080's `consecutive_failures`, and set the device status to `error`. In a coalescing group it escaped the member loop and ended the group task. An operator's malformed trigger is bad input, not a device fault, and ADR-011's 2026-10-12 severity amendment already treats the same input on the command path as rejected input. Tracked as cos-5wv5 (epic cos-ked4).
+
+### Additional Sub-Decision: Rejected trigger input is not a failed cycle
+
+A `PayloadValidationError` the framework raises while parsing a trigger payload that the cycle consumed is rejected input. The runner publishes it to the error topics (`invalid_payload`, under ADR-011 and ADR-061 disclosure rules), logs it once at `WARNING` without traceback through `ErrorPublisher.publish(..., log_traceback=False)`, and logs the chained cause at `DEBUG` from `cosalette._runners._telemetry_runner`, following ADR-011's severity policy for framework-rejected input. The handler does not run for that trigger. The rejection does not call `record_failure`, so it neither starts nor extends a streak, is not due a reminder, and leaves `consecutive_failures`, `last_error` and `failing_since` unchanged. It does not set the device status, does not mark the entity unavailable, does not record a circuit-breaker outcome and does not touch the error de-duplication state. It does not count as a fresh cycle either, so ADR-080's freshness bound keeps running. Every rejected trigger is published; there is no de-duplication for rejected input.
+
+### Additional Sub-Decision: Scope: single and grouped telemetry; handler faults unchanged
+
+The rule applies to single telemetry and to members of a coalescing group. A rejected member is skipped for that cycle and the group continues with its other members. A binding failure on a scheduled run (no trigger payload consumed, for example a non-optional typed parameter bound to `None`) is an app fault, not rejected input, and is outside this rule. Any exception raised by the telemetry handler, its publish or its reactors, including a `PayloadValidationError` the handler raises itself, remains a failed cycle: `ERROR` plus traceback on onset, streak and reminders, and status `error`.
+
+### Additional Positive Consequences
+
+- Malformed triggers no longer degrade the heartbeat, start a failure streak or produce reminders, so `error` status and streaks again mean the device or handler is failing.
+- One malformed trigger no longer ends a coalescing group's task and its sibling members.
+
+### Additional Negative Consequences
+
+- Operators who alerted on `level=ERROR` or on status `error` for bad trigger input must alert on `invalid_payload` error-topic events or `WARNING` instead.
+- A flood of malformed triggers publishes one error-topic message each; only the trigger throttle (ADR-066) bounds the rate.

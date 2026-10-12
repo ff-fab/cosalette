@@ -105,8 +105,9 @@ The app heartbeat is a JSON payload published to `{prefix}/status`:
     Device status is `"ok"` when the device is functioning normally. For
     telemetry devices, the framework automatically sets status to `"error"`
     when a polling cycle raises an exception, and restores it to `"ok"`
-    when the device recovers. See [Error Handling](error-handling.md) for
-    details on error deduplication.
+    when the device recovers. A trigger payload the framework rejects does
+    not change the status (ADR-082). See [Error Handling](error-handling.md)
+    for details on error deduplication.
 
     A telemetry entity with no fresh cycle for its `stale_after` bound, or a
     stream with `stale_after=` and no item for that long, reports `"stale"`,

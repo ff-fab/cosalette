@@ -164,12 +164,22 @@ full chained traceback, including the pydantic detail, is logged at `DEBUG` by
 keeps its local `WARNING` with the raw value, since the published message only
 carries a fingerprint.
 
+A typed telemetry trigger payload (`Annotated[T, Payload()]` on a
+`triggerable=True` handler) that fails the same way is handled alike: one
+`WARNING` without traceback, `invalid_payload` on the error topic, and the
+traceback at `DEBUG` from `cosalette._runners._telemetry_runner`. The handler
+does not run for that trigger. A rejected trigger is not a failed cycle: it
+does not count toward the [failure streak](#per-cycle-isolation-in-telemetry) or
+`consecutive_failures` and does not set the device status to `"error"`
+(ADR-082). The next scheduled run or valid trigger runs normally.
+
 Exceptions raised by **handler code** are unchanged: an `ERROR` line plus the
 `WARNING` with the traceback. That includes a `PayloadValidationError` the
 handler or an application dependency raises itself, for example while
-validating a nested payload. Unknown sub-command warnings include only the
-value's type, length and non-reversible fingerprint, so raw values stay out of
-local logs. The error topic payload is unchanged; only the local log differs.
+validating a nested payload. For telemetry, such an exception is a failed cycle
+as before. Unknown sub-command warnings include only the value's type, length
+and non-reversible fingerprint, so raw values stay out of local logs. The error
+topic payload is unchanged; only the local log and health differ.
 
 ## Message Disclosure
 
@@ -529,6 +539,10 @@ Telemetry 'radon' recovered after 2h10m00s (26 failed cycles)
 
 Pass `App(error_reminder_interval=None)` to keep only the onset and the
 recovery line.
+
+A trigger payload the framework rejects is operator input, not a failed cycle,
+and stays outside this flow (see
+[Log Severity for Rejected Input](#log-severity-for-rejected-input)).
 
 When `retry > 0` is configured on a telemetry handler, the framework wraps
 the handler call in a retry loop **before** reaching the error publication
