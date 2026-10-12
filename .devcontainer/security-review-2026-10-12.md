@@ -55,8 +55,9 @@ Trixie is still vulnerable at source version `2.60.0+dfsg-1`; the upstream fix i
 free while parsing SVGs with nested XIncludes and duplicate entities, with potential
 denial of service or code execution.
 
-These packages come from the Python devcontainer base image. The project does not use
-SVG rendering, and its Dockerfile already removes the unused ImageMagick stack. Purge
-the three librsvg packages and remove their now-stale baseline rows instead of keeping
-the vulnerable parser. Debian's security tracker records the affected/fixed versions and
-upstream fix: <https://security-tracker.debian.org/tracker/CVE-2026-96889>.
+These packages come from the Python devcontainer base image. The project renders brand
+assets with CairoSVG, which does not depend on librsvg; the Dockerfile also already
+removes the unused ImageMagick stack. Purge the three librsvg packages and remove their
+now-stale baseline rows instead of keeping the vulnerable parser. Debian's security
+tracker records the affected/fixed versions and upstream fix:
+<https://security-tracker.debian.org/tracker/CVE-2026-96889>.
