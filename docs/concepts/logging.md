@@ -204,6 +204,7 @@ LOGGING__LEVEL=DEBUG       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOGGING__FORMAT=json       # json or text
 LOGGING__FILE=/var/log/myapp/myapp.log  # optional
 LOGGING__BACKUP_COUNT=5    # rotated file generations
+LOGGING__LEVELS='{"asyncssh":"WARNING"}'  # per-logger overrides (JSON)
 ```
 
 Or via CLI override:
@@ -213,7 +214,77 @@ myapp --log-level DEBUG --log-format text
 ```
 
 CLI flags override environment variables and `.env` settings, following the
-[configuration hierarchy](configuration.md).
+[configuration hierarchy](configuration.md). `--log-level` sets the root level
+only; per-logger overrides from `logging.levels` still apply.
+
+## Per-logger Levels
+
+`logging.levels` maps logger names to levels. Use it to quiet a chatty library
+(asyncssh, bleak, pymodbus, aiohttp, zeroconf) or to turn on `DEBUG` for one
+module while the root stays at `INFO`:
+
+```bash title=".env"
+MYAPP_LOGGING__LEVELS='{"asyncssh": "WARNING", "myapp.adapters": "DEBUG"}'
+```
+
+```toml title="app.toml (config file)"
+[logging.levels]
+asyncssh = "WARNING"
+```
+
+- Level names are case-insensitive (`"warning"` works) and must be one of
+  `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. Numeric levels are rejected.
+- Logger names are case-sensitive and kept exactly as written.
+- An override applies to the named logger and its children (`asyncssh` also
+  covers `asyncssh.connection`). A logger set to `DEBUG` emits debug records even
+  when the root is `INFO`, because cosalette's handlers have no level of their own.
+- Each `configure_logging()` call first resets the loggers the previous call
+  overrode, so a removed override does not linger.
+
+!!! warning "Prefer the JSON env form"
+
+    pydantic-settings also accepts the nested form
+    `MYAPP_LOGGING__LEVELS__asyncssh=WARNING`, but it **lowercases the key**.
+    `MYAPP_LOGGING__LEVELS__Foo=DEBUG` configures the logger `foo`, not `Foo`.
+    Use the JSON form whenever a logger name contains uppercase letters.
+
+### App Defaults
+
+To ship default overrides with your app, subclass `LoggingSettings` with a
+`levels` default and annotate your settings' `logging` field with it:
+
+```python
+from typing import Literal
+
+from pydantic import Field
+from pydantic_settings import SettingsConfigDict
+
+import cosalette
+
+Level = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class MyLoggingSettings(cosalette.LoggingSettings):
+    levels: dict[str, Level] = Field(default={"asyncssh": "WARNING"})
+
+
+class MySettings(cosalette.Settings):
+    model_config = SettingsConfigDict(env_prefix="MYAPP_", env_nested_delimiter="__")
+
+    logging: MyLoggingSettings = Field(default_factory=MyLoggingSettings)
+```
+
+pydantic copies the default for each instance, so the shared dict is safe.
+`MYAPP_LOGGING__LEVELS` replaces the default mapping as a whole; other
+`MYAPP_LOGGING__*` variables leave it in place.
+
+!!! danger "Do not override the field's default instance"
+
+    `logging: LoggingSettings = LoggingSettings(levels={...})` looks equivalent
+    but is not: as soon as any `MYAPP_LOGGING__*` variable is set,
+    pydantic-settings builds `logging` from the environment alone and the
+    default instance, with its `levels`, is silently dropped. The subclass keeps
+    the default because it is part of the model, not of one instance.
 
 ---
 

@@ -28,6 +28,11 @@ from cosalette._settings import LoggingSettings
 
 _TEXT_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
+# Logger names whose level the last configure_logging() call set from
+# ``settings.levels``; reset to NOTSET on the next call so removed overrides
+# do not linger.
+_applied_level_overrides: set[str] = set()
+
 
 class JsonFormatter(logging.Formatter):
     """Emit log records as single-line JSON objects (NDJSON).
@@ -112,8 +117,12 @@ def configure_logging(
     :class:`~logging.handlers.RotatingFileHandler` is added as
     well.
 
+    Per-logger overrides from ``settings.levels`` are applied after the
+    root level.  Loggers overridden by a previous call are first reset to
+    ``NOTSET``, so repeated calls never leave stale overrides behind.
+
     Args:
-        settings: Logging configuration (level, format, file).
+        settings: Logging configuration (level, format, file, levels).
         service: Application name passed to :class:`JsonFormatter`.
         version: Application version passed to
             :class:`JsonFormatter`.  Defaults to ``""``.
@@ -159,6 +168,18 @@ def configure_logging(
         _add_handler(root, file_handler, redactor)
 
     root.setLevel(settings.level)
+
+    for name in _applied_level_overrides:
+        if name in ("", root.name):
+            continue
+        logging.getLogger(name).setLevel(logging.NOTSET)
+    for name, level in settings.levels.items():
+        if name in ("", root.name):
+            msg = "per-logger levels cannot target the root logger"
+            raise ValueError(msg)
+        logging.getLogger(name).setLevel(level)
+    _applied_level_overrides.clear()
+    _applied_level_overrides.update(settings.levels)
 
 
 def _add_handler(

@@ -327,6 +327,12 @@ Built-in Settings:
     (seconds, default 86400; see cosalette ai help availability, ADR-078)
     With env_prefix='MYAPP_', set MYAPP_MQTT__PROTOCOL_VERSION=5 to opt in.
   • Logging: nested under logging.level, logging.format, logging.file
+  • Per-logger levels: logging.levels, e.g.
+    MYAPP_LOGGING__LEVELS='{"asyncssh":"WARNING"}' (use the JSON form; the
+    nested LOGGING__LEVELS__<name> form lowercases logger names). For app
+    defaults, subclass LoggingSettings with a levels default and annotate
+    logging: MyLoggingSettings (an overridden default instance is dropped
+    once any LOGGING__* env var is set).
   • Schema enforcement: schema.enforcement, schema.path
 
 Topic Prefix vs App Identity (ADR-072):
