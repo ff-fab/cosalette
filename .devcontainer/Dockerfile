@@ -2,7 +2,7 @@
 # Python 3.14 + uv + common dev tools
 
 # renovate: datasource=docker depName=mcr.microsoft.com/devcontainers/python versioning=docker
-FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:3b3c45535947751e9dfcd513ef5bee858d221844f55e278e92d1cd8f5b1f2972
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:28835c112fd097cb6d2fe1e195b660d66ae051859070a9b871fa2308f35897d3
 
 # Set shell options for robust RUN commands
 # -e: exit on error
@@ -381,7 +381,7 @@ RUN set -eux; \
 # Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
 # is trusted rather than checksum-pinned.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.285
+ARG CLAUDE_CODE_VERSION=2.1.290
 # Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
 # Default to installing it (local devcontainer builds via VS Code / `devcontainer
 # up` get it out of the box); the CI devcontainer-build workflows set
