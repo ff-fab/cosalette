@@ -28,6 +28,11 @@ from cosalette.testing import AppHarness
 
 _RUNNER_LOGGER = "cosalette._runners._command_runner"
 _ERROR_TOPIC = "testapp/error"
+_DEPENDENCY_ERROR = PayloadValidationError("dependency failed")
+
+
+def _raise_dependency_error() -> str:
+    raise _DEPENDENCY_ERROR
 
 
 class _Cmd(BaseModel):
@@ -249,13 +254,11 @@ class TestHandlerFaults:
         """An application dependency's error is not framework input rejection."""
         # Arrange
         harness = _harness()
-        exc = PayloadValidationError("dependency failed")
-
-        def dependency() -> str:
-            raise exc
 
         @harness.app.command("display")
-        async def handle_display(value: Annotated[str, Depends(dependency)]) -> None:
+        async def handle_display(
+            value: Annotated[str, Depends(_raise_dependency_error)],
+        ) -> None:
             return None
 
         # Act
@@ -268,7 +271,7 @@ class TestHandlerFaults:
         warnings = log.at(logging.WARNING)
         assert len(warnings) == 1
         assert warnings[0].exc_info is not None
-        assert warnings[0].exc_info[1] is exc
+        assert warnings[0].exc_info[1] is _DEPENDENCY_ERROR
         assert error["error_type"] == "invalid_payload"
 
 
