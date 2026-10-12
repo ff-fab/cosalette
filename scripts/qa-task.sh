@@ -341,7 +341,7 @@ _run_impl() {
             # Override with DOCKER_SCAN_IMAGE to scan a different image.
             # Exit on scanner errors, secrets, and unreviewed HIGH/CRITICAL findings.
             # renovate: datasource=docker depName=ghcr.io/aquasecurity/trivy
-            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969}"
+            TRIVY_IMAGE="${TRIVY_IMAGE:-ghcr.io/aquasecurity/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa}"
             SCAN_IMAGE="${DOCKER_SCAN_IMAGE:-ghcr.io/ff-fab/cosalette-devcontainer:latest}"
             if ! command -v docker >/dev/null 2>&1; then
                 if [ "${CI:-}" = "true" ]; then
