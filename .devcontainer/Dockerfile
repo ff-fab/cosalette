@@ -293,7 +293,7 @@ RUN set -eux; \
 # the dolt/beads pattern elsewhere in this file. RUST_VERSION uses major.minor because rustup
 # resolves the latest stable patch automatically (e.g. 1.98 → 1.98.1).
 # renovate: datasource=github-releases depName=rust-lang/rust extractVersion=^(?<version>\d+\.\d+)\.\d+$
-ARG RUST_VERSION=1.98
+ARG RUST_VERSION=1.99
 # renovate: datasource=crate depName=cargo-audit
 ARG CARGO_AUDIT_VERSION=0.22.2
 # renovate: datasource=crate depName=cargo-auditable
