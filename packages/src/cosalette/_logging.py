@@ -170,8 +170,13 @@ def configure_logging(
     root.setLevel(settings.level)
 
     for name in _applied_level_overrides:
+        if name in ("", root.name):
+            continue
         logging.getLogger(name).setLevel(logging.NOTSET)
     for name, level in settings.levels.items():
+        if name in ("", root.name):
+            msg = "per-logger levels cannot target the root logger"
+            raise ValueError(msg)
         logging.getLogger(name).setLevel(level)
     _applied_level_overrides.clear()
     _applied_level_overrides.update(settings.levels)

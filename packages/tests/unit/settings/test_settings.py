@@ -499,6 +499,12 @@ class TestLoggingSettingsLevels:
         with pytest.raises(ValidationError):
             LoggingSettings(levels={"asyncssh": 10})
 
+    @pytest.mark.parametrize("name", ["", "root"])
+    def test_root_logger_names_rejected(self, name: str) -> None:
+        """Per-logger levels cannot override the configured root level."""
+        with pytest.raises(ValidationError, match="empty logger name or 'root'"):
+            LoggingSettings(levels={name: "DEBUG"})
+
     def test_json_env_form_preserves_key_case(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

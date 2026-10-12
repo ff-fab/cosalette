@@ -284,6 +284,14 @@ class TestConfigureLoggingLevelOverrides:
         # Assert
         assert logging.getLogger("a").level == logging.NOTSET
 
+    def test_reconfigure_preserves_configured_root_level(self) -> None:
+        """Removing overrides does not disturb the new root level."""
+        configure_logging(LoggingSettings(levels={"a": "DEBUG"}), service="test")
+
+        configure_logging(LoggingSettings(level="ERROR"), service="test")
+
+        assert logging.getLogger().level == logging.ERROR
+
     def test_reconfigure_with_other_mapping_replaces_overrides(self) -> None:
         """Only the latest mapping is in effect after reconfiguration."""
         # Arrange

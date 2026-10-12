@@ -329,8 +329,11 @@ class LoggingSettings(BaseModel):
     @field_validator("levels", mode="before")
     @classmethod
     def _uppercase_level_values(cls, value: object) -> object:
-        """Uppercase string level names; pydantic rejects everything else."""
+        """Normalize levels and reject keys that resolve to the root logger."""
         if isinstance(value, dict):
+            if any(name in ("", "root") for name in value):
+                msg = "levels must not contain an empty logger name or 'root'"
+                raise ValueError(msg)
             return {k: v.upper() if isinstance(v, str) else v for k, v in value.items()}
         return value
 
