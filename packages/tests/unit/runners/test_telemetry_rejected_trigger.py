@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, override
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from cosalette import LoggingSettings, Payload, PayloadValidationError
 from cosalette.testing import AppHarness, ManualClock
@@ -33,6 +33,13 @@ _STATE_TOPIC = "testapp/sensor/state"
 
 class _Cmd(BaseModel):
     level: int = 0
+
+    @field_validator("level")
+    @classmethod
+    def reject_application_value(cls, value: int) -> int:
+        if value == -1:
+            raise PayloadValidationError("Application validator failed")
+        return value
 
 
 class _Recorder(logging.Handler):
@@ -183,6 +190,25 @@ class TestHandlerFaults:
         assert out.sensor["status"] == "error"
         assert out.sensor["consecutive_failures"] == 1
         assert out.sensor["last_error"] == type(exc).__name__
+
+    @pytest.mark.parametrize("group", [None, "g"], ids=["single", "group"])
+    async def test_application_validator_error_is_a_telemetry_failure(
+        self, group: str | None
+    ) -> None:
+        """An application-raised validation error is not rejected input."""
+        out = await _run('{"level":-1}', group=group)
+
+        errors = out.log.at(logging.ERROR)
+        assert len(errors) == 1
+        assert errors[0].name == _RUNNER_LOGGER
+        warnings = out.log.at(logging.WARNING)
+        assert len(warnings) == 1
+        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info[1], PayloadValidationError)
+        assert [e["error_type"] for e in out.errors] == ["invalid_payload"]
+        assert out.sensor["status"] == "error"
+        assert out.sensor["consecutive_failures"] == 1
+        assert out.sensor["last_error"] == "PayloadValidationError"
 
 
 class TestStateTransition:

@@ -590,7 +590,7 @@ class TelemetryRunner:
                 trigger_slot, trigger_info, kwargs, woke_by_trigger
             )
         except PayloadValidationError as exc:
-            if not triggered:
+            if not triggered or not exc._framework_rejected:
                 raise
             logger.debug(
                 "Telemetry '%s' rejected trigger input", reg.name, exc_info=exc
@@ -1672,14 +1672,32 @@ class TelemetryRunner:
         """Whether member *idx* runs: circuit closed and trigger input accepted."""
         if self._circuit_breaker_skip(reg, health_reporter):
             return False
-        return await self._bind_trigger_input(
-            reg,
-            gs.trigger_slots[idx],
-            gs.trigger_infos[idx],
-            gs.kwargs_arr[idx],
-            released,
-            error_publisher,
-        )
+        try:
+            return await self._bind_trigger_input(
+                reg,
+                gs.trigger_slots[idx],
+                gs.trigger_infos[idx],
+                gs.kwargs_arr[idx],
+                released,
+                error_publisher,
+            )
+        except Exception as exc:
+            # Unlike framework-rejected input, an application validation
+            # error is a member failure. Keep it inside the group cycle so
+            # one member cannot terminate the shared group task.
+            gs.last_error_type[idx] = await self._handle_telemetry_error(
+                reg,
+                exc,
+                gs.last_error_type[idx],
+                error_publisher,
+                health_reporter,
+                mark_unavailable=True,
+            )
+            failure = _RetryResult(
+                result=None, error=exc, retry_count=0, outcome="error"
+            )
+            self._circuit_breaker_record(reg, failure)
+            return False
 
     @staticmethod
     def _group_waker(gs: _GroupState, idx: int) -> Callable[[], None]:
