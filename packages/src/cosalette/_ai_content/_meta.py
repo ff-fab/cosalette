@@ -836,6 +836,20 @@ VERSION_FEATURES: dict[str, list[str]] = {
         "stdlib-only default would never fire for the adapters it exists for "
         "(see: cosalette ai help availability, ADR-077).",
     ],
+    "0.12.0": [
+        "BREAKING: rejected typed-command input (a payload that is not JSON or "
+        "fails schema validation, raising cosalette.PayloadValidationError) is "
+        "published as error_type 'invalid_payload' instead of 'error'. Under "
+        "the default disclosure rule the message is the sanitised summary, "
+        "e.g. \"Payload validation failed (parameter 'cmd'): state: "
+        'type=literal_error", never the input value; under '
+        "disclose_messages_for=frozenset() it stays the class name. "
+        "ReturnValidationError keeps 'error'. Framework labels win over app "
+        "error_type_map entries: an app that maps PayloadValidationError to "
+        "another label gets one startup WARNING and should drop the entry; "
+        "consumers filtering on error_type == 'error' no longer see these "
+        "events (see: docs/concepts/error-handling.md, ADR-011).",
+    ],
 }
 
 

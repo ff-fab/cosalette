@@ -266,8 +266,23 @@ app = App(adapters={MqttPort: my_mqtt_client})
 
 The rest of this guide covers how to use `build_error_payload()` to create
 domain-specific error types for your own exception handling code. The framework's
-built-in error isolation always publishes with `error_type="error"` — custom
-classification lets you distinguish error categories in downstream subscribers.
+built-in error isolation publishes your exceptions with `error_type="error"` —
+custom classification lets you distinguish error categories in downstream
+subscribers. Errors the framework raises itself already carry a label (see
+[Framework Error Types](../concepts/error-handling.md#framework-error-types)),
+for example `invalid_payload` for rejected typed-command input.
+
+!!! note "Migrating from an app-side `PayloadValidationError` mapping (0.12.0)"
+
+    Before 0.12.0, rejected typed-command input was published as
+    `error_type: "error"` with the message `"PayloadValidationError"`, and
+    apps mapped `cosalette.PayloadValidationError` themselves to get a label.
+    The framework now labels it `invalid_payload`. Its label overrides yours:
+    an entry such as `{cosalette.PayloadValidationError: "validation"}` logs a
+    startup warning (`error_type_map entry PayloadValidationError ->
+    'validation' is overridden by the framework label 'invalid_payload'`).
+    Remove the entry and update consumers that filter on `"error"` or on your
+    old label.
 
 !!! warning "Labeling an exception type also discloses its message (legacy default)"
 

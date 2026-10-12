@@ -80,10 +80,8 @@ if TYPE_CHECKING:
         LinearBackoff,
     )
     from cosalette._router import Router
-    from cosalette._runners._contracts import (
-        PayloadValidationError,
-        ReturnValidationError,
-    )
+    from cosalette._runners._command_errors import PayloadValidationError
+    from cosalette._runners._contracts import ReturnValidationError
     from cosalette._runners._device_trigger import DeviceTrigger
     from cosalette._runners._notifier import (
         EntityNotifier,
@@ -318,10 +316,8 @@ _EXPORTS: dict[str, tuple[str, ...]] = {
         "LinearBackoff",
     ),
     "cosalette._router": ("Router",),
-    "cosalette._runners._contracts": (
-        "PayloadValidationError",
-        "ReturnValidationError",
-    ),
+    "cosalette._runners._command_errors": ("PayloadValidationError",),
+    "cosalette._runners._contracts": ("ReturnValidationError",),
     "cosalette._runners._device_trigger": ("DeviceTrigger",),
     "cosalette._runners._notifier": (
         "EntityNotifier",

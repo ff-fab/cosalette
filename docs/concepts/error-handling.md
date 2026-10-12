@@ -111,6 +111,35 @@ classes to machine-readable type strings:
 error_type = error_type_map.get(type(error), "error")
 ```
 
+### Framework Error Types
+
+The framework labels the errors it raises and sanitises itself, so consumers
+can tell rejected input apart from a crash in handler code without any app
+configuration:
+
+| `error_type` | Exception | Raised when |
+|---|---|---|
+| `invalid_json` | `InvalidJsonError` | A sub-command payload is not valid JSON |
+| `missing_sub_key` | `MissingSubKeyError` | A sub-command payload lacks its routing key |
+| `unknown_sub_command` | `UnknownSubCommandError` | The routing value is not registered |
+| `invalid_payload` | `PayloadValidationError` | A typed command payload is not valid JSON or fails schema validation |
+| `timeout` | `TimeoutError` | A command handler exceeds its watchdog bound (ADR-060) |
+
+`ReturnValidationError` stays unlabelled (`error`): a handler that returns the
+wrong shape is an application fault.
+
+The app's `error_type_map` is merged with these entries and the **framework
+entries win**. When an app maps one of these types to a different label, the
+app logs one `WARNING` at startup and the framework label is used:
+
+```text
+error_type_map entry PayloadValidationError -> 'validation' is overridden by the framework label 'invalid_payload'
+```
+
+Drop the entry from your map to silence it. An entry with the same label as
+the framework is harmless and logs nothing. See
+[ADR-011](../adr/ADR-011-error-handling-and-publishing.md).
+
 ## Message Disclosure
 
 `error_type` labeling and **whether the raw `str(error)` is published** are two

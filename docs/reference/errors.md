@@ -551,6 +551,22 @@ error_type_map: dict[type[Exception], str] = {
 }
 ```
 
+The framework merges its own entries into this map, and they are
+authoritative:
+
+| `error_type` | Exception |
+|---|---|
+| `invalid_json` | `InvalidJsonError` |
+| `missing_sub_key` | `MissingSubKeyError` |
+| `unknown_sub_command` | `UnknownSubCommandError` |
+| `invalid_payload` | `cosalette.PayloadValidationError` |
+| `timeout` | `TimeoutError` |
+
+An app entry for one of these types with a different label logs one startup
+`WARNING` (`error_type_map entry PayloadValidationError -> 'validation' is
+overridden by the framework label 'invalid_payload'`) and the framework label
+is used. `cosalette.ReturnValidationError` stays unlabelled (`error`).
+
 ### `disclose_messages_for` Pattern
 
 `disclose_messages_for` (`frozenset[type[Exception]] | None = None`) decouples

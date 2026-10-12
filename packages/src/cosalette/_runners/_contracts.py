@@ -30,6 +30,7 @@ from typing import Any, cast
 from pydantic import TypeAdapter, ValidationError
 
 from cosalette._json import JSONDecodeError, loads
+from cosalette._runners._command_errors import PayloadValidationError
 
 # ---------------------------------------------------------------------------
 # TypeAdapter cache — thread-safe, keyed by annotation identity
@@ -83,31 +84,6 @@ def _get_adapter(annotation: Any) -> TypeAdapter[Any]:
 # ---------------------------------------------------------------------------
 # Exception types
 # ---------------------------------------------------------------------------
-
-
-class PayloadValidationError(Exception):
-    """Raised when an inbound MQTT payload fails schema validation.
-
-    Provides handler and parameter context for actionable diagnostics.
-
-    Attributes:
-        param: Parameter name that failed validation, or ``None``.
-        handler: Qualified name of the handler, or ``None``.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        param: str | None = None,
-        handler: str | None = None,
-        cause: BaseException | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.param = param
-        self.handler = handler
-        if cause is not None:
-            self.__cause__ = cause
 
 
 class ReturnValidationError(Exception):

@@ -3,11 +3,13 @@
 Validates the LEAK-01 targeted opt-in end-to-end: an app that registers a
 domain exception via ``App(error_type_map=...)`` gets that exception's full
 message published on the broker-visible error topic, while an unregistered
-exception keeps having its message redacted to the class name.
+exception keeps having its message redacted to the class name.  Rejected
+typed-command input carries the framework label ``invalid_payload``.
 
 Test Techniques Used:
     - Integration Testing: full lifecycle via AppHarness (real create_services).
     - Equivalence Partitioning: registered vs unregistered exception types.
+    - Decision Table: disclosure mode x rejected-input kind for typed commands.
 
 See Also:
     ADR-011 — Error handling and publishing (pluggable + LEAK-01 opt-in).
@@ -17,10 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from typing import Annotated, Literal
 
 import pytest
+from pydantic import BaseModel
 
+from cosalette import Payload
 from cosalette._context import DeviceContext
 from cosalette.testing import AppHarness
 
@@ -70,6 +75,33 @@ async def _run_command_raising(
 
     _task = asyncio.create_task(_simulate())
     await asyncio.wait_for(harness.run(), timeout=5.0)
+
+
+async def _deliver(
+    harness: AppHarness, register: Callable[[], object], topic: str, payload: str
+) -> None:
+    """Register ``@app.command`` handlers via *register*, then deliver one message."""
+    register()
+
+    async def _simulate() -> None:
+        await asyncio.sleep(0.02)
+        await harness.mqtt.deliver(topic, payload)
+        await _wait_for_error(harness)
+        harness.trigger_shutdown()
+
+    _task = asyncio.create_task(_simulate())
+    await asyncio.wait_for(harness.run(), timeout=5.0)
+
+
+class _ValveCmd(BaseModel):
+    """Typed command payload; the literal makes rejected values easy to spot."""
+
+    state: Literal["open", "closed"]
+
+
+def _register_typed_command(harness: AppHarness) -> None:
+    @harness.app.command("valve")
+    async def handle(cmd: Annotated[_ValveCmd, Payload()]) -> None: ...
 
 
 def _error_message(harness: AppHarness) -> str:
@@ -197,3 +229,84 @@ class TestRedactHook:
         )
 
         assert _error_message(harness) == "CalDavConnectionError"
+
+
+class TestRejectedTypedCommandInput:
+    """Rejected typed-command input is labelled ``invalid_payload`` (ADR-011).
+
+    Technique: Decision Table — disclosure mode (legacy rule / explicit empty
+    set) x input kind (schema failure / bad JSON).
+    """
+
+    async def test_schema_failure_publishes_sanitised_summary(self) -> None:
+        """Legacy rule: framework label plus the summary, never the input value."""
+        harness = AppHarness.create()
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            '{"state": "secret-ajar"}',
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith("Payload validation failed (parameter 'cmd')")
+        assert message.endswith("state: type=literal_error")
+        assert "secret-ajar" not in message
+
+    async def test_bad_json_publishes_sanitised_message(self) -> None:
+        """Legacy rule: a JSON decode failure is ``invalid_payload`` too."""
+        harness = AppHarness.create()
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            "secret-not-json{",
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        message = _error_message(harness)
+        assert message.startswith("MQTT payload is not valid JSON (parameter 'cmd')")
+        assert "secret-not-json" not in message
+
+    async def test_empty_disclosure_set_publishes_class_name_only(self) -> None:
+        """Explicit empty set: the label changes, the message stays the class."""
+        harness = AppHarness.create(disclose_messages_for=frozenset())
+
+        await _deliver(
+            harness,
+            lambda: _register_typed_command(harness),
+            "testapp/valve/set",
+            '{"state": "secret-ajar"}',
+        )
+
+        assert _error_type(harness) == "invalid_payload"
+        assert _error_message(harness) == "PayloadValidationError"
+
+    async def test_return_validation_error_stays_generic(self) -> None:
+        """A handler returning the wrong shape is an app fault: ``error``."""
+        harness = AppHarness.create()
+
+        def register() -> None:
+            @harness.app.command("valve")
+            async def handle(payload: str) -> _ValveCmd:
+                return {"state": "ajar"}  # ty: ignore[invalid-return-type]
+
+        await _deliver(harness, register, "testapp/valve/set", "go")
+
+        assert _error_type(harness) == "error"
+        assert _error_message(harness) == "ReturnValidationError"
+
+    async def test_sub_command_bad_json_stays_invalid_json(self) -> None:
+        """Regression: sub-command routing failures keep ``invalid_json``."""
+        harness = AppHarness.create()
+
+        def register() -> None:
+            @harness.app.command("valve", sub="open")
+            async def handle(payload: str) -> None: ...
+
+        await _deliver(harness, register, "testapp/valve/set", "not json{")
+
+        assert _error_type(harness) == "invalid_json"

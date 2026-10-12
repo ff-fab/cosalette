@@ -96,7 +96,8 @@ def create_services(
     with the app-provided *error_type_map*.  **Framework entries are
     authoritative** — an app cannot override or shadow framework error
     handling; app entries only extend the map for app-owned exception types
-    (LEAK-01 targeted opt-in; see ADR-011).
+    (LEAK-01 targeted opt-in; see ADR-011).  An app entry that a framework
+    entry overrides with a different label logs one startup warning.
 
     *disclose_messages_for* is passed through as-is, unmerged: unlike
     *error_type_map* it is an explicit opt-in set that fully replaces the
@@ -114,7 +115,17 @@ def create_services(
         include_version=heartbeat_include_version,
         error_reminder_interval=error_reminder_interval,
     )
-    merged_error_type_map = {**(error_type_map or {}), **_FRAMEWORK_ERROR_TYPE_MAP}
+    app_map = error_type_map or {}
+    for exc_type, label in app_map.items():
+        framework_label = _FRAMEWORK_ERROR_TYPE_MAP.get(exc_type)
+        if framework_label is not None and framework_label != label:
+            logger.warning(
+                "error_type_map entry %s -> %r is overridden by the framework label %r",
+                exc_type.__name__,
+                label,
+                framework_label,
+            )
+    merged_error_type_map = {**app_map, **_FRAMEWORK_ERROR_TYPE_MAP}
     error_publisher = ErrorPublisher(
         mqtt=mqtt,
         topic_prefix=prefix,

@@ -307,9 +307,12 @@ class App(
                 LEAK-01 default-deny: an exception whose type is in the map has
                 its ``str(error)`` published on the broker-visible error topic,
                 while unlisted (downstream/unexpected) exceptions keep having
-                their message redacted to the class name.  Framework command
-                exceptions remain authoritative and cannot be overridden.  See
-                ADR-011.
+                their message redacted to the class name.  Framework labels
+                (``invalid_json``, ``missing_sub_key``,
+                ``unknown_sub_command``, ``invalid_payload`` for
+                :class:`PayloadValidationError`, ``timeout``) remain
+                authoritative; an entry overriding one with a different label
+                logs a startup warning.  See ADR-011.
 
                 Security note: mapping a type is a **message-disclosure
                 decision**, not just labeling.  Only register exceptions whose

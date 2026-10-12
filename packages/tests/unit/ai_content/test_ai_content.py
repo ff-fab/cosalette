@@ -471,9 +471,17 @@ class TestGetWhatsNewContent:
 
     def test_get_whats_new_content_latest_version_empty(self):
         """Test that the latest (pending) version returns empty content."""
-        content = get_whats_new_content("0.11.4")
+        content = get_whats_new_content("0.12.0")
 
         assert content == ""
+
+    def test_get_whats_new_content_0_12_0_describes_invalid_payload(self):
+        """The 0.12.0 entry flags the invalid_payload label as breaking."""
+        content = get_whats_new_content("0.11.4")
+
+        assert "### 0.12.0" in content
+        assert "BREAKING" in content
+        assert "'invalid_payload'" in content
 
     def test_get_whats_new_content_0_11_4_describes_dump_json(self):
         """The 0.11.4 entry covers dump --format json and the new hint wording."""
