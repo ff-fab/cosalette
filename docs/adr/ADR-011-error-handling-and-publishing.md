@@ -294,3 +294,25 @@ Merge precedence is unchanged: `create_services` builds `{**app_map, **_FRAMEWOR
 ### Additional Negative Consequences
 
 - Field names are no longer included in validation summaries; every string location component appears as `[field]`, which reduces diagnostic specificity.
+
+## Amendment (2026-10-12) — Additive
+
+**Rationale:** A command payload that fails JSON decoding or schema validation is expected bad input that the framework handles correctly, yet it was logged like a handler fault: an ERROR line from the command runner plus the ErrorPublisher WARNING carrying the full chained traceback. The ADR records the log severity of handler faults but not of input the framework rejects itself. Tracked as cos-ked4.6 (epic cos-ked4).
+
+### Additional Sub-Decision: Severity policy for framework-rejected command input
+
+Command input that the framework rejects before any handler code runs is logged once, at `WARNING`, without a traceback. This covers a `PayloadValidationError` raised while binding a typed `@app.command` payload to the handler parameters (JSON decode or schema failure) and the sub-command proxy errors `InvalidJsonError`, `MissingSubKeyError` and `UnknownSubCommandError`. The command runner writes no `ERROR` line for this input and publishes with `ErrorPublisher.publish(..., log_traceback=False)` (the parameter from ADR-081, forwarded by `publish_error_safely`). For binding failures the command runner logs the chained exception at `DEBUG` with its traceback, so the pydantic detail stays available through a per-logger level override. `UnknownSubCommandError` keeps its local `WARNING` with the raw sub-command value, because the published message only carries a fingerprint.
+
+### Additional Sub-Decision: Handler faults keep ERROR plus traceback
+
+Only the framework's input-binding step and the sub-command routing checks are downgraded. Any exception raised by handler code, including a `PayloadValidationError` the handler raises itself, keeps the existing behaviour: one `ERROR` line from the command runner and the publish `WARNING` with the traceback. Device command proxies (`_dispatch_handler`) never parse payloads in the framework and are unchanged. The error-topic payload is identical for all paths; the policy affects local logs only.
+
+### Additional Positive Consequences
+
+- One rejected payload produces one log line instead of an ERROR plus a traceback of about 50 lines, and alert rules on `level=ERROR` no longer fire on bad input.
+- The chained pydantic error, which contains the raw input value, is not written to the local log at the default level.
+
+### Additional Negative Consequences
+
+- Operators who alerted on the ERROR line for bad command input see WARNING instead and must adjust such rules.
+- Diagnosing a rejected payload in detail requires enabling DEBUG for `cosalette._runners._command_runner`, and the DEBUG record is not tagged with the publish correlation id.
