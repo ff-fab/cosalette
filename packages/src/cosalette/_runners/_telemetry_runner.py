@@ -260,7 +260,7 @@ class TelemetryRunner:
         # supervisor like any other setup failure (ADR-081 section 1).
         _run_telemetry_init(reg, providers)
 
-        kwargs = resolve_request_kwargs(reg.injection_plan, providers)
+        kwargs = self._resolve_setup_kwargs(reg, providers)
         trigger_info = self._find_trigger_kwarg(reg.injection_plan)
 
         strategy = reg.publish_strategy
@@ -554,6 +554,25 @@ class TelemetryRunner:
         return None
 
     @staticmethod
+    def _resolve_setup_kwargs(
+        reg: _TelemetryRegistration, providers: dict[type, Any]
+    ) -> dict[str, Any]:
+        """Resolve the handler kwargs once, except the trigger parameter.
+
+        The trigger parameter is bound before every cycle by
+        :meth:`_bind_trigger_input`, so a value that fails to bind is that
+        cycle's failure, not a setup failure that ends the task and, in a
+        coalescing group, its sibling members (cos-63t8).
+        """
+        trigger_info = TelemetryRunner._find_trigger_kwarg(reg.injection_plan)
+        plan = [
+            entry
+            for entry in reg.injection_plan
+            if trigger_info is None or entry[0] != trigger_info[0]
+        ]
+        return resolve_request_kwargs(plan, providers)
+
+    @staticmethod
     def _has_trigger_input(
         trigger_slot: _TriggerSlot | None, woke_by_trigger: bool
     ) -> bool:
@@ -633,14 +652,13 @@ class TelemetryRunner:
         unconditional consume.
 
         Binding the resolved payload (or the scheduled placeholder) onto the
-        handler kwargs is delegated to :meth:`_bind_trigger_kwarg`.
+        handler kwargs is delegated to :meth:`_bind_trigger_kwarg`.  Without
+        a slot every run is a scheduled run.
         """
-        if trigger_slot is None:
-            return
-
         payload = (
             trigger_slot.consume()  # clear the event
-            if TelemetryRunner._has_trigger_input(trigger_slot, woke_by_trigger)
+            if trigger_slot is not None
+            and TelemetryRunner._has_trigger_input(trigger_slot, woke_by_trigger)
             else None
         )
         TelemetryRunner._bind_trigger_kwarg(trigger_info, kwargs, payload)
@@ -1277,12 +1295,10 @@ class TelemetryRunner:
     ) -> tuple[_TriggerSlot | None, tuple[str, Any, type | None] | None]:
         """Return one member's ``(slot, trigger kwarg info)`` pair (ADR-067).
 
-        Both are ``None`` for a member that declares no trigger source;
-        the kwarg is looked up only when there is a slot to feed it.
+        The slot is ``None`` for a member that declares no trigger source;
+        its trigger kwarg, if any, is then bound as a scheduled run.
         """
         slot = trigger_slots.get(reg.name) if trigger_slots else None
-        if slot is None:
-            return None, None
         return slot, self._find_trigger_kwarg(reg.injection_plan)
 
     async def _try_member_init(
@@ -1346,9 +1362,7 @@ class TelemetryRunner:
             logger.info(
                 "Group member '%s' initialised; it joins the schedule", reg.name
             )
-            gs.kwargs_arr[idx] = resolve_request_kwargs(
-                reg.injection_plan, gs.providers_arr[idx]
-            )
+            gs.kwargs_arr[idx] = self._resolve_setup_kwargs(reg, gs.providers_arr[idx])
             gs.inactive.discard(idx)
             interval = gs.intervals_ms[idx]
             heapq.heappush(gs.heap, ((tick_ms // interval + 1) * interval, idx))
@@ -1477,8 +1491,8 @@ class TelemetryRunner:
             group_name, registration, providers_arr[index]
         )
         if ok:
-            kwargs_arr[index] = resolve_request_kwargs(
-                registration.injection_plan, providers_arr[index]
+            kwargs_arr[index] = self._resolve_setup_kwargs(
+                registration, providers_arr[index]
             )
         else:
             failed[index] = retry_in
@@ -1682,21 +1696,13 @@ class TelemetryRunner:
                 error_publisher,
             )
         except Exception as exc:
-            # Unlike framework-rejected input, an application validation
-            # error is a member failure. Keep it inside the group cycle so
-            # one member cannot terminate the shared group task.
+            # A binding failure that is not rejected trigger input is a
+            # failed cycle for this member only, handled exactly as in
+            # _execute_cycle_attempt, so one member cannot end the shared
+            # group task (cos-63t8).
             gs.last_error_type[idx] = await self._handle_telemetry_error(
-                reg,
-                exc,
-                gs.last_error_type[idx],
-                error_publisher,
-                health_reporter,
-                mark_unavailable=True,
+                reg, exc, gs.last_error_type[idx], error_publisher, health_reporter
             )
-            failure = _RetryResult(
-                result=None, error=exc, retry_count=0, outcome="error"
-            )
-            self._circuit_breaker_record(reg, failure)
             return False
 
     @staticmethod

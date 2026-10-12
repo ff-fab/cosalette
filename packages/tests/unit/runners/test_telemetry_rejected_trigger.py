@@ -4,6 +4,8 @@ Test Techniques Used:
 - Decision Table: origin (framework trigger parsing vs. telemetry handler)
     x effect (log level and traceback, published ``error_type``, failure
     streak, device status), for single and grouped telemetry.
+- Equivalence Partitioning: a scheduled-run binding failure is one failed
+    cycle in single and grouped telemetry alike; the task survives (cos-63t8).
 - State Transition: a healthy entity stays ``ok`` through repeated rejected
     triggers and still runs a later valid trigger normally.
 """
@@ -21,7 +23,7 @@ from typing import Annotated, Any, override
 import pytest
 from pydantic import BaseModel, field_validator
 
-from cosalette import LoggingSettings, Payload, PayloadValidationError
+from cosalette import CircuitBreaker, LoggingSettings, Payload, PayloadValidationError
 from cosalette.testing import AppHarness, ManualClock
 
 pytestmark = pytest.mark.unit
@@ -29,6 +31,7 @@ pytestmark = pytest.mark.unit
 _RUNNER_LOGGER = "cosalette._runners._telemetry_runner"
 _TRIGGER_TOPIC = "testapp/sensor/set"
 _STATE_TOPIC = "testapp/sensor/state"
+_SIBLING_TOPIC = "testapp/sibling/state"
 
 
 class _Cmd(BaseModel):
@@ -195,9 +198,13 @@ class TestHandlerFaults:
     async def test_application_validator_error_is_a_telemetry_failure(
         self, group: str | None
     ) -> None:
-        """An application-raised validation error is not rejected input."""
+        """An application-raised validation error is not rejected input.
+
+        It fails the member's cycle only; a group task survives it (cos-63t8).
+        """
         out = await _run('{"level":-1}', group=group)
 
+        assert out.log.at(logging.CRITICAL) == []
         errors = out.log.at(logging.ERROR)
         assert len(errors) == 1
         assert errors[0].name == _RUNNER_LOGGER
@@ -225,3 +232,98 @@ class TestStateTransition:
         assert out.sensor["status"] == "ok"
         assert out.sensor["consecutive_failures"] == 0
         assert out.log.at(logging.ERROR) == []
+
+
+@dataclass
+class _ScheduledOutcome:
+    log: _Recorder
+    errors: list[dict[str, Any]]
+    sensor: dict[str, Any]
+    sibling_states: int
+    availability: dict[str, list[str]]
+    breaker: CircuitBreaker
+
+
+async def _run_scheduled(group: str | None) -> _ScheduledOutcome:
+    """Run three scheduled cycles of a member whose trigger binding always fails."""
+    clock = ManualClock()
+    harness = AppHarness.create(clock=clock)
+    breaker = CircuitBreaker(threshold=1)
+
+    # A non-optional typed trigger parameter binds None on every scheduled
+    # run and fails: an app fault, not rejected input (ADR-082 amendment).
+    @harness.app.telemetry(
+        "sensor", interval=30, triggerable=True, group=group, circuit_breaker=breaker
+    )
+    async def sensor(cmd: Annotated[_Cmd, Payload()]) -> dict[str, int]:
+        return {"level": cmd.level}  # pragma: no cover - binding always fails
+
+    @harness.app.telemetry("sibling", interval=30, group=group)
+    async def sibling() -> dict[str, int]:
+        return {"ok": 1}
+
+    with _recording() as log:
+        task = asyncio.create_task(harness.run())
+        try:
+            await harness.wait_for_publish_count(_SIBLING_TOPIC, 1)
+            for _ in range(2):
+                await harness.advance_time(30)
+                await clock.settle()
+        finally:
+            harness.trigger_shutdown()
+            await task
+    errors = [json.loads(p) for p, *_ in harness.messages_for("testapp/error")]
+    heartbeats = [p for p, *_ in harness.messages_for("testapp/status") if p[0] == "{"]
+    heartbeat = json.loads(heartbeats[-1])
+    return _ScheduledOutcome(
+        log=log,
+        errors=errors,
+        sensor=heartbeat["devices"]["sensor"],
+        sibling_states=len(harness.messages_for(_SIBLING_TOPIC)),
+        availability={
+            name: [p for p, *_ in harness.messages_for(f"testapp/{name}/availability")]
+            for name in ("sensor", "sibling")
+        },
+        breaker=breaker,
+    )
+
+
+class TestScheduledBindingFailure:
+    """A scheduled-run binding failure is one member's failed cycle (cos-63t8).
+
+    Technique: Equivalence Partitioning — single vs. grouped topology must
+    land in the same partition: a failed cycle for the member, never the
+    end of the task that runs it, and no effect on its siblings.
+    """
+
+    @pytest.mark.parametrize("group", [None, "g"], ids=["single", "group"])
+    async def test_failed_cycle_contained_to_member(self, group: str | None) -> None:
+        """ERROR with traceback, streak counts, status error, siblings run on."""
+        # Act
+        out = await _run_scheduled(group)
+
+        # Assert
+        assert out.log.at(logging.CRITICAL) == []
+        assert out.sibling_states == 3  # every scheduled tick, task alive
+        errors = out.log.at(logging.ERROR)
+        assert len(errors) == 1
+        assert errors[0].name == _RUNNER_LOGGER
+        causes = [r.exc_info[1] for r in out.log.at(logging.WARNING) if r.exc_info]
+        assert isinstance(causes[0], PayloadValidationError)
+        assert {e["error_type"] for e in out.errors} == {"invalid_payload"}
+        assert out.sensor["status"] == "error"
+        assert [e["details"]["count"] for e in out.errors] == [1, 2]  # streak
+        assert out.sensor["last_error"] == "PayloadValidationError"
+
+    @pytest.mark.parametrize("group", [None, "g"], ids=["single", "group"])
+    async def test_binding_failure_has_single_telemetry_side_effects(
+        self, group: str | None
+    ) -> None:
+        """No circuit-breaker outcome, availability as a healthy sibling."""
+        # Act
+        out = await _run_scheduled(group)
+
+        # Assert
+        assert out.breaker.consecutive_failures == 0
+        assert out.breaker.state == "closed"
+        assert out.availability["sensor"] == out.availability["sibling"]

@@ -177,7 +177,9 @@ Exceptions raised by **handler code** are unchanged: an `ERROR` line plus the
 `WARNING` with the traceback. That includes a `PayloadValidationError` the
 handler or an application dependency raises itself, for example while
 validating a nested payload. For telemetry, such an exception is a failed cycle
-as before. Unknown sub-command warnings include only the value's type, length
+as before, and so is a typed trigger parameter that fails to bind on a
+scheduled run (a non-optional `T` bound to `None`); in a coalescing group only
+that member's cycle fails. Unknown sub-command warnings include only the value's type, length
 and non-reversible fingerprint, so raw values stay out of local logs. The error
 topic payload is unchanged; only the local log and health differ.
 
