@@ -6,7 +6,8 @@ devcontainer image does not contain or run the Linux kernel implementation. The 
 fingerprints are temporarily recorded in `scripts/image-scan-baseline.tsv` under the
 existing `kernel_headers` group, which expires 2026-10-27. This is a package-attribution
 review only. It does not establish that developer or CI host kernels are fixed or
-unaffected. Host applicability remains open under `cos-q8q4`.
+unaffected. The baseline group remains owned by `cos-nxu6`; host applicability remains
+open under `cos-dam4`. This review task is tracked by `cos-q8q4`.
 
 | Advisory                                                                     | Kernel issue                                                                                                                     | Debian Trixie status                                         | Review                                                                                                                                        |
 | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
