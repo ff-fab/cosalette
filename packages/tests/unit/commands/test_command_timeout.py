@@ -483,7 +483,12 @@ class TestDeviceContextOnCommandTimeout:
                 self.published: list[tuple[BaseException, str, bool]] = []
 
             async def publish(
-                self, exc: BaseException, *, device: str, is_root: bool
+                self,
+                exc: BaseException,
+                *,
+                device: str,
+                is_root: bool,
+                log_traceback: bool = True,
             ) -> None:
                 self.published.append((exc, device, is_root))
 
@@ -524,7 +529,12 @@ class TestDeviceContextOnCommandTimeout:
                 self.published: list[BaseException] = []
 
             async def publish(
-                self, exc: BaseException, *, device: str, is_root: bool
+                self,
+                exc: BaseException,
+                *,
+                device: str,
+                is_root: bool,
+                log_traceback: bool = True,
             ) -> None:
                 self.published.append(exc)
 

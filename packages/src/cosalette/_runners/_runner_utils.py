@@ -82,10 +82,17 @@ async def publish_error_safely(
     exc: Exception,
     device_name: str,
     is_root: bool,
+    *,
+    log_traceback: bool = True,
 ) -> None:
-    """Publish an error, suppressing failures to avoid masking the original."""
+    """Publish an error, suppressing failures to avoid masking the original.
+
+    *log_traceback* is forwarded to :meth:`ErrorPublisher.publish`.
+    """
     with contextlib.suppress(Exception):
-        await error_publisher.publish(exc, device=device_name, is_root=is_root)
+        await error_publisher.publish(
+            exc, device=device_name, is_root=is_root, log_traceback=log_traceback
+        )
 
 
 def maybe_persist(

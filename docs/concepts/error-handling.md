@@ -145,6 +145,30 @@ Drop the entry from your map to silence it. An entry with the same label as
 the framework is harmless and logs nothing. See
 [ADR-011](../adr/ADR-011-error-handling-and-publishing.md).
 
+### Log Severity for Rejected Input
+
+Command input the framework rejects is expected bad input, not a fault. It is
+logged **once**, at `WARNING`, without a traceback:
+
+```text
+WARNING cosalette._errors: Publishing error [id=825f98e2ac5f type=invalid_payload device=display]: Payload validation failed (parameter 'cmd'): [field]: type=literal_error
+```
+
+This covers a typed `@app.command` payload that fails JSON decoding or schema
+validation before the handler runs, and the sub-command errors `invalid_json`,
+`missing_sub_key` and `unknown_sub_command`. No `ERROR` line is written, so
+alert rules on `level=ERROR` do not fire on a typo. For typed command input the
+full chained traceback, including the pydantic detail, is logged at `DEBUG` by
+`cosalette._runners._command_runner` (see
+[Per-logger Levels](logging.md#per-logger-levels)). An unknown sub-command also
+keeps its local `WARNING` with the raw value, since the published message only
+carries a fingerprint.
+
+Exceptions raised by **handler code** are unchanged: an `ERROR` line plus the
+`WARNING` with the traceback. That includes a `PayloadValidationError` the
+handler raises itself, for example while validating a nested payload. The
+error topic payload is the same in both cases; only the local log differs.
+
 ## Message Disclosure
 
 `error_type` labeling and **whether the raw `str(error)` is published** are two
