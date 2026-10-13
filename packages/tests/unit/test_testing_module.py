@@ -23,7 +23,13 @@ import asyncio
 import contextlib
 import gc
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+)
 from typing import Annotated, Any
 
 import pytest
@@ -1062,7 +1068,7 @@ class TestManualClockAgainstRealRunners:
     @contextlib.asynccontextmanager
     async def _running(
         coro: Coroutine[Any, Any, None],
-    ) -> AsyncIterator[asyncio.Task[None]]:
+    ) -> AsyncGenerator[asyncio.Task[None]]:
         """Run *coro* as a task, cancelling it even when the test fails.
 
         A gated task left pending by a failed assertion blocks event-loop

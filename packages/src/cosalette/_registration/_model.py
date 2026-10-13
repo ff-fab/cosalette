@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 import inspect
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -417,7 +417,7 @@ type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[Any]]
 
 
 @asynccontextmanager
-async def _noop_lifespan(_ctx: AppContext) -> AsyncIterator[None]:
+async def _noop_lifespan(_ctx: AppContext) -> AsyncGenerator[None]:
     """No-op lifespan used when no user lifespan is provided."""
     yield
 

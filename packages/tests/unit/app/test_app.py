@@ -6,7 +6,7 @@ and lifespan registration.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import pytest
@@ -150,7 +150,7 @@ class TestLifespan:
         """A custom lifespan function is stored on the App."""
 
         @asynccontextmanager
-        async def my_lifespan(ctx: AppContext) -> AsyncIterator[None]:
+        async def my_lifespan(ctx: AppContext) -> AsyncGenerator[None]:
             yield
 
         app = App(name="testapp", version="1.0.0", lifespan=my_lifespan)

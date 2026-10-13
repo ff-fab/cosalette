@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Annotated, Any, override
@@ -65,7 +65,7 @@ class _Recorder(logging.Handler):
 
 
 @contextmanager
-def _recording() -> Iterator[_Recorder]:
+def _recording() -> Generator[_Recorder]:
     # configure_logging() replaces root handlers, so caplog cannot see the
     # records; listen on the framework logger directly.
     handler = _Recorder()

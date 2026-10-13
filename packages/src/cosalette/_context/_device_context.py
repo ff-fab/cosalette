@@ -10,7 +10,14 @@ import asyncio
 import contextlib
 import datetime
 import logging
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast, overload
 
@@ -430,7 +437,7 @@ class DeviceContext:
             )
 
     @contextlib.asynccontextmanager
-    async def sub_entity(self, name: str) -> AsyncIterator[SubEntityContext]:
+    async def sub_entity(self, name: str) -> AsyncGenerator[SubEntityContext]:
         """Scoped sub-entity lifecycle with automatic availability.
 
         Publishes ``"online"`` on enter and ``"offline"`` on exit to

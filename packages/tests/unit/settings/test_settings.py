@@ -470,7 +470,7 @@ class _QuietLoggingSettings(LoggingSettings):
 
 
 class _QuietSettings(Settings):
-    logging: _QuietLoggingSettings = Field(default_factory=_QuietLoggingSettings)
+    logging: LoggingSettings = Field(default_factory=_QuietLoggingSettings)
 
 
 class TestLoggingSettingsLevels:

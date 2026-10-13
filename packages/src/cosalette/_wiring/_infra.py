@@ -7,7 +7,7 @@ import contextlib
 import logging
 import signal
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
@@ -36,7 +36,7 @@ from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 from cosalette._wiring._state_model_drift import publish_state_model_drift_snapshot
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import Callable
 
     from pydantic import SecretStr
 
@@ -184,7 +184,7 @@ async def enter_state_factories(
     settings: Settings,
     overrides: dict[type, Any] | None = None,
     notifier: EntityNotifier | None = None,
-) -> AsyncIterator[dict[type, Any]]:
+) -> AsyncGenerator[dict[type, Any]]:
     """Run @app.state factories in registration order; yield DI providers dict.
 
     Teardown runs in reverse registration order via AsyncExitStack LIFO semantics.

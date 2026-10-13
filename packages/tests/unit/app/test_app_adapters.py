@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
@@ -229,7 +229,7 @@ class TestIsAsyncContextManager:
         """@asynccontextmanager-based CM is detected as async CM."""
 
         @asynccontextmanager
-        async def my_cm() -> AsyncIterator[None]:
+        async def my_cm() -> AsyncGenerator[None]:
             yield
 
         assert _is_async_context_manager(my_cm()) is True
@@ -299,7 +299,7 @@ class TestAdapterLifecycle:
         adapter = _LifecycleAdapter(name="adapter", log=log)
 
         @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
             log.append("lifespan:startup")
             yield
             log.append("lifespan:teardown")
@@ -520,7 +520,7 @@ class TestAdapterLifecycle:
         adapter2 = _LifecycleAdapter2(log=log)
 
         @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
             log.append("lifespan:startup")
             yield
             log.append("lifespan:teardown")
@@ -565,7 +565,7 @@ class TestAdapterLifecycle:
         phases: list[str] = []
 
         @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
+        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
             phases.append("startup")
             yield
             phases.append("teardown")
