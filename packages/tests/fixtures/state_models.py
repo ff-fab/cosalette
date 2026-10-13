@@ -30,7 +30,7 @@ class OptionalReading(BaseModel):
     brightness: int | None = None
 
 
-@contextlib.contextmanager
+@contextlib.contextmanager  # ty: ignore[deprecated]
 def production_warning_filters() -> Iterator[None]:
     """Run the body with warnings non-fatal, as they are in production.
 

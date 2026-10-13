@@ -335,7 +335,7 @@ class TestAppLifecycle:
         armed_in_lifespan: list[int] = []
         stopped_at_teardown: list[bool] = []
 
-        @contextlib.asynccontextmanager
+        @contextlib.asynccontextmanager  # ty: ignore[deprecated]
         async def lifespan(_: AppContext) -> AsyncIterator[None]:
             armed_in_lifespan.append(len(_RecordingWatchdog.instances))
             try:

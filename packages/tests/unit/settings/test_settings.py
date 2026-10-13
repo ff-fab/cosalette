@@ -470,7 +470,7 @@ class _QuietLoggingSettings(LoggingSettings):
 
 
 class _QuietSettings(Settings):
-    logging: _QuietLoggingSettings = Field(default_factory=_QuietLoggingSettings)
+    logging: _QuietLoggingSettings = Field(default_factory=_QuietLoggingSettings)  # ty: ignore[invalid-mutable-override]
 
 
 class TestLoggingSettingsLevels:

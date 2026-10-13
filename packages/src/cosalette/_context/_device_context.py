@@ -429,7 +429,7 @@ class DeviceContext:
                 name,
             )
 
-    @contextlib.asynccontextmanager
+    @contextlib.asynccontextmanager  # ty: ignore[deprecated]
     async def sub_entity(self, name: str) -> AsyncIterator[SubEntityContext]:
         """Scoped sub-entity lifecycle with automatic availability.
 

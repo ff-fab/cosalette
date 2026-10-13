@@ -228,7 +228,7 @@ class TestIsAsyncContextManager:
     def test_detects_contextlib_async_cm(self) -> None:
         """@asynccontextmanager-based CM is detected as async CM."""
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def my_cm() -> AsyncIterator[None]:
             yield
 
@@ -298,7 +298,7 @@ class TestAdapterLifecycle:
         log: list[str] = []
         adapter = _LifecycleAdapter(name="adapter", log=log)
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             log.append("lifespan:startup")
             yield
@@ -519,7 +519,7 @@ class TestAdapterLifecycle:
         adapter1 = _LifecycleAdapter(name="first", log=log)
         adapter2 = _LifecycleAdapter2(log=log)
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             log.append("lifespan:startup")
             yield
@@ -564,7 +564,7 @@ class TestAdapterLifecycle:
         """
         phases: list[str] = []
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             phases.append("startup")
             yield

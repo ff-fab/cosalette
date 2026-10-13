@@ -59,7 +59,7 @@ class _RecordingHandler(logging.Handler):
         self.records.append(record)
 
 
-@contextmanager
+@contextmanager  # ty: ignore[deprecated]
 def _recording(logger_name: str) -> Iterator[_RecordingHandler]:
     # configure_logging() replaces root handlers, so caplog cannot see the
     # records; listen on the named logger directly.

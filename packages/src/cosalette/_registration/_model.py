@@ -416,7 +416,7 @@ type LifespanFunc = Callable[[AppContext], AbstractAsyncContextManager[Any]]
 """Type alias for the lifespan parameter."""
 
 
-@asynccontextmanager
+@asynccontextmanager  # ty: ignore[deprecated]
 async def _noop_lifespan(_ctx: AppContext) -> AsyncIterator[None]:
     """No-op lifespan used when no user lifespan is provided."""
     yield
