@@ -7,7 +7,7 @@ import contextlib
 import logging
 import signal
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from cosalette._clock import ClockPort
@@ -36,7 +36,7 @@ from cosalette._wiring._retained_cleanup import reconcile_retained_topics
 from cosalette._wiring._state_model_drift import publish_state_model_drift_snapshot
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from pydantic import SecretStr
 
@@ -178,13 +178,13 @@ async def _enter_one_state(
     raise ValueError(f"Unsupported factory variant: {reg.variant}")  # pragma: no cover
 
 
-@contextlib.asynccontextmanager
+@contextlib.asynccontextmanager  # ty: ignore[deprecated]
 async def enter_state_factories(
     registrations: list[StateRegistration],
     settings: Settings,
     overrides: dict[type, Any] | None = None,
     notifier: EntityNotifier | None = None,
-) -> AsyncGenerator[dict[type, Any]]:
+) -> AsyncIterator[dict[type, Any]]:
     """Run @app.state factories in registration order; yield DI providers dict.
 
     Teardown runs in reverse registration order via AsyncExitStack LIFO semantics.

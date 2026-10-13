@@ -24,7 +24,7 @@ import contextlib
 import faulthandler
 import threading
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -335,8 +335,8 @@ class TestAppLifecycle:
         armed_in_lifespan: list[int] = []
         stopped_at_teardown: list[bool] = []
 
-        @contextlib.asynccontextmanager
-        async def lifespan(_: AppContext) -> AsyncGenerator[None]:
+        @contextlib.asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(_: AppContext) -> AsyncIterator[None]:
             armed_in_lifespan.append(len(_RecordingWatchdog.instances))
             try:
                 yield

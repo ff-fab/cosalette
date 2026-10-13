@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol, runtime_checkable
 
@@ -187,8 +187,8 @@ class TestFullLifecycle:
         execution_order: list[str] = []
         device_done = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             execution_order.append("startup")
             yield
 
@@ -219,8 +219,8 @@ class TestFullLifecycle:
         """
         hook_called = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
             hook_called.set()
 
@@ -310,8 +310,8 @@ class TestFullLifecycle:
         device_published = asyncio.Event()
         command_received = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifecycle(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifecycle(ctx: AppContext) -> AsyncIterator[None]:
             execution_log.append("startup")
             yield
             execution_log.append("shutdown")

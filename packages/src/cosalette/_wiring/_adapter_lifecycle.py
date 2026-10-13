@@ -18,7 +18,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -211,13 +211,13 @@ def _should_enter(adapter: object, seen: set[int]) -> bool:
     return True
 
 
-@asynccontextmanager
+@asynccontextmanager  # ty: ignore[deprecated]
 async def enter_lifecycle_adapters(
     resolved_adapters: dict[type, object],
     shutdown_event: asyncio.Event,
     *,
     skip_ids: set[int] | None = None,
-) -> AsyncGenerator[None]:
+) -> AsyncIterator[None]:
     """Enter adapters that implement the async context manager protocol.
 
     Uses :class:`~contextlib.AsyncExitStack` for LIFO exit ordering

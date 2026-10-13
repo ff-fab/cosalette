@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal, override
 from unittest.mock import AsyncMock
@@ -58,8 +58,8 @@ class _Recorder(logging.Handler):
         return [r for r in self.records if r.levelno == level]
 
 
-@contextmanager
-def _recording() -> Generator[_Recorder]:
+@contextmanager  # ty: ignore[deprecated]
+def _recording() -> Iterator[_Recorder]:
     # configure_logging() replaces root handlers, so caplog cannot see the
     # records; listen on the framework logger directly.
     handler = _Recorder()

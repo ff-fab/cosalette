@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import warnings
-from collections.abc import Generator
+from collections.abc import Iterator
 
 from pydantic import BaseModel
 
@@ -30,8 +30,8 @@ class OptionalReading(BaseModel):
     brightness: int | None = None
 
 
-@contextlib.contextmanager
-def production_warning_filters() -> Generator[None]:
+@contextlib.contextmanager  # ty: ignore[deprecated]
+def production_warning_filters() -> Iterator[None]:
     """Run the body with warnings non-fatal, as they are in production.
 
     A suite's ``filterwarnings = ["error"]`` config would turn Pydantic's

@@ -27,7 +27,7 @@ Press Ctrl+C in the terminal to trigger graceful shutdown.
 from __future__ import annotations
 
 import random
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import cosalette
@@ -44,8 +44,8 @@ from cosalette.testing import MockMqttClient
 # --- App assembly ----------------------------------------------------------
 
 
-@asynccontextmanager
-async def lifespan(ctx: cosalette.AppContext) -> AsyncGenerator[None]:
+@asynccontextmanager  # ty: ignore[deprecated]
+async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
     """Lifespan — startup code runs before yield, teardown after."""
     print(f"[lifespan] startup — settings loaded: {type(ctx.settings).__name__}")
     yield

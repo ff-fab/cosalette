@@ -211,9 +211,12 @@ exclude = [".claude/"]
 
 [tool.ty.rules]
 all = "error"
-# This opt-in rule treats intentional truthiness checks on optional collections
-# and strings as errors. Keep their empty-value semantics explicit in code.
+# Keep this opt-in rule disabled: these sites intentionally treat empty values
+# like missing values, and changing that would alter their runtime semantics.
 truthiness-test-of-none-union = "ignore"
+
+# Runtime factory discovery requires Iterator annotations on context managers;
+# Ty's deprecated-overload diagnostic is suppressed at those specific sites.
 
 [tool.ty.terminal]
 error-on-warning = true

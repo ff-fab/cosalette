@@ -17,7 +17,7 @@ Test Techniques Used:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, override
 from unittest.mock import patch
@@ -529,8 +529,8 @@ class TestRunAsyncLifespan:
         hook_called = asyncio.Event()
         received_ctx: list[AppContext] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             received_ctx.append(ctx)
             hook_called.set()
             yield
@@ -570,8 +570,8 @@ class TestRunAsyncLifespan:
         """
         hook_called = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
             hook_called.set()
 
@@ -605,8 +605,8 @@ class TestRunAsyncLifespan:
         """
         phases: list[str] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             phases.append("startup")
             yield
             phases.append("teardown")
@@ -639,8 +639,8 @@ class TestRunAsyncLifespan:
         """
         device_started = False
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             msg = "startup failed"
             raise RuntimeError(msg)
             yield  # noqa: RET503 — unreachable, required by generator
@@ -679,8 +679,8 @@ class TestRunAsyncLifespan:
         the logger method was called via mock.
         """
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
             msg = "teardown failed"
             raise RuntimeError(msg)
@@ -716,8 +716,8 @@ class TestRunAsyncLifespan:
         """
         received_ctx: list[AppContext] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             received_ctx.append(ctx)
             yield
 
@@ -912,8 +912,8 @@ class TestRunAsyncLifespan:
         ordering: list[str] = []
         device_started = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
             ordering.append("lifespan_teardown")
 
@@ -968,8 +968,8 @@ class TestLifespanYieldedState:
         """Lifespan yields _YieldedState -> telemetry handler receives it via DI."""
         received: list[_YieldedState] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[_YieldedState]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
             yield _YieldedState(42)
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1008,8 +1008,8 @@ class TestLifespanYieldedState:
         """Lifespan yielding None does not register anything (backward compat)."""
         device_ran = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1045,8 +1045,8 @@ class TestLifespanYieldedState:
     ) -> None:
         """Lifespan yielding a type already in DI raises RuntimeError."""
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[_ConflictState]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_ConflictState]:
             yield _ConflictState()
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1081,8 +1081,8 @@ class TestLifespanYieldedState:
     ) -> None:
         """Lifespan yielding a framework-provided type raises RuntimeError."""
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[Settings]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[Settings]:
             yield Settings(mqtt=MqttSettings(host="localhost"))
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1116,8 +1116,8 @@ class TestLifespanYieldedState:
         received: list[_YieldedState] = []
         command_done = asyncio.Event()
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[_YieldedState]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
             yield _YieldedState("cmd-hello")
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1163,8 +1163,8 @@ class TestLifespanYieldedState:
         """Lifespan yields state -> @app.device handler receives it via DI."""
         received: list[_YieldedState] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[_YieldedState]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
             yield _YieldedState("hello")
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1208,8 +1208,8 @@ class TestLifespanYieldedState:
         cleanup failed, the second run would raise a conflict error.
         """
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[_YieldedState]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[_YieldedState]:
             yield _YieldedState()
 
         app = App(name="testapp", version="1.0.0", lifespan=lifespan)
@@ -1256,10 +1256,10 @@ class TestLifespanYieldedState:
         """
         cleanup_ran = False
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def lifespan(
             ctx: AppContext,
-        ) -> AsyncGenerator[_ConflictState]:
+        ) -> AsyncIterator[_ConflictState]:
             try:
                 yield _ConflictState()
             finally:

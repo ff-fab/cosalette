@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import pytest
@@ -228,8 +228,8 @@ class TestIsAsyncContextManager:
     def test_detects_contextlib_async_cm(self) -> None:
         """@asynccontextmanager-based CM is detected as async CM."""
 
-        @asynccontextmanager
-        async def my_cm() -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def my_cm() -> AsyncIterator[None]:
             yield
 
         assert _is_async_context_manager(my_cm()) is True
@@ -298,8 +298,8 @@ class TestAdapterLifecycle:
         log: list[str] = []
         adapter = _LifecycleAdapter(name="adapter", log=log)
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             log.append("lifespan:startup")
             yield
             log.append("lifespan:teardown")
@@ -519,8 +519,8 @@ class TestAdapterLifecycle:
         adapter1 = _LifecycleAdapter(name="first", log=log)
         adapter2 = _LifecycleAdapter2(log=log)
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             log.append("lifespan:startup")
             yield
             log.append("lifespan:teardown")
@@ -564,8 +564,8 @@ class TestAdapterLifecycle:
         """
         phases: list[str] = []
 
-        @asynccontextmanager
-        async def lifespan(ctx: AppContext) -> AsyncGenerator[None]:
+        @asynccontextmanager  # ty: ignore[deprecated]
+        async def lifespan(ctx: AppContext) -> AsyncIterator[None]:
             phases.append("startup")
             yield
             phases.append("teardown")

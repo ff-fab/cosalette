@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, AsyncIterator, Generator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -121,8 +121,8 @@ def sync_factory_with_custom_settings(settings: MyCustomSettings) -> SyncStateTy
     return SyncStateType(f"sync-{settings.custom_value}")
 
 
-@contextlib.contextmanager
-def cm_factory() -> Generator[CMStateType]:
+@contextlib.contextmanager  # ty: ignore[deprecated]
+def cm_factory() -> Iterator[CMStateType]:
     """Sync context manager factory."""
     state = CMStateType("cm")
     try:
@@ -140,8 +140,8 @@ async def async_gen_factory() -> AsyncIterator[AsyncGenStateType1]:
         state.close()
 
 
-@asynccontextmanager
-async def async_cm_factory() -> AsyncGenerator[AsyncCMStateType]:
+@asynccontextmanager  # ty: ignore[deprecated]
+async def async_cm_factory() -> AsyncIterator[AsyncCMStateType]:
     """Async context manager factory."""
     state = AsyncCMStateType("async-cm")
     try:
@@ -377,8 +377,8 @@ async def test_context_manager_state_teardown() -> None:
     created_state = None
 
     @harness.app.state
-    @contextlib.contextmanager
-    def my_cm_state() -> Generator[CMStateType]:
+    @contextlib.contextmanager  # ty: ignore[deprecated]
+    def my_cm_state() -> Iterator[CMStateType]:
         nonlocal created_state
         state = CMStateType("cm")
         created_state = state
@@ -444,8 +444,8 @@ async def test_async_cm_state_teardown() -> None:
     created_state = None
 
     @harness.app.state
-    @asynccontextmanager
-    async def my_async_cm_state() -> AsyncGenerator[AsyncCMStateType]:
+    @asynccontextmanager  # ty: ignore[deprecated]
+    async def my_async_cm_state() -> AsyncIterator[AsyncCMStateType]:
         nonlocal created_state
         state = AsyncCMStateType("async-cm")
         created_state = state
@@ -612,8 +612,8 @@ async def test_lifespan_compatibility() -> None:
         state_factory_called = True
         return SyncStateType("state")
 
-    @contextlib.asynccontextmanager
-    async def my_lifespan(ctx: Any) -> AsyncGenerator[None]:  # noqa: ARG001
+    @contextlib.asynccontextmanager  # ty: ignore[deprecated]
+    async def my_lifespan(ctx: Any) -> AsyncIterator[None]:  # noqa: ARG001
         nonlocal lifespan_entered
         lifespan_entered = True
         yield
