@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.1](https://github.com/ff-fab/cosalette/compare/v0.12.0...v0.12.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **security:** drop stale Buildx baseline row ([#547](https://github.com/ff-fab/cosalette/issues/547)) ([2cb5b7c](https://github.com/ff-fab/cosalette/commit/2cb5b7c89ec8dcec275c2fe0dad8e41152ce44e1))
+* **security:** remove unused librsvg packages ([22aef11](https://github.com/ff-fab/cosalette/commit/22aef11a5e81dfc380e29cfcdb07f4ad3f40ae9a))
+* **security:** review Buildx x/net CVE ([37db64c](https://github.com/ff-fab/cosalette/commit/37db64c74c50a7f3666085698b00e4d4ace0f817))
+* **security:** review new kernel header CVEs ([#543](https://github.com/ff-fab/cosalette/issues/543)) ([69b3611](https://github.com/ff-fab/cosalette/commit/69b3611633c536a19456560a81ebc05afe8c077e))
+
 ## [0.12.0](https://github.com/ff-fab/cosalette/compare/v0.11.4...v0.12.0) (2026-10-12)
 
 
