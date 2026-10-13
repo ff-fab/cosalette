@@ -178,7 +178,7 @@ async def _enter_one_state(
     raise ValueError(f"Unsupported factory variant: {reg.variant}")  # pragma: no cover
 
 
-@contextlib.asynccontextmanager
+@contextlib.asynccontextmanager  # ty: ignore[deprecated]
 async def enter_state_factories(
     registrations: list[StateRegistration],
     settings: Settings,

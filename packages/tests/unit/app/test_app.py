@@ -149,7 +149,7 @@ class TestLifespan:
     async def test_custom_lifespan_stored(self) -> None:
         """A custom lifespan function is stored on the App."""
 
-        @asynccontextmanager
+        @asynccontextmanager  # ty: ignore[deprecated]
         async def my_lifespan(ctx: AppContext) -> AsyncIterator[None]:
             yield
 

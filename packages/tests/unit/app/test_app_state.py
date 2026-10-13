@@ -121,7 +121,7 @@ def sync_factory_with_custom_settings(settings: MyCustomSettings) -> SyncStateTy
     return SyncStateType(f"sync-{settings.custom_value}")
 
 
-@contextlib.contextmanager
+@contextlib.contextmanager  # ty: ignore[deprecated]
 def cm_factory() -> Iterator[CMStateType]:
     """Sync context manager factory."""
     state = CMStateType("cm")
@@ -140,7 +140,7 @@ async def async_gen_factory() -> AsyncIterator[AsyncGenStateType1]:
         state.close()
 
 
-@asynccontextmanager
+@asynccontextmanager  # ty: ignore[deprecated]
 async def async_cm_factory() -> AsyncIterator[AsyncCMStateType]:
     """Async context manager factory."""
     state = AsyncCMStateType("async-cm")
@@ -377,7 +377,7 @@ async def test_context_manager_state_teardown() -> None:
     created_state = None
 
     @harness.app.state
-    @contextlib.contextmanager
+    @contextlib.contextmanager  # ty: ignore[deprecated]
     def my_cm_state() -> Iterator[CMStateType]:
         nonlocal created_state
         state = CMStateType("cm")
@@ -444,7 +444,7 @@ async def test_async_cm_state_teardown() -> None:
     created_state = None
 
     @harness.app.state
-    @asynccontextmanager
+    @asynccontextmanager  # ty: ignore[deprecated]
     async def my_async_cm_state() -> AsyncIterator[AsyncCMStateType]:
         nonlocal created_state
         state = AsyncCMStateType("async-cm")
@@ -612,7 +612,7 @@ async def test_lifespan_compatibility() -> None:
         state_factory_called = True
         return SyncStateType("state")
 
-    @contextlib.asynccontextmanager
+    @contextlib.asynccontextmanager  # ty: ignore[deprecated]
     async def my_lifespan(ctx: Any) -> AsyncIterator[None]:  # noqa: ARG001
         nonlocal lifespan_entered
         lifespan_entered = True

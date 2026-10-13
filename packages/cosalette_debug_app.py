@@ -44,7 +44,7 @@ from cosalette.testing import MockMqttClient
 # --- App assembly ----------------------------------------------------------
 
 
-@asynccontextmanager
+@asynccontextmanager  # ty: ignore[deprecated]
 async def lifespan(ctx: cosalette.AppContext) -> AsyncIterator[None]:
     """Lifespan — startup code runs before yield, teardown after."""
     print(f"[lifespan] startup — settings loaded: {type(ctx.settings).__name__}")

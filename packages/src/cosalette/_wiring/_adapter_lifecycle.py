@@ -211,7 +211,7 @@ def _should_enter(adapter: object, seen: set[int]) -> bool:
     return True
 
 
-@asynccontextmanager
+@asynccontextmanager  # ty: ignore[deprecated]
 async def enter_lifecycle_adapters(
     resolved_adapters: dict[type, object],
     shutdown_event: asyncio.Event,

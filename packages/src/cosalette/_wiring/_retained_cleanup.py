@@ -154,14 +154,11 @@ def _removed_entities(
     curr_entities = current.get("entities")
     if not isinstance(prev_entities, dict) or not isinstance(curr_entities, dict):
         return {}
-    return cast(
-        "dict[str, dict[str, object]]",
-        {
-            name: info
-            for name, info in prev_entities.items()
-            if name not in curr_entities and isinstance(info, dict)
-        },
-    )
+    return {
+        name: info
+        for name, info in prev_entities.items()
+        if name not in curr_entities and isinstance(info, dict)
+    }
 
 
 def _canonical_signed_payload(

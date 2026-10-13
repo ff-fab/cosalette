@@ -1059,7 +1059,7 @@ class TestManualClockAgainstRealRunners:
     """
 
     @staticmethod
-    @contextlib.asynccontextmanager
+    @contextlib.asynccontextmanager  # ty: ignore[deprecated]
     async def _running(
         coro: Coroutine[Any, Any, None],
     ) -> AsyncIterator[asyncio.Task[None]]:
