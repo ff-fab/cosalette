@@ -38,8 +38,8 @@ RUN pipx uninstall pipenv \
 # renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
 ARG SYFT_VERSION=1.54.1
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG SYFT_SHA256_AMD64=54a87372498168b2d033e876fd41fa4e8035b872699e525a57046e1f2f09c860
-ARG SYFT_SHA256_ARM64=ee6d4566373a05b344bc6b5f1706f14419bf9338ba39ff686e247deefe9b8818
+ARG SYFT_SHA256_AMD64=c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47
+ARG SYFT_SHA256_ARM64=dfdf0537610113edbefe1f1fc6548bc957b2d77439636ec824fcf0e10d46d054
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
