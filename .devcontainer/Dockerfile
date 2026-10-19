@@ -36,7 +36,7 @@ RUN pipx uninstall pipenv \
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
-ARG SYFT_VERSION=1.54.0
+ARG SYFT_VERSION=1.54.1
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG SYFT_SHA256_AMD64=54a87372498168b2d033e876fd41fa4e8035b872699e525a57046e1f2f09c860
 ARG SYFT_SHA256_ARM64=ee6d4566373a05b344bc6b5f1706f14419bf9338ba39ff686e247deefe9b8818
