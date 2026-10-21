@@ -69,7 +69,7 @@ RUN set -eux; \
 # because Docker does not always publish -1 (e.g. containerd.io 2.4.1-2). Update the
 # trixie/13 in these comments together with the base image's Debian release.
 # renovate: datasource=deb depName=docker-ce extractVersion=^5:(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG DOCKER_VERSION=29.9.0-1
+ARG DOCKER_VERSION=29.9.2-1
 # renovate: datasource=deb depName=containerd.io extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
 ARG CONTAINERD_VERSION=2.4.1-2
 # renovate: datasource=deb depName=docker-buildx-plugin extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
