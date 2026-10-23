@@ -97,7 +97,7 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       # QEMU pulls tonistiigi/binfmt and the smoke test pulls python images,
       # both from Docker Hub.
@@ -171,7 +171,7 @@ jobs:
           bash scripts/wheel-sbom.sh dist/*.whl dist/cosalette.cdx.json
 
       - name: Upload wheel
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheel-${{ matrix.target }}
           path: dist/*.whl
@@ -194,7 +194,7 @@ jobs:
       # The sdist ships the Python fallback as cosalette-health (ADR-087).
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Smoke-test probe from sdist
         shell: bash
@@ -204,7 +204,7 @@ jobs:
           PATH="/tmp/sdist-venv/bin:$PATH" python scripts/smoke-health-probe.py fallback
 
       - name: Upload sdist
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sdist
           path: dist/*.tar.gz
