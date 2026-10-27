@@ -85,8 +85,8 @@ ARG BUILDX_VERSION=0.38.0-1
 # .github/workflows/renovate-checksums.yml commits both verified checksums (ADR-090).
 # renovate: datasource=github-releases depName=rootless-containers/rootlesskit
 ARG ROOTLESSKIT_VERSION=v3.3.0
-ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
-ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
+ARG ROOTLESSKIT_SHA256_AMD64=0e757c8f80510d764df8c9a5f169805580b48d02329f0a200900e261ecec27ed
+ARG ROOTLESSKIT_SHA256_ARM64=7a159e79ef3e65e1f2702ab89537bb79de67b433428328b9626cf75786dbe43a
 # DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
