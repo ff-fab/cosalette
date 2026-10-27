@@ -155,7 +155,7 @@ class TestTriggerParseRejected:
         causes = [
             r.exc_info[1]
             for r in out.log.at(logging.DEBUG)
-            if r.name == _RUNNER_LOGGER and r.exc_info
+            if r.name == _RUNNER_LOGGER and isinstance(r.exc_info, tuple)
         ]
         assert len(causes) == 1
         assert isinstance(causes[0], PayloadValidationError)
@@ -195,7 +195,7 @@ class TestHandlerFaults:
         assert errors[0].name == _RUNNER_LOGGER
         warnings = out.log.at(logging.WARNING)
         assert len(warnings) == 1
-        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info, tuple)
         assert warnings[0].exc_info[1] is exc
         assert [e["error_type"] for e in out.errors] == [error_type]
         assert out.sensor["status"] == "error"
@@ -218,7 +218,7 @@ class TestHandlerFaults:
         assert errors[0].name == _RUNNER_LOGGER
         warnings = out.log.at(logging.WARNING)
         assert len(warnings) == 1
-        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info, tuple)
         assert isinstance(warnings[0].exc_info[1], PayloadValidationError)
         assert [e["error_type"] for e in out.errors] == ["invalid_payload"]
         assert out.sensor["status"] == "error"
