@@ -242,7 +242,7 @@ RUN set -eux; \
 # is macOS-only as of beads v1.0.0.
 # The official image ships the same static binary as the release tarball;
 # Renovate updates its tag and digest together (ADR-090).
-COPY --from=dolthub/dolt:2.4.2@sha256:8a822610f9fffab0e347a9d4a0cce2a53444e7e6fb459a684b6b9fa721dfcbb4 /usr/local/bin/dolt /usr/local/bin/dolt
+COPY --from=dolthub/dolt:2.6.1@sha256:53a237af18ec974ce06e5d10a08a0cf13e484a189651bebe48c7380744adeb12 /usr/local/bin/dolt /usr/local/bin/dolt
 # Dolt stores this setting per home; configure build-time root and vscode.
 RUN dolt config --global --add versioncheck.disabled true \
     && runuser -u vscode -- env HOME=/home/vscode \
