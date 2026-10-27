@@ -84,7 +84,7 @@ ARG BUILDX_VERSION=0.38.0-1
 # x/net and x/crypto versions (PR 505 scan). Renovate bumps the version and
 # .github/workflows/renovate-checksums.yml commits both verified checksums (ADR-090).
 # renovate: datasource=github-releases depName=rootless-containers/rootlesskit
-ARG ROOTLESSKIT_VERSION=v3.2.0
+ARG ROOTLESSKIT_VERSION=v3.3.0
 ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
 ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
 # DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
