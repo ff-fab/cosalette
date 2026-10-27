@@ -172,7 +172,7 @@ class TestFrameworkRejectedInput:
         assert log.at(logging.ERROR) == []
         debug = [r for r in log.at(logging.DEBUG) if r.name == _RUNNER_LOGGER]
         assert len(debug) == 1
-        assert debug[0].exc_info is not None
+        assert isinstance(debug[0].exc_info, tuple)
         assert isinstance(debug[0].exc_info[1], PayloadValidationError)
         assert error["error_type"] == error_type
         assert "(parameter 'cmd')" in error["message"]
@@ -254,7 +254,7 @@ class TestHandlerFaults:
         assert errors[0].name == _RUNNER_LOGGER
         warnings = log.at(logging.WARNING)
         assert len(warnings) == 1
-        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info, tuple)
         assert warnings[0].exc_info[1] is exc
         assert error["error_type"] == error_type
 
@@ -280,7 +280,7 @@ class TestHandlerFaults:
         assert errors[0].name == _RUNNER_LOGGER
         warnings = log.at(logging.WARNING)
         assert len(warnings) == 1
-        assert warnings[0].exc_info is not None
+        assert isinstance(warnings[0].exc_info, tuple)
         assert warnings[0].exc_info[1] is _DEPENDENCY_ERROR
         assert error["error_type"] == "invalid_payload"
 

@@ -4,13 +4,13 @@
   "groups": {
     "debian_pending": {
       "owner": "cos-nxu6",
-      "expires": "2026-10-27",
-      "reason": "Temporary acceptance of exact inherited Debian 13 findings while vendor patches and package removal are tracked. This includes Expat heap overread and GnuTLS certificate-validation issues; exposure remains if tools process attacker-controlled input. No claim of non-exploitability. Reviewed in .devcontainer/security-review-2026-10-10.md; expires 2026-10-27."
+      "expires": "2026-11-02",
+      "reason": "Temporary acceptance of exact Debian 13 fingerprints while vendor patches and package removal are tracked. Includes Expat, GnuTLS, libxml2, and newly reviewed curl CVE-2026-12064/CVE-2026-8458. These packages remain installed; exposure is real when tools process attacker-controlled input. No claim of non-exploitability. See .devcontainer/security-review-2026-10-10.md and .devcontainer/security-review-2026-10-27.md; review expires 2026-11-02."
     },
     "kernel_headers": {
       "owner": "cos-nxu6",
-      "expires": "2026-10-27",
-      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. The 51 changed-version pairs are individually reviewed in .devcontainer/security-review-2026-10-05.md; CVE-2026-89972 is additionally reviewed in .devcontainer/security-review-2026-10-05-renewal.md. CVE-2026-89811, CVE-2026-90111 and CVE-2026-90315 are individually reviewed in .devcontainer/security-review-2026-10-08.md. CVE-2026-97528, CVE-2026-98222 and CVE-2026-98364 are reviewed in .devcontainer/security-review-2026-10-10.md. CVE-2026-98320, CVE-2026-98323 and CVE-2026-98378 are individually reviewed in .devcontainer/security-review-2026-10-12.md (cos-q8q4). Evidence and remediation are in .devcontainer/security-remediation.md. Privileged Docker-in-Docker has been replaced by rootless Docker (cos-2jj7). Host applicability remains open in cos-dam4; this does not claim the host kernel is patched."
+      "expires": "2026-11-02",
+      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. Prior exact findings are reviewed in .devcontainer/security-review-2026-10-05.md, .devcontainer/security-review-2026-10-05-renewal.md, .devcontainer/security-review-2026-10-08.md, .devcontainer/security-review-2026-10-10.md, and .devcontainer/security-review-2026-10-12.md. The 60 current fingerprints at 6.12.113-1, including CRITICAL CVE-2026-93221 and CVE-2026-99083, are listed and triaged in .devcontainer/security-review-2026-10-27.md. Host applicability remains open in cos-dam4; this does not claim the host kernel is patched. Expires 2026-11-02."
     },
     "libxml2_pending": {
       "owner": "cos-nxu6",
@@ -20,12 +20,12 @@
     "openssh_pending": {
       "owner": "cos-nxu6",
       "expires": "2026-11-02",
-      "reason": "Re-reviewed 2026-10-05 (cos-yi5p): Debian marks all 3 advisories <no-dsa> (minor) for trixie, fixed only in sid (OpenSSH 10.4). The image ships openssh-client only: CVE-2026-59999 and CVE-2026-60000 affect sshd; CVE-2026-60002 is a client use-after-free needing a server that changes its host key during re-key. Connect only to trusted servers with host-key verification. Evidence: .devcontainer/security-review-2026-10-05-renewal.md."
+      "reason": "Re-reviewed 2026-10-27: the image ships openssh-client only, not sshd. CVE-2026-106553 and CVE-2026-106555 affect sshd; CVE-2026-106583 affects the client and can permit command injection through an untrusted username. Older CVE-2026-59999/CVE-2026-60000 affect sshd; CVE-2026-60002 is a client use-after-free. Do not use untrusted usernames or connect to untrusted servers; the client findings remain real. Debian has no fixed Trixie package at review time. See .devcontainer/security-review-2026-10-05-renewal.md and .devcontainer/security-review-2026-10-27.md; expires 2026-11-02."
     },
     "go_binaries": {
       "owner": "cos-nxu6",
       "expires": "2026-11-02",
-      "reason": "Temporary acceptance of exact Go standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. CVE-2026-78667, CVE-2026-78669 and CVE-2026-97031 and affected binary versions are reviewed in .devcontainer/security-review-2026-10-10.md. Docker Buildx 0.38.0-1 adds exact x/net v0.59.0 fingerprint CVE-2026-78669; reviewed in .devcontainer/security-review-2026-10-12.md because the release predates disclosure and no later stable Buildx release is available. Docker Engine was updated to 29.9.0, removing its findings; other tools remain exposed to crafted input. Update pins as soon as fixed releases ship; expires 2026-11-02."
+      "reason": "Temporary acceptance of exact standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. Existing CVE-2026-78667, CVE-2026-78669, and CVE-2026-97031 reviews are in .devcontainer/security-review-2026-10-10.md and .devcontainer/security-review-2026-10-12.md. The 11 current CVE-2026-111943 fingerprints are reviewed in .devcontainer/security-review-2026-10-27.md; this is a real TLS trust risk where system trust data is stale, not a false positive. Dolt's CVE-2026-63209 is also real and fixed upstream in klauspost/compress 1.18.7, but the latest Dolt release inspected (2.6.1) still embeds 1.18.0. Update each binary as soon as its publisher ships a fixed release; expires 2026-11-02."
     }
   }
 }

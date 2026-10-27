@@ -17,10 +17,16 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789
 # The pinned Python base image includes an older GitPython release. Keep the
 # global installation patched for devcontainer utilities that import it.
 RUN uv pip install --system --no-cache \
-      'GitPython==3.1.62' \
+      'GitPython==3.2.1' \
       'setuptools>=78.1.1' \
       'urllib3>=2.8.0' \
       'msgpack>=1.2.1'
+
+# Black runs from the base image's isolated py-utils environment, so update
+# that installation rather than adding a second, unused system copy.
+RUN uv pip install --python /usr/local/py-utils/venvs/black/bin/python \
+      'black==26.10.1' \
+      'setuptools>=84.1.0'
 
 # This project uses uv, so remove unused base-image package managers instead of
 # retaining vulnerable copies inside pipenv, virtualenv and pip's vendor tree.
