@@ -25,7 +25,8 @@ RUN uv pip install --system --no-cache \
 # Black runs from the base image's isolated py-utils environment, so update
 # that installation rather than adding a second, unused system copy.
 RUN uv pip install --python /usr/local/py-utils/venvs/black/bin/python \
-      'black==26.10.1'
+      'black==26.10.1' \
+      'setuptools>=84.1.0'
 
 # This project uses uv, so remove unused base-image package managers instead of
 # retaining vulnerable copies inside pipenv, virtualenv and pip's vendor tree.

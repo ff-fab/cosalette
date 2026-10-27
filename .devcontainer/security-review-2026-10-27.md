@@ -104,4 +104,6 @@ The `debian_pending`, `kernel_headers`, `openssh_pending`, and `go_binaries` gro
 expire on 2026-11-02. Owner `cos-nxu6` must remove rows as fixes ship and recheck all
 temporary acceptances before expiry. `cos-dam4` must separately update the host-kernel
 assessment. The group expiry is a short review deadline, not a claim that the unresolved
-software issues are fixed.
+software issues are fixed. The scan also found a LOW setuptools advisory in Black's
+isolated environment; the Dockerfile now upgrades that environment to setuptools 84.1.0
+or later, where the advisory is fixed.
