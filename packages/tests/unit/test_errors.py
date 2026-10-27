@@ -871,7 +871,9 @@ class TestErrorPublisher:
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert warning_records, "Expected at least one WARNING log record"
         record = warning_records[0]
-        assert record.exc_info is not None, "exc_info must be set on the log record"
+        assert isinstance(record.exc_info, tuple), (
+            "exc_info must be set on the log record"
+        )
         _, _, tb = record.exc_info
         assert tb is not None, (
             "exc_info=error did not capture the real traceback. "
