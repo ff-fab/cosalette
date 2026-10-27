@@ -359,7 +359,7 @@ RUN set -eux; \
 
 # Install opencode (AI coding agent — https://opencode.ai)
 # renovate: datasource=github-releases depName=anomalyco/opencode
-ARG OPENCODE_VERSION=v1.18.34
+ARG OPENCODE_VERSION=v1.19.3
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG OPENCODE_SHA256_AMD64=0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a
 ARG OPENCODE_SHA256_ARM64=bbdb3f00c2c51e42e315525233151309724226a8776da8e9145e3b0fa3d5310f
