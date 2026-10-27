@@ -72,14 +72,14 @@ claim of safety. See the
 
 `CVE-2026-111943` appears in 11 prebuilt binaries: Docker (`docker`, `docker-proxy`,
 `dockerd`, Go 1.26.9); RootlessKit (`rootlessctl`, `rootlesskit`,
-`rootlesskit-docker-proxy`, Go 1.26.8); Buildx (Go 1.26.8); `bd` (Go 1.26.7); Syft (Go
-1.26.8); and Task (Go 1.27.1). The Go fix is 1.26.10 or 1.27.3. Go generally uses the
-system trust store, but its new denylist is extra protection for narrower cases where
-trust data has not been refreshed. A client that accepts a chain through one of the
-compromised intermediate certificates could permit a man-in-the-middle attack. The exact
-binary versions remain temporarily accepted until their publishers ship patched builds;
-refresh the system trust store and update the pins promptly. See the
-[Go CVE record](https://www.cve.org/CVERecord?id=CVE-2026-111943),
+`rootlesskit-docker-proxy`, Go 1.26.9 in v3.3.0; prior pins used Go 1.26.8); Buildx (Go
+1.26.8); `bd` (Go 1.26.7); Syft (Go 1.26.8); and Task (Go 1.27.1). The Go fix is 1.26.10
+or 1.27.3. Go generally uses the system trust store, but its new denylist is extra
+protection for narrower cases where trust data has not been refreshed. A client that
+accepts a chain through one of the compromised intermediate certificates could permit a
+man-in-the-middle attack. The exact binary versions remain temporarily accepted until
+their publishers ship patched builds; refresh the system trust store and update the pins
+promptly. See the [Go CVE record](https://www.cve.org/CVERecord?id=CVE-2026-111943),
 [Go vulnerability entry](https://pkg.go.dev/vuln/GO-2026-6809), and
 [Go security announcement](https://groups.google.com/g/golang-announce/c/66pojueaQek).
 
