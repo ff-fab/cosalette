@@ -17,7 +17,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789
 # The pinned Python base image includes an older GitPython release. Keep the
 # global installation patched for devcontainer utilities that import it.
 RUN uv pip install --system --no-cache \
-      'GitPython==3.1.62' \
+      'GitPython==3.2.1' \
+      'black==26.10.1' \
       'setuptools>=78.1.1' \
       'urllib3>=2.8.0' \
       'msgpack>=1.2.1'
