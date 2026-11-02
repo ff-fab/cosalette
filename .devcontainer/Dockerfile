@@ -255,7 +255,7 @@ RUN dolt config --global --add versioncheck.disabled true \
 # The tarball ships a single static-ish binary; an ICU compatibility symlink
 # is created when the binary links against a different ICU than the OS provides.
 # renovate: datasource=github-releases depName=gastownhall/beads
-ARG BD_VERSION=v1.3.1
+ARG BD_VERSION=v1.3.2
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
 ARG BD_SHA256_AMD64=3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
 ARG BD_SHA256_ARM64=c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a
