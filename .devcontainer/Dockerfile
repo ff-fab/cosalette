@@ -257,8 +257,8 @@ RUN dolt config --global --add versioncheck.disabled true \
 # renovate: datasource=github-releases depName=gastownhall/beads
 ARG BD_VERSION=v1.3.2
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG BD_SHA256_AMD64=3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
-ARG BD_SHA256_ARM64=c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a
+ARG BD_SHA256_AMD64=c6ea3281f6ff82628351b2d0967c9eb85862c8a0ec0ebc24e63e645c8b02462e
+ARG BD_SHA256_ARM64=39b34a1246b7216031a98ae838c785a7dbba29cf9f50f109114ac462a4b85e7c
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
