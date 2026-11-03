@@ -62,7 +62,7 @@ repos:
 
   # Prettier: Format JavaScript, TypeScript, JSON, Markdown, YAML
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.9
+    rev: v3.9.10
     hooks:
       - id: prettier
         name: Prettier (JS, TS, JSON, MD, YAML)
@@ -85,7 +85,7 @@ repos:
 
   # Ruff: Lint and format Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.10
+    rev: v0.17.3
     hooks:
       - id: ruff
         name: Ruff (lint Python)
