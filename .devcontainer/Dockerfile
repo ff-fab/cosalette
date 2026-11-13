@@ -2,7 +2,7 @@
 # Python 3.14 + uv + common dev tools
 
 # renovate: datasource=docker depName=mcr.microsoft.com/devcontainers/python versioning=docker
-FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:28835c112fd097cb6d2fe1e195b660d66ae051859070a9b871fa2308f35897d3
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:2e0589f0725c951ac8ae0d7169784a9694f5818ec5264ed5231f23c6bf0ab7be
 
 # Set shell options for robust RUN commands
 # -e: exit on error
