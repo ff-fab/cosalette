@@ -108,6 +108,12 @@ fingerprints are absent from the old baseline. Its normalized inventory is recor
 [`security-scan-2026-11-21-docker.tsv`](security-scan-2026-11-21-docker.tsv). The
 expired baseline continues to block the gate.
 
+The image build's apt inventory also lists `libtiff-dev`, `libtiff6`, and `libtiffxx6`
+as no longer required after removal of inherited image-processing development packages.
+The Dockerfile removes them explicitly; a new image build must confirm the resulting
+package removals, native toolchain, and scan before the six TIFF fingerprints can be
+considered resolved.
+
 ## New Debian findings under review
 
 The following evidence comes from the 294-fingerprint scan and Debian's tracker. It
@@ -171,6 +177,32 @@ resolved by purging it in the Dockerfile.
   database before any narrow exception. See the
   [rsync tracker](https://security-tracker.debian.org/tracker/CVE-2026-119741) and
   [sudo tracker](https://security-tracker.debian.org/tracker/CVE-2026-96512).
+
+## Other Debian exposure
+
+The four util-linux advisories reported across its binary packages concern mount
+helpers, cgroup namespace entry, or mount options and privileged filesystem state.
+Debian lists all four as vulnerable in Trixie. Image package attribution does not
+establish the host kernel version, fstab policy, or the privileges available to a
+particular user; those conditions require host-specific assessment. See
+[CVE-2026-76642](https://security-tracker.debian.org/tracker/CVE-2026-76642),
+[CVE-2026-78408](https://security-tracker.debian.org/tracker/CVE-2026-78408),
+[CVE-2026-78409](https://security-tracker.debian.org/tracker/CVE-2026-78409), and
+[CVE-2026-78410](https://security-tracker.debian.org/tracker/CVE-2026-78410).
+
+The scan attributes `CVE-2026-16742` to systemd libraries, but Debian describes a
+systemd-homed managed-user issue; `CVE-2026-24882` concerns the separate GnuPG
+`tpm2daemon`. Confirm the final image has neither daemon before deciding whether these
+package attributions apply. See
+[CVE-2026-16742](https://security-tracker.debian.org/tracker/CVE-2026-16742) and
+[CVE-2026-24882](https://security-tracker.debian.org/tracker/CVE-2026-24882). Other
+installed tools have input-dependent exposure: `infocmp` processing malicious terminfo
+(`CVE-2025-69720`), Perl Archive::Tar handling malicious headers (`CVE-2026-9538`), and
+privileged libacl calls on attacker-controlled path components (`CVE-2026-54369`). See
+the Debian trackers for
+[ncurses](https://security-tracker.debian.org/tracker/CVE-2025-69720),
+[Perl](https://security-tracker.debian.org/tracker/CVE-2026-9538), and
+[libacl](https://security-tracker.debian.org/tracker/CVE-2026-54369).
 
 ## Remaining Go dependency findings
 
