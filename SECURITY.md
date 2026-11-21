@@ -111,6 +111,9 @@ The build workflow enforces:
   on any warning-level violations (DL* Dockerfile rules and SC* ShellCheck rules).
 - **Image vulnerability scanning** — Trivy scans the published image after build with a
   `HIGH,CRITICAL` severity threshold. The workflow fails if vulnerabilities are found.
+- **Code scanning upload** — a non-enforcing post-push Trivy scan uploads SARIF to the
+  GitHub Security tab (category `container`), limited to `HIGH,CRITICAL` and run with
+  the gate's Trivy version. Unfixed findings stay visible on purpose.
 - **Scheduled rescans** — the weekly devcontainer build (Monday 06:00 UTC) picks up new
   CVEs disclosed since the last build, failing the workflow if the base image or
   installed packages have new high-severity vulnerabilities.
