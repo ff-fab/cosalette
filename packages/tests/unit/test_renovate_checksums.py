@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -232,6 +233,62 @@ class TestUpdate:
         """Error Guessing: untrusted Dockerfile data is validated before use."""
         with pytest.raises(rc.VerificationError, match=message):
             rc.update(BASE, head, FakeGh(_opencode_assets()), tmp_path)
+
+
+class TestClaude:
+    """Anthropic manifest and both binary downloads must agree."""
+
+    @pytest.mark.parametrize("tamper", [None, "manifest", "binary", "version"])
+    def test_versioned_downloads(
+        self, rc: ModuleType, monkeypatch: pytest.MonkeyPatch, tamper: str | None
+    ) -> None:
+        """A mismatched manifest or binary fails before any pins are written."""
+        manifest = {
+            "version": "2.1.1" if tamper == "version" else "2.1.2",
+            "platforms": {
+                "linux-x64": {
+                    "checksum": _sha(b"different" if tamper == "manifest" else b"x64")
+                },
+                "linux-arm64": {"checksum": _sha(b"arm64")},
+            },
+        }
+
+        def fetch(url: str, *, timeout: int) -> io.BytesIO:
+            assert timeout == 60
+            if url.endswith("manifest.json"):
+                return io.BytesIO(json.dumps(manifest).encode())
+            if url.endswith("linux-x64/claude"):
+                return io.BytesIO(b"modified" if tamper == "binary" else b"x64")
+            assert url.endswith("linux-arm64/claude")
+            return io.BytesIO(b"arm64")
+
+        monkeypatch.setattr(rc.urllib.request, "urlopen", fetch)
+        if tamper:
+            with pytest.raises(rc.VerificationError):
+                rc.claude_hashes("2.1.2")
+        else:
+            assert rc.claude_hashes("2.1.2") == {
+                "AMD64": _sha(b"x64"),
+                "ARM64": _sha(b"arm64"),
+            }
+
+    def test_update_writes_both_pins(
+        self, rc: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Claude version bump refreshes both ARGs."""
+        base = (
+            "ARG CLAUDE_CODE_VERSION=2.1.1\n"
+            "ARG CLAUDE_CODE_SHA256_AMD64=old\n"
+            "ARG CLAUDE_CODE_SHA256_ARM64=old\n"
+        )
+        head = base.replace("2.1.1", "2.1.2")
+        monkeypatch.setattr(
+            rc, "claude_hashes", lambda _: {"AMD64": "a" * 64, "ARM64": "b" * 64}
+        )
+        result, changed = rc.update(base, head, FakeGh({}), tmp_path)
+        assert f"ARG CLAUDE_CODE_SHA256_AMD64={'a' * 64}" in result
+        assert f"ARG CLAUDE_CODE_SHA256_ARM64={'b' * 64}" in result
+        assert changed == ["CLAUDE_CODE_VERSION=2.1.2"]
 
 
 class TestMain:
