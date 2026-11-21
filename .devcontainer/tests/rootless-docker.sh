@@ -33,7 +33,9 @@ fi
 docker build --quiet --tag "${tag}" - <<EOF
 FROM ${image}
 USER root
-RUN printf 'listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n' > /etc/mosquitto/rootless-smoke.conf
+RUN mkdir -p /etc/mosquitto \
+    && printf 'listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n' \
+        > /etc/mosquitto/rootless-smoke.conf
 RUN echo built > /built
 USER mosquitto
 EOF
