@@ -2,7 +2,7 @@
 # Python 3.14 + uv + common dev tools
 
 # renovate: datasource=docker depName=mcr.microsoft.com/devcontainers/python versioning=docker
-FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:28835c112fd097cb6d2fe1e195b660d66ae051859070a9b871fa2308f35897d3
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:80dc8003934b4b734ae187a979a357a1985bf95e2ea2ec23ae39006679e5882f
 
 # Set shell options for robust RUN commands
 # -e: exit on error
@@ -254,7 +254,7 @@ RUN set -eux; \
 # is macOS-only as of beads v1.0.0.
 # The official image ships the same static binary as the release tarball;
 # Renovate updates its tag and digest together (ADR-090).
-COPY --from=dolthub/dolt:2.4.2@sha256:8a822610f9fffab0e347a9d4a0cce2a53444e7e6fb459a684b6b9fa721dfcbb4 /usr/local/bin/dolt /usr/local/bin/dolt
+COPY --from=dolthub/dolt:2.7.6@sha256:53bbb2a2025e3c5298e08c0caa375aef6db1497aea4295995af4c8daf1431479 /usr/local/bin/dolt /usr/local/bin/dolt
 # Dolt stores this setting per home; configure build-time root and vscode.
 RUN dolt config --global --add versioncheck.disabled true \
     && runuser -u vscode -- env HOME=/home/vscode \
