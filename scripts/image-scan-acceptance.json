@@ -5,7 +5,7 @@
     "debian_pending": {
       "owner": "cos-nxu6",
       "expires": "2026-11-21",
-      "reason": "Temporary acceptance of exact previously reviewed Debian findings still present in the 2026-11-21 amd64 image. Some are real risks when processing untrusted input or using privileged operations; see .devcontainer/security-review-2026-11-21.md and linked prior reviews. Reassess packages and vendor fixes before expiry."
+      "reason": "Temporary acceptance of exact previously baselined Debian findings still present in the 2026-11-21 amd64 image. Some are real risks when processing untrusted input or using privileged operations; current advisory-specific review remains incomplete. See .devcontainer/security-review-2026-11-21.md and linked prior reviews. Reassess packages and vendor fixes before expiry."
     },
     "debian_new": {
       "owner": "cos-nxu6",

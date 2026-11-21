@@ -7,7 +7,9 @@ This is an interim review for `cos-nxu6`. The prior image acceptance groups expi
 the interim; it does not assert that vulnerable code is safe. New or changed
 fingerprints and any secret finding continue to fail the gate. Keep the input and host
 restrictions in this review and replace accepted findings with fixes as soon as
-possible.
+possible. The temporary decision does not complete advisory-specific current review:
+server binary presence, some Kerberos descriptions, Go reachability, host conditions,
+and arm64 image coverage remain unresolved as detailed below.
 
 ## Refreshed scan
 
@@ -299,7 +301,7 @@ image. That branch predates the other package removals here and must be rescanne
 it is updated against the merged image work.
 
 Reassess every remaining fingerprint and existing acceptance using the final scan,
-vendor status, package contents, and reachable use before updating the baseline. Remove
+vendor status, package contents, and reachable use before renewing the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is
 supported. Verify the resulting scan has no unreviewed HIGH/CRITICAL findings and no
 secrets. Keep `cos-nxu6` open for continuing remediation and `cos-dam4` open for
