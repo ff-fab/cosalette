@@ -97,6 +97,9 @@ ARG ROOTLESSKIT_SHA256_ARM64=7a159e79ef3e65e1f2702ab89537bb79de67b433428328b9626
 # Docker official GPG key fingerprint — verify at https://docs.docker.com/engine/install/debian/
 # DL3003: temporary cd confines downloaded packages to a disposable directory;
 # the layer returns to / without changing the image's configured WORKDIR.
+# Refresh the apt layer when reviewing image vulnerabilities. BuildKit otherwise
+# reuses the previous upgrade even when Debian has published security updates.
+ARG APT_SECURITY_REFRESH=2026-11-21
 # hadolint ignore=DL3008,DL3003,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
