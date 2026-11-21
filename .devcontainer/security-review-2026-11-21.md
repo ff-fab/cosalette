@@ -108,6 +108,13 @@ expired baseline continues to block the gate.
 The following evidence comes from the 294-fingerprint scan and Debian's tracker. It
 records exposure and available fixes; it does not add baseline acceptances.
 
+The earlier baseline also contains four BlueZ advisories on each of `libbluetooth3` and
+`libbluetooth-dev`. The scanned package dependency inventory shows no installed reverse
+dependency on the runtime library except its development package. Both are removed from
+the development image; projects needing Bluetooth must install their own adapter
+dependencies. A fresh image build and scan must verify the removal and confirm native
+toolchain checks still pass.
+
 - Git's `CVE-2026-105437`, `CVE-2026-111760`, and `CVE-2026-114466` concern,
   respectively, merge processing of attacker-controlled content, recursive cloning of a
   malicious repository, and fast-import/export behavior. The installed Git is used for
