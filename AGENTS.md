@@ -37,6 +37,13 @@ an input — so never commit it. Keeping it untracked keeps a large regenerated 
 of PR diffs and avoids a second, divergent copy of the issue data. Issue data lives in
 the Dolt DB and travels over the Dolt remote instead.
 
+**Beads history:** Until the fix for
+[upstream issue 7039](https://github.com/gastownhall/beads/issues/7039) is released and
+recovery is verified, do not run `bd compact` or `bd flatten` on clones that adopted
+migration 0062 by pull or bootstrap, or were cloned afterward. These commands can erase
+the history needed to restore missing audit events. See the workflow instructions and
+tracking issue `cos-6n7a`.
+
 ### Closing issues: after merge, not at PR time
 
 You are forbidden from merging, so an issue is still open at the moment its work
