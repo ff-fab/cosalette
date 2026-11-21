@@ -37,7 +37,9 @@ if [ -d ".venv" ]; then
     fi
 fi
 
-uv sync --all-groups --all-extras
+# Atheris currently supports Python 3.14 but not the 3.15 devcontainer.
+# `task security:fuzz` installs it into a separate Python 3.14 environment.
+uv sync --all-groups --no-group fuzz --all-extras
 echo "✅ Python dependencies installed"
 
 # Ensure git is available before git-dependent setup steps.
