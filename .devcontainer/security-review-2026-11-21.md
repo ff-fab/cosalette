@@ -284,15 +284,18 @@ its actual executable and zero secret matches. The findings are `CVE-2026-78661`
 x/net v0.61.0, and `CVE-2026-84445` in gRPC v1.83.1. The latter concerns xDS server
 configuration according to the [Go advisory](https://pkg.go.dev/vuln/GO-2026-6443);
 whether Dolt exposes that path remains unverified. The newer binary removes the other
-previously reported Dolt fingerprints, but these two remain for review. The extracted
-amd64 executable has SHA-256
+previously reported Dolt fingerprints. The extracted amd64 executable has SHA-256
 `b0f849b95e08dde31c94e1d65603c016276ed8206d5ee4cb10ee8e44f9626d0b`. Its retained Go
 function-name table contains HTTP/2 symbols but no x/net HTML parser or gRPC
-`xds.NewGRPCServer` symbols. This supports the relevant entry points being absent,
-subject to inlining and alternate paths; it does not prove either embedded module is
-fixed or establish arm64 status. See the
+`xds.NewGRPCServer` symbols. The arm64 Go function table also lacks those named entry
+points. This supports the relevant entry points being absent, subject to inlining and
+alternate paths; it does not prove either embedded module is fixed. See the
 [HTML advisory](https://pkg.go.dev/vuln/GO-2026-6860) and
 [gRPC advisory](https://github.com/grpc/grpc-go/security/advisories/GHSA-2v4p-qf9q-27wj).
+The arm64 binary has SHA-256
+`eaa6701f87106e0f72a79cf16e65564778d707103368c78d26b767270d324f24`. `govulncheck`
+reports both advisories for both binaries; its module-level fallback for stripped
+binaries does not independently establish that the affected functions are linked.
 
 The beads 1.3.4 image in
 [PR #562 run 44907404500](https://github.com/ff-fab/cosalette/actions/runs/44907404500)
@@ -306,3 +309,14 @@ stale rows and use narrow, owned, expiring entries only when their disposition i
 supported. Verify the resulting scan has no unreviewed HIGH/CRITICAL findings and no
 secrets. Keep `cos-nxu6` open for continuing remediation and `cos-dam4` open for
 host-kernel applicability.
+
+### Dolt 2.7.6 branch update
+
+PR #558 removes the 24 baseline rows for Dolt 2.4.2 after the pinned 2.7.6 binary scan.
+These rows no longer match the installed binary; the old x/net fingerprint is replaced
+by the still-vulnerable v0.61.0 fingerprint described above. The owner approved
+acceptance of only these two exact fingerprints through 23:59 UTC on 2026-11-21, with
+the same expiry as the existing Go group. The full-image scan must still pass on the
+updated branch. The tested amd64 binary also served a temporary loopback SQL server on
+which beads 1.3.1 initialized a database, created an issue, and listed it. This smoke
+check did not exercise remote sync or an existing database migration.
