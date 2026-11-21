@@ -1,7 +1,13 @@
 # Devcontainer image security review — 2026-11-21
 
-This is an interim review for `cos-nxu6`. The image acceptance groups expired on
-2026-11-02. They have not been renewed, and the image scan gate remains failing.
+This is an interim review for `cos-nxu6`. The prior image acceptance groups expired on
+2026-11-02. On 2026-11-21, the project owner approved temporary acceptance of the exact
+280 fingerprints in the TIFF-removal scan below. These entries expire at the end of
+2026-11-21 UTC, less than 24 hours after approval. This accepts the remaining risk for
+the interim; it does not assert that vulnerable code is safe. New or changed
+fingerprints and any secret finding continue to fail the gate. Keep the input and host
+restrictions in this review and replace accepted findings with fixes as soon as
+possible.
 
 ## Refreshed scan
 
@@ -12,9 +18,9 @@ The rootless Docker smoke test passed. Trivy reported 392 distinct HIGH/CRITICAL
 fingerprints (389 HIGH, 3 CRITICAL) and no secret findings. The previous cached-layer
 scan reported 595 fingerprints. Comparing the refreshed inventory with the existing
 exact baseline yields 222 fingerprints absent from that baseline; this comparison does
-not renew any expired entries. The sanitized vulnerability inventory is retained as the
-run's `image-vulnerability-review` artifact for seven days. The scan and this review do
-not establish arm64 status.
+did not renew any expired entries. The sanitized vulnerability inventory is retained as
+the run's `image-vulnerability-review` artifact for seven days. The scan and this review
+do not establish arm64 status.
 
 CI image builds now pass a UTC ISO-week cache key to the apt layer. This refreshes
 package upgrades at least weekly while allowing builds within the same week to reuse the
@@ -28,7 +34,7 @@ smoke test. The new amd64 scan reports 306 fingerprints (303 HIGH and 3 CRITICAL
 including 138 absent from the old baseline. Its sanitized artifact is retained for seven
 days; the exact six-field fingerprints are also preserved in
 [`security-scan-2026-11-21.tsv`](security-scan-2026-11-21.tsv). No acceptance is implied
-by inclusion. All acceptance groups remain expired and the gate fails.
+by inclusion. At that point all acceptance groups remained expired and the gate failed.
 
 The three CRITICAL package fingerprints are `CVE-2026-60002` in `openssh-client` and
 `CVE-2026-6653` in both `libxml2` and `libxml2-dev`. Debian lists the installed Trixie
@@ -69,7 +75,8 @@ inventory narrows those server scenarios for this image, but does not prove all 
 code paths unreachable. In particular,
 [CVE-2026-71199](https://security-tracker.debian.org/tracker/CVE-2026-71199) concerns
 validation of Kerberos authorization data and needs a separate client exposure
-assessment. No Kerberos fingerprint is accepted by this interim review.
+assessment. The exact current runtime fingerprints have only the short temporary
+acceptance described above; server-only attribution does not establish client safety.
 
 The scan also reported Syft's embedded `golang.org/x/net` v0.61.0,
 `github.com/containerd/containerd/v2` v2.4.1, and `github.com/go-jose/go-jose/v4`
@@ -82,7 +89,7 @@ these three findings and four Go standard-library findings from Syft. The scan r
 299 HIGH/CRITICAL fingerprints, no secrets, and 135 fingerprints absent from the old
 baseline. Its normalized inventory is preserved in
 [`security-scan-2026-11-21-syft.tsv`](security-scan-2026-11-21-syft.tsv). The expired
-baseline still blocks the image gate.
+baseline still blocked the image gate at that point.
 
 The scan also reported `golang.org/x/net` v0.59.0 and
 `github.com/containerd/containerd/v2` v2.4.1 in Docker Buildx. The
@@ -106,7 +113,7 @@ Engine `x/net` fingerprints or the three Buildx `x/net` and containerd fingerpri
 the prior scan. It reports 294 HIGH/CRITICAL fingerprints and no secret findings; 131
 fingerprints are absent from the old baseline. Its normalized inventory is recorded in
 [`security-scan-2026-11-21-docker.tsv`](security-scan-2026-11-21-docker.tsv). The
-expired baseline continues to block the gate.
+expired baseline continued to block the gate at that point.
 
 The image build's apt inventory also lists `libtiff-dev`, `libtiff6`, and `libtiffxx6`
 as no longer required after removal of inherited image-processing development packages.
@@ -122,7 +129,8 @@ plus `librsvg2-dev`, which depended on the removed image libraries.
 ## New Debian findings under review
 
 The following evidence comes from the 294-fingerprint scan and Debian's tracker. It
-records exposure and available fixes; it does not add baseline acceptances.
+records exposure and available fixes. The exact current fingerprints have only the short
+temporary acceptance described above.
 
 The earlier baseline also contains four BlueZ advisories on each of `libbluetooth3` and
 `libbluetooth-dev`. The scanned package dependency inventory shows no installed reverse
@@ -274,7 +282,21 @@ its actual executable and zero secret matches. The findings are `CVE-2026-78661`
 x/net v0.61.0, and `CVE-2026-84445` in gRPC v1.83.1. The latter concerns xDS server
 configuration according to the [Go advisory](https://pkg.go.dev/vuln/GO-2026-6443);
 whether Dolt exposes that path remains unverified. The newer binary removes the other
-previously reported Dolt fingerprints, but these two remain for review.
+previously reported Dolt fingerprints, but these two remain for review. The extracted
+amd64 executable has SHA-256
+`b0f849b95e08dde31c94e1d65603c016276ed8206d5ee4cb10ee8e44f9626d0b`. Its retained Go
+function-name table contains HTTP/2 symbols but no x/net HTML parser or gRPC
+`xds.NewGRPCServer` symbols. This supports the relevant entry points being absent,
+subject to inlining and alternate paths; it does not prove either embedded module is
+fixed or establish arm64 status. See the
+[HTML advisory](https://pkg.go.dev/vuln/GO-2026-6860) and
+[gRPC advisory](https://github.com/grpc/grpc-go/security/advisories/GHSA-2v4p-qf9q-27wj).
+
+The beads 1.3.4 image in
+[PR #562 run 44907404500](https://github.com/ff-fab/cosalette/actions/runs/44907404500)
+reports no HIGH/CRITICAL findings for the `bd` executable and no secret matches in the
+image. That branch predates the other package removals here and must be rescanned after
+it is updated against the merged image work.
 
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove

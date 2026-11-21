@@ -4,28 +4,38 @@
   "groups": {
     "debian_pending": {
       "owner": "cos-nxu6",
-      "expires": "2026-11-02",
-      "reason": "Temporary acceptance of exact Debian 13 fingerprints while vendor patches and package removal are tracked. Includes Expat, GnuTLS, libxml2, and newly reviewed curl CVE-2026-12064/CVE-2026-8458. These packages remain installed; exposure is real when tools process attacker-controlled input. No claim of non-exploitability. See .devcontainer/security-review-2026-10-10.md and .devcontainer/security-review-2026-10-27.md; review expires 2026-11-02."
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact previously reviewed Debian findings still present in the 2026-11-21 amd64 image. Some are real risks when processing untrusted input or using privileged operations; see .devcontainer/security-review-2026-11-21.md and linked prior reviews. Reassess packages and vendor fixes before expiry."
+    },
+    "debian_new": {
+      "owner": "cos-nxu6",
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact Git, Expat, SQLite, OpenSSL, libslirp, fzf, rsync, and sudo findings in the 2026-11-21 amd64 scan. Several affect real input or network boundaries; avoid untrusted inputs as described in .devcontainer/security-review-2026-11-21.md. The rsync and sudo attributions appear inconsistent with Debian's fixed-version tables and need scanner recheck. Reassess each fingerprint before expiry."
+    },
+    "kerberos_runtime": {
+      "owner": "cos-nxu6",
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact Kerberos runtime package attributions. KDC and administration server packages are absent from the inventory, but this does not establish every library path unreachable; client authorization-data handling remains a concern. See .devcontainer/security-review-2026-11-21.md; reassess each advisory and Debian status before expiry."
     },
     "kernel_headers": {
       "owner": "cos-nxu6",
-      "expires": "2026-11-02",
-      "reason": "Reviewed header-only attribution: linux-libc-dev owns userspace headers under /usr/include and /usr/lib/linux/uapi, not an executable kernel implementation. Prior exact findings are reviewed in .devcontainer/security-review-2026-10-05.md, .devcontainer/security-review-2026-10-05-renewal.md, .devcontainer/security-review-2026-10-08.md, .devcontainer/security-review-2026-10-10.md, and .devcontainer/security-review-2026-10-12.md. The 60 current fingerprints at 6.12.113-1, including CRITICAL CVE-2026-93221 and CVE-2026-99083, are listed and triaged in .devcontainer/security-review-2026-10-27.md. Host applicability remains open in cos-dam4; this does not claim the host kernel is patched. Expires 2026-11-02."
+      "expires": "2026-11-21",
+      "reason": "Exact 2026-11-21 linux-libc-dev userspace-header attributions. The package does not supply the running kernel; this disposition does not assess host configuration or backports. Host applicability for the 40 advisory IDs is tracked under cos-dam4. See .devcontainer/security-review-2026-11-21.md."
     },
     "libxml2_pending": {
       "owner": "cos-nxu6",
-      "expires": "2026-11-02",
-      "reason": "Re-reviewed 2026-10-05 (cos-yi5p): all 8 advisories remain vulnerable in trixie 2.12.7+dfsg+really2.9.14-2.1+deb13u3 with no fixed trixie version; fixes exist only in forky/sid 2.15.4 (Debian bug 1146744). Debian marks CVE-2026-6653 <no-dsa> (minor) for trixie. libxml2 is inherited by development tools; do not parse untrusted XML in the image. Remove rows when a trixie update ships. Evidence: .devcontainer/security-review-2026-10-05-renewal.md."
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact libxml2 and development-package fingerprints, including CRITICAL CVE-2026-6653. Debian reports the scanned Trixie version vulnerable without a Trixie fix. Do not process untrusted XML; see .devcontainer/security-review-2026-11-21.md and linked prior reviews."
     },
     "openssh_pending": {
       "owner": "cos-nxu6",
-      "expires": "2026-11-02",
-      "reason": "Re-reviewed 2026-10-27: the image ships openssh-client only, not sshd. CVE-2026-106553 and CVE-2026-106555 affect sshd; CVE-2026-106583 affects the client and can permit command injection through an untrusted username. Older CVE-2026-59999/CVE-2026-60000 affect sshd; CVE-2026-60002 is a client use-after-free. Do not use untrusted usernames or connect to untrusted servers; the client findings remain real. Debian has no fixed Trixie package at review time. See .devcontainer/security-review-2026-10-05-renewal.md and .devcontainer/security-review-2026-10-27.md; expires 2026-11-02."
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact OpenSSH client-package fingerprints, including CRITICAL CVE-2026-60002. Client vulnerabilities remain real when connecting to untrusted servers or using untrusted usernames; server-only attribution requires separate executable confirmation. Debian reports no Trixie fix. See .devcontainer/security-review-2026-11-21.md and prior linked reviews."
     },
     "go_binaries": {
       "owner": "cos-nxu6",
-      "expires": "2026-11-02",
-      "reason": "Temporary acceptance of exact standard-library and x/net findings in prebuilt upstream tools while publishers prepare patched releases. Existing CVE-2026-78667, CVE-2026-78669, and CVE-2026-97031 reviews are in .devcontainer/security-review-2026-10-10.md and .devcontainer/security-review-2026-10-12.md. The 11 current CVE-2026-111943 fingerprints are reviewed in .devcontainer/security-review-2026-10-27.md; this is a real TLS trust risk where system trust data is stale, not a false positive. Dolt's CVE-2026-63209 is also real and fixed upstream in klauspost/compress 1.18.7, but the latest Dolt release inspected (2.6.1) still embeds 1.18.0. Update each binary as soon as its publisher ships a fixed release; expires 2026-11-02."
+      "expires": "2026-11-21",
+      "reason": "Temporary acceptance of exact findings in the scanned amd64 Go executables. Module versions alone do not establish reachable paths; linked code and TLS or network exposure remain concerns. PRs #558 and #562 fix many Dolt and beads findings and must be merged promptly after validation. See .devcontainer/security-review-2026-11-21.md and linked prior reviews; remove fixed entries and reassess residual findings before expiry."
     }
   }
 }
