@@ -76,6 +76,9 @@ jobs:
       - name: Record runner kernel inventory
         run: bash scripts/host-kernel-inventory.sh
 
+      - name: Set weekly package refresh key
+        run: echo "APT_SECURITY_REFRESH=$(date -u +%G-W%V)" >> "$GITHUB_ENV"
+
       # The build pulls dolthub/dolt (.devcontainer/Dockerfile) from Docker Hub.
       - name: Log in to Docker Hub
         if: env.HAS_DOCKERHUB == 'true'
@@ -161,6 +164,9 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker-container
+
+      - name: Set weekly package refresh key
+        run: echo "APT_SECURITY_REFRESH=$(date -u +%G-W%V)" >> "$GITHUB_ENV"
 
       - name: Build and push devcontainer image
         uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3.1900000450
