@@ -183,7 +183,9 @@ class _TelemetryRegistration:
     interval: IntervalSpec
     is_root: bool = False
     enabled_spec: EnabledSpec = True
-    publish_strategy: _annotation_types.PublishStrategy | None = None
+    # Put None first so Python 3.15's dataclass field inspection does not
+    # resolve the lazy annotation module while probing for KW_ONLY.
+    publish_strategy: None | _annotation_types.PublishStrategy = None
     persist_policy: PersistPolicy | None = None
     init: Callable[..., Any] | None = None
     init_injection_plan: list[tuple[str, type]] | None = None
@@ -195,7 +197,7 @@ class _TelemetryRegistration:
     backoff: BackoffStrategy | None = None
     circuit_breaker: CircuitBreaker | None = None
     timeout: TimeoutSpec | None | _Unset = _UNSET
-    schedule: _annotation_types.CronSchedule | None = None
+    schedule: None | _annotation_types.CronSchedule = None
     schedule_spec: CronSpec | None = None
     # Normalized trigger source; None when the entity is not triggerable.
     triggerable: TriggerSource | None = None
