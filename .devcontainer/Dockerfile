@@ -405,9 +405,18 @@ RUN set -eux; \
       esac; \
       curl -fsSL --retry 3 "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${CLAUDE_ARCH}/claude" -o /tmp/claude; \
       echo "${EXPECTED_SHA}  /tmp/claude" | sha256sum -c -; \
-      install -d -m 0755 -o vscode -g vscode /home/vscode/.local /home/vscode/.local/bin; \
-      install -m 0755 -o vscode -g vscode /tmp/claude /home/vscode/.local/bin/claude; \
+      install -d -m 0755 -o vscode -g vscode /home/vscode/.local \
+        /home/vscode/.local/bin /home/vscode/.local/share \
+        /home/vscode/.local/share/claude /home/vscode/.local/share/claude/versions; \
+      install -m 0755 -o vscode -g vscode /tmp/claude \
+        "/home/vscode/.local/share/claude/versions/${CLAUDE_CODE_VERSION}"; \
       rm -f /tmp/claude; \
+      # Initialise the native launcher as the unprivileged user. The verified
+      # version already exists, so this uses it without a second download.
+      runuser -u vscode -- env HOME=/home/vscode \
+        "/home/vscode/.local/share/claude/versions/${CLAUDE_CODE_VERSION}" \
+        install "${CLAUDE_CODE_VERSION}"; \
+      test -x /home/vscode/.local/bin/claude; \
       ln -sfn /home/vscode/.local/bin/claude /usr/local/bin/claude; \
       runuser -u vscode -- env HOME=/home/vscode claude --version; \
     fi
