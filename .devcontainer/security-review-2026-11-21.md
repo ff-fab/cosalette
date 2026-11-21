@@ -117,8 +117,17 @@ The earlier baseline also contains four BlueZ advisories on each of `libbluetoot
 `libbluetooth-dev`. The scanned package dependency inventory shows no installed reverse
 dependency on the runtime library except its development package. Both are removed from
 the development image; projects needing Bluetooth must install their own adapter
-dependencies. A fresh image build and scan must verify the removal and confirm native
-toolchain checks still pass.
+dependencies. The image in
+[run 44899349833](https://github.com/ff-fab/cosalette/actions/runs/44899349833) passed
+its build and native toolchain checks, and its scan no longer reports the eight BlueZ
+fingerprints. The scan reports 286 HIGH/CRITICAL fingerprints, with 131 absent from the
+expired baseline. The normalized inventory is recorded in
+[`security-scan-2026-11-21-bluez.tsv`](security-scan-2026-11-21-bluez.tsv).
+
+The image also inherited `wget`, flagged for `CVE-2026-58471` and `CVE-2026-58472`. The
+repository has no `wget` invocation, and the scanned Debian package inventory records no
+installed package depending on it. Remove it and verify its absence in the next scan.
+The image retains curl for its build and development workflows.
 
 - Git's `CVE-2026-105437`, `CVE-2026-111760`, and `CVE-2026-114466` concern,
   respectively, merge processing of attacker-controlled content, recursive cloning of a
