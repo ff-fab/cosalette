@@ -110,9 +110,14 @@ expired baseline continues to block the gate.
 
 The image build's apt inventory also lists `libtiff-dev`, `libtiff6`, and `libtiffxx6`
 as no longer required after removal of inherited image-processing development packages.
-The Dockerfile removes them explicitly; a new image build must confirm the resulting
-package removals, native toolchain, and scan before the six TIFF fingerprints can be
-considered resolved.
+The Dockerfile removes them explicitly. The image in
+[run 44906896085](https://github.com/ff-fab/cosalette/actions/runs/44906896085) passed
+its build and native toolchain checks; its scan no longer reports the six TIFF
+fingerprints and reports 280 HIGH/CRITICAL findings and no secrets overall. The exact
+inventory is in
+[`security-scan-2026-11-21-tiff.tsv`](security-scan-2026-11-21-tiff.tsv). The apt
+removal also drops the inherited GDK Pixbuf runtime, development package, and tools,
+plus `librsvg2-dev`, which depended on the removed image libraries.
 
 ## New Debian findings under review
 
@@ -204,6 +209,14 @@ the Debian trackers for
 [Perl](https://security-tracker.debian.org/tracker/CVE-2026-9538), and
 [libacl](https://security-tracker.debian.org/tracker/CVE-2026-54369).
 
+The retained X11 libraries have two additional issues when a client connects to a
+malicious X server:
+[CVE-2026-88806](https://security-tracker.debian.org/tracker/CVE-2026-88806) in libX11
+and [CVE-2026-88807](https://security-tracker.debian.org/tracker/CVE-2026-88807) in
+libXrender. Debian lists the scanned Trixie versions as vulnerable with no planned
+security update. Do not connect image applications to an untrusted X server; the package
+inventory alone does not rule out graphical use.
+
 ## Remaining Go dependency findings
 
 The scan reports `CVE-2026-78661` in `rootlesskit`, `bd`, `dolt`, and `task`. The
@@ -215,6 +228,37 @@ reports `CVE-2026-116587` in `bd`, `dolt`, and `task`. The
 describes CPU exhaustion while parsing attacker-controlled RSA JWKs. Determine each
 binary's use and input sources before treating either finding as unreachable.
 
+For the pinned RootlessKit v3.3.0 amd64 release, the downloaded archive's SHA-256
+matches the Dockerfile pin
+(`0e757c8f80510d764df8c9a5f169805580b48d02329f0a200900e261ecec27ed`). Its unstripped
+`rootlesskit` binary has no `golang.org/x/net/html` symbols in `nm`, including the
+parser functions named in the Go advisory. This supports the parser not being linked,
+but symbol inspection has compiler-inlining limits and does not establish the arm64
+binary's status. It also does not address RootlessKit's separate Go certificate trust
+finding.
+
+The scanned Buildx binary reports `CVE-2026-17106` in `moby/go-archive`, whose
+[advisory](https://github.com/moby/go-archive/security/advisories/GHSA-hfg8-hc9c-6c3h)
+describes archive extraction outside the target directory. Inspection of Docker's amd64
+Buildx 0.39.1-1 Debian package found no symbols from `moby/go-archive` or
+`docker/docker/daemon` in its unstripped executable. This suggests the affected archive
+and daemon functions may not be linked, but it is not a final disposition: match that
+package to the scanned image and account for inlining and arm64. It does not assess
+other Docker executables. The downloaded Debian package's SHA-256 was
+`23ce9f5e567db2c482c4d62d9e3816d6adc27776b1459905ecfef89bbee52008`.
+
+The pinned Task v3.54.0 amd64 archive also matches its Dockerfile SHA-256. Its stripped
+executable contains names for go-jose's JWK JSON unmarshalling and RSA private-key
+parsing, supporting that relevant code is linked. Whether Task passes
+attacker-controlled data to that code is not established; do not dismiss its
+`CVE-2026-116587` finding based on the module list alone. Task can also fetch remote
+Taskfiles, so a malicious configured HTTP/2 endpoint is relevant to its `CVE-2026-78669`
+finding. The separate [HTTP/2 advisory](https://pkg.go.dev/vuln/GO-2026-6611) describes
+CPU exhaustion. The reported Go `CVE-2026-97031` and `CVE-2026-78667` concern
+respectively a TLS server and an HTTP file server; their applicability depends on
+whether each affected executable serves those requests, which has not yet been
+established.
+
 PR #558 proposes Dolt 2.7.6, whose
 [module file](https://github.com/dolthub/dolt/blob/v2.7.6/go/go.mod) upgrades go-jose to
 4.1.6 and `klauspost/compress` to 1.18.7, but still declares `x/net` v0.61.0. PR #562
@@ -224,6 +268,13 @@ versions for its reported go-jose, x/net, Thrift, and gRPC findings. Both releas
 require rebuilt-image scans and functional checks to verify their actual binaries.
 RootlessKit 3.3.0 and Task 3.54.0 were the latest upstream releases found during this
 review; continue checking for patched builds.
+
+An independent scan of the pinned Dolt 2.7.6 image in PR #558 found two HIGH findings in
+its actual executable and zero secret matches. The findings are `CVE-2026-78661` in
+x/net v0.61.0, and `CVE-2026-84445` in gRPC v1.83.1. The latter concerns xDS server
+configuration according to the [Go advisory](https://pkg.go.dev/vuln/GO-2026-6443);
+whether Dolt exposes that path remains unverified. The newer binary removes the other
+previously reported Dolt fingerprints, but these two remain for review.
 
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
