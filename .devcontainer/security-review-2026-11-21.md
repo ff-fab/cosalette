@@ -306,3 +306,12 @@ stale rows and use narrow, owned, expiring entries only when their disposition i
 supported. Verify the resulting scan has no unreviewed HIGH/CRITICAL findings and no
 secrets. Keep `cos-nxu6` open for continuing remediation and `cos-dam4` open for
 host-kernel applicability.
+
+## Beads 1.3.4 update
+
+PR #562 updates the downloaded beads executable from 1.3.1 to 1.3.4. Both Linux archive
+checksums match the upstream release checksums. The downloaded amd64 executable reports
+Go 1.26.10, Thrift 0.24.0, go-jose 4.1.6, x/net 0.62.0, and gRPC 1.83.2 in its build
+metadata. Those versions meet the fixes listed for all ten prior beads fingerprints,
+which have therefore been removed from the exact acceptance baseline. The image scan
+must still verify the installed executable and identify any new or remaining findings.
