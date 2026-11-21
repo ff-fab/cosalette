@@ -12,7 +12,7 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Install uv (fast Python package manager)
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
-COPY --from=ghcr.io/astral-sh/uv:0.13.0@sha256:cdc6093146eb3ff6a40107b38f008b789e050e77ad87865e381d9917da55a168 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /bin/
 
 # The pinned Python base image includes an older GitPython release. Keep the
 # global installation patched for devcontainer utilities that import it.
@@ -42,10 +42,10 @@ RUN pipx uninstall pipenv \
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
-ARG SYFT_VERSION=1.54.0
+ARG SYFT_VERSION=1.55.0
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG SYFT_SHA256_AMD64=54a87372498168b2d033e876fd41fa4e8035b872699e525a57046e1f2f09c860
-ARG SYFT_SHA256_ARM64=ee6d4566373a05b344bc6b5f1706f14419bf9338ba39ff686e247deefe9b8818
+ARG SYFT_SHA256_AMD64=bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+ARG SYFT_SHA256_ARM64=929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
@@ -75,18 +75,18 @@ RUN set -eux; \
 # because Docker does not always publish -1 (e.g. containerd.io 2.4.1-2). Update the
 # trixie/13 in these comments together with the base image's Debian release.
 # renovate: datasource=deb depName=docker-ce extractVersion=^5:(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG DOCKER_VERSION=29.9.0-1
+ARG DOCKER_VERSION=29.9.2-1
 # renovate: datasource=deb depName=containerd.io extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG CONTAINERD_VERSION=2.4.1-2
+ARG CONTAINERD_VERSION=2.4.2-3
 # renovate: datasource=deb depName=docker-buildx-plugin extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG BUILDX_VERSION=0.38.0-1
+ARG BUILDX_VERSION=0.38.1-1
 # RootlessKit is pinned above Docker's bundled binary, which still links vulnerable
 # x/net and x/crypto versions (PR 505 scan). Renovate bumps the version and
 # .github/workflows/renovate-checksums.yml commits both verified checksums (ADR-090).
 # renovate: datasource=github-releases depName=rootless-containers/rootlesskit
-ARG ROOTLESSKIT_VERSION=v3.2.0
-ARG ROOTLESSKIT_SHA256_AMD64=ff612d1d35854a52569acc4a4e9152f41504e69dcc13ff4c94cc9040dc28b3d9
-ARG ROOTLESSKIT_SHA256_ARM64=d68815112d658affe45e1ea00a9016758ba7e92230c1e69f7ee572d053e6f9c0
+ARG ROOTLESSKIT_VERSION=v3.3.0
+ARG ROOTLESSKIT_SHA256_AMD64=0e757c8f80510d764df8c9a5f169805580b48d02329f0a200900e261ecec27ed
+ARG ROOTLESSKIT_SHA256_ARM64=7a159e79ef3e65e1f2702ab89537bb79de67b433428328b9626cf75786dbe43a
 # DL3008 suppressed for general utility packages (jq, fzf, ripgrep).
 # These are intentionally unpinned: they come from Debian's signed repos with
 # built-in integrity checks, security patches arrive via base image updates,
@@ -359,10 +359,10 @@ RUN set -eux; \
 
 # Install opencode (AI coding agent — https://opencode.ai)
 # renovate: datasource=github-releases depName=anomalyco/opencode
-ARG OPENCODE_VERSION=v1.18.34
+ARG OPENCODE_VERSION=v1.19.3
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG OPENCODE_SHA256_AMD64=0f22479647226d1d2dd99595d20082ee7bda3870b62dc6a90b41efc1a71d7e9a
-ARG OPENCODE_SHA256_ARM64=bbdb3f00c2c51e42e315525233151309724226a8776da8e9145e3b0fa3d5310f
+ARG OPENCODE_SHA256_AMD64=13a8fb2978302071b86f9d7e00da9c8895f9cd846978379c3bdc6a5333536c9b
+ARG OPENCODE_SHA256_ARM64=7900818a6a98881edbbadab4b7525940eff3b9750040c200481f9f56cacee405
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
@@ -387,7 +387,7 @@ RUN set -eux; \
 # Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
 # is trusted rather than checksum-pinned.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.290
+ARG CLAUDE_CODE_VERSION=2.1.304
 # Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
 # Default to installing it (local devcontainer builds via VS Code / `devcontainer
 # up` get it out of the box); the CI devcontainer-build workflows set
