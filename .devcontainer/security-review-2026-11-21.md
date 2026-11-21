@@ -48,6 +48,24 @@ dependencies; the newer scan confirms 86 fewer fingerprints than the previous sc
 while the native toolchain checks passed. The remaining Kerberos runtime requires
 advisory-specific review and is not established to be safe by package removal.
 
+The 40 header fingerprints all name `linux-libc-dev 6.12.117-1`. Debian describes that
+exact package as userspace development headers installed under `/usr/include`; it is not
+a running kernel. This explains the image package attribution, but does not assess the
+host kernel, its configuration, or vendor backports. The affected hosts and
+advisory-specific applicability remain open under `cos-dam4`. See
+[Debian's package description and file list](https://packages.debian.org/trixie/linux-libc-dev).
+
+The post-removal inventory contains Kerberos runtime libraries required by curl and
+OpenSSH; it does not list `krb5-kdc` or `krb5-admin-server`. Several of the new
+advisories describe attacks against the KDC or `kadmind`, such as
+[CVE-2026-119079](https://security-tracker.debian.org/tracker/CVE-2026-119079) and
+[CVE-2026-112323](https://security-tracker.debian.org/tracker/CVE-2026-112323). That
+inventory narrows those server scenarios for this image, but does not prove all library
+code paths unreachable. In particular,
+[CVE-2026-71199](https://security-tracker.debian.org/tracker/CVE-2026-71199) concerns
+validation of Kerberos authorization data and needs a separate client exposure
+assessment. No Kerberos fingerprint is accepted by this interim review.
+
 The scan also reported Syft's embedded `golang.org/x/net` v0.61.0,
 `github.com/containerd/containerd/v2` v2.4.1, and `github.com/go-jose/go-jose/v4`
 v4.1.5.
