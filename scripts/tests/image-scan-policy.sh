@@ -118,7 +118,8 @@ if grep -q 'private-match\|private-env' "${scratch}/artifact-output.json"; then
     printf 'Private scanner content leaked into the review artifact\n' >&2
     exit 1
 fi
-grep -q '1 secrets' "${scratch}/artifact-log"
+grep -q 'Trivy secrets: target | severity | rule' "${scratch}/artifact-log"
+grep -q 'Python | HIGH | test-secret' "${scratch}/artifact-log"
 unset -f docker
 
 printf 'Image scan policy tests passed\n'
