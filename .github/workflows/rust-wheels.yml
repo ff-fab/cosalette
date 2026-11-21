@@ -70,9 +70,9 @@ jobs:
             smoke-image: python:3.14-alpine
             smoke-platform: linux/arm64
           - target: x86_64-apple-darwin
-            os: macos-14 # Cross-compile x86_64 on Apple Silicon (macos-13 removed)
+            os: macos-15 # Cross-compile x86_64 on Apple Silicon
           - target: aarch64-apple-darwin
-            os: macos-14 # M1 native runner
+            os: macos-15 # Apple Silicon native runner
             smoke-native: true
           - target: x86_64-pc-windows-msvc
             os: windows-latest
