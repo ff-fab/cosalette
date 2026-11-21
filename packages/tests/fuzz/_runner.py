@@ -8,7 +8,8 @@ the imports under test, defines a crash-oracle target, then delegates to
 Run via ``task security:fuzz`` (per-harness budget and CLI passthrough)
 or directly::
 
-    uv run --group fuzz python packages/tests/fuzz/fuzz_json.py -runs=100000
+    UV_PROJECT_ENVIRONMENT=packages/.venv-fuzz uv run --python 3.14 --group fuzz \
+        python packages/tests/fuzz/fuzz_json.py -runs=100000
 """
 
 from __future__ import annotations
