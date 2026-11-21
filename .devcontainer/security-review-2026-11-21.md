@@ -69,6 +69,13 @@ Trixie repository has package 0.39.1-1 for amd64 and arm64, so the pinned packag
 updated. A rebuilt image scan must verify the released binary; its module file still
 declares other components flagged in the prior scan.
 
+The prior scan also reported `golang.org/x/net` v0.61.0 in Docker Engine's `dockerd` and
+`docker-proxy`. Docker Engine 29.10.0's
+[module file](https://github.com/moby/moby/blob/docker-v29.10.0/go.mod) specifies
+v0.62.0. Its signed Debian Trixie packages for the engine, CLI, and rootless launcher
+are available for amd64 and arm64, so the engine pin is updated. Check the rebuilt
+binaries and rootless startup before concluding the findings are fixed.
+
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is
