@@ -42,10 +42,10 @@ RUN pipx uninstall pipenv \
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
-ARG SYFT_VERSION=1.55.0
+ARG SYFT_VERSION=1.57.2
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG SYFT_SHA256_AMD64=bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
-ARG SYFT_SHA256_ARM64=929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
+ARG SYFT_SHA256_AMD64=ad92bd3ec1b94a3df01d4d0aec199afa9c42b72e86da436ff5f837914d32706b
+ARG SYFT_SHA256_ARM64=8efe605309c98798e1ee0cffdcf1c05ca26819b4cd44c0b03650f1e963e9bdb6
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
@@ -75,11 +75,11 @@ RUN set -eux; \
 # because Docker does not always publish -1 (e.g. containerd.io 2.4.1-2). Update the
 # trixie/13 in these comments together with the base image's Debian release.
 # renovate: datasource=deb depName=docker-ce extractVersion=^5:(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG DOCKER_VERSION=29.9.2-1
+ARG DOCKER_VERSION=29.10.0-1
 # renovate: datasource=deb depName=containerd.io extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
 ARG CONTAINERD_VERSION=2.4.2-3
 # renovate: datasource=deb depName=docker-buildx-plugin extractVersion=^(?<version>.+)~debian\.13~trixie$ registryUrl=https://download.docker.com/linux/debian?suite=trixie&components=stable&binaryArch=amd64
-ARG BUILDX_VERSION=0.38.1-1
+ARG BUILDX_VERSION=0.39.1-1
 # RootlessKit is pinned above Docker's bundled binary, which still links vulnerable
 # x/net and x/crypto versions (PR 505 scan). Renovate bumps the version and
 # .github/workflows/renovate-checksums.yml commits both verified checksums (ADR-090).
@@ -97,6 +97,9 @@ ARG ROOTLESSKIT_SHA256_ARM64=7a159e79ef3e65e1f2702ab89537bb79de67b433428328b9626
 # Docker official GPG key fingerprint — verify at https://docs.docker.com/engine/install/debian/
 # DL3003: temporary cd confines downloaded packages to a disposable directory;
 # the layer returns to / without changing the image's configured WORKDIR.
+# Refresh the apt layer when reviewing image vulnerabilities. BuildKit otherwise
+# reuses the previous upgrade even when Debian has published security updates.
+ARG APT_SECURITY_REFRESH=2026-11-21
 # hadolint ignore=DL3008,DL3003,SC1091
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
@@ -170,6 +173,15 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         libmagickcore-7-headers libmagickwand-7-headers \
         libmagickcore-7-arch-config imagemagick-7-common \
         gir1.2-rsvg-2.0 librsvg2-2 librsvg2-common \
+        libbluetooth-dev libbluetooth3 \
+        libtiff-dev libtiff6 libtiffxx6 \
+    # PostgreSQL and curl development headers pull in Kerberos administration
+    # libraries that this project does not use. Keep the Kerberos runtime
+    # libraries required by curl and OpenSSH.
+    && apt-get -y purge \
+        libpq-dev libpq5 libcurl4-openssl-dev \
+        libkrb5-dev krb5-multidev libgssrpc4t64 \
+        libkadm5clnt-mit12 libkadm5srv-mit12 libkdb5-10t64 \
     # The project and retained Python tools use /usr/local Python 3.14. Removing
     # the separate distro interpreter also removes unused Mercurial and graphic
     # development packages; do not autoremove ICU or native-build dependencies.
