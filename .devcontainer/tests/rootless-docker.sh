@@ -30,10 +30,29 @@ if ! docker info --format '{{json .SecurityOptions}}' | grep -q 'name=rootless';
     exit 1
 fi
 
-printf 'FROM %s\nRUN echo built > /built\n' "${image}" | docker build --quiet --tag "${tag}" -
+docker build --quiet --tag "${tag}" - <<EOF
+FROM ${image}
+USER root
+RUN mkdir -p /etc/mosquitto \
+    && printf 'listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n' \
+        > /etc/mosquitto/rootless-smoke.conf
+RUN echo built > /built
+USER mosquitto
+EOF
 docker run --detach --name "${name}" --publish 127.0.0.1::1883 "${tag}" \
-    mosquitto -c /mosquitto-no-auth.conf >/dev/null
-port="$(docker port "${name}" 1883/tcp | head -1 | cut -d: -f2)"
+    mosquitto -c /etc/mosquitto/rootless-smoke.conf >/dev/null
+port=""
+for _ in $(seq 1 30); do
+    port="$(docker port "${name}" 1883/tcp 2>/dev/null | head -1 | cut -d: -f2 || true)"
+    [ -n "${port}" ] && break
+    sleep 1
+done
+if [ -z "${port}" ]; then
+    echo "no published port for ${name}" >&2
+    docker inspect --format '{{json .NetworkSettings.Ports}}' "${name}" >&2 || true
+    docker logs "${name}" >&2 || true
+    exit 1
+fi
 
 for _ in $(seq 1 30); do
     if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
