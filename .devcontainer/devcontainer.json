@@ -12,7 +12,9 @@
       // Claude Code by default. CI's devcontainer-build workflows set
       // INSTALL_CLAUDE_CODE=false in the runner environment before invoking
       // the devcontainer CLI, since CI never needs the `claude` binary.
-      "INSTALL_CLAUDE_CODE": "${localEnv:INSTALL_CLAUDE_CODE:true}"
+      "INSTALL_CLAUDE_CODE": "${localEnv:INSTALL_CLAUDE_CODE:true}",
+      // CI supplies an ISO week key so cached apt upgrades are refreshed weekly.
+      "APT_SECURITY_REFRESH": "${localEnv:APT_SECURITY_REFRESH:2026-11-21}"
     }
   },
   "workspaceFolder": "/workspace",
