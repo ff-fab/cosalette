@@ -35,7 +35,7 @@ docker run --detach --name "${name}" --publish 127.0.0.1::1883 "${tag}" \
     mosquitto -c /mosquitto-no-auth.conf >/dev/null
 port=""
 for _ in $(seq 1 30); do
-    port="$(docker port "${name}" 1883/tcp 2>/dev/null | head -1 | cut -d: -f2)"
+    port="$(docker port "${name}" 1883/tcp 2>/dev/null | head -1 | cut -d: -f2 || true)"
     [ -n "${port}" ] && break
     sleep 1
 done
