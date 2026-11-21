@@ -381,13 +381,13 @@ RUN set -eux; \
     opencode --version
 
 # Install Claude Code CLI (Anthropic — https://claude.com/claude-code)
-# The installer downloads the CLI binary and verifies it against a SHA-256
-# checksum from Anthropic's release manifest before installing. We pin the CLI
-# version (passed through to the installer) so builds are reproducible; bump via
-# Renovate. The bootstrap script itself is fetched over TLS from claude.ai and
-# is trusted rather than checksum-pinned.
+# Download the versioned native binary and verify it against the pinned digest.
+# Renovate's checksum workflow verifies both architectures against Anthropic's
+# versioned manifest before refreshing these ARGs.
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.325
+ARG CLAUDE_CODE_SHA256_AMD64=0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf
+ARG CLAUDE_CODE_SHA256_ARM64=7b6e484b1989a5a14a4b354709ccc8672518a3ec5b9ccd7981fc6254327fde67
 # Claude Code is a local/interactive dev tool only — CI never invokes `claude`.
 # Default to installing it (local devcontainer builds via VS Code / `devcontainer
 # up` get it out of the box); the CI devcontainer-build workflows set
@@ -397,36 +397,19 @@ ARG CLAUDE_CODE_VERSION=2.1.325
 ARG INSTALL_CLAUDE_CODE=true
 RUN set -eux; \
     if [ "${INSTALL_CLAUDE_CODE}" = "true" ]; then \
-      INSTALLER="/tmp/claude-install.sh"; \
-      curl -fsSL https://claude.ai/install.sh -o "${INSTALLER}"; \
-      # The installer places the binary at "${HOME}/.local/bin/claude". This
-      # layer runs as root, so an unqualified ${HOME} resolves to /root — but
-      # devcontainer.json sets remoteUser=vscode and mode-0700 /root is not
-      # even readable by that user, so the install (and any symlink pointing
-      # at it) is useless at runtime. Override HOME for the installer call so
-      # the binary lands in the vscode user's home, then chown, mirroring the
-      # install-as-root-then-chown pattern used by the Rust layer above.
+      ARCH="$(dpkg --print-architecture)"; \
+      case "${ARCH}" in \
+        amd64) CLAUDE_ARCH=linux-x64; EXPECTED_SHA="${CLAUDE_CODE_SHA256_AMD64}" ;; \
+        arm64) CLAUDE_ARCH=linux-arm64; EXPECTED_SHA="${CLAUDE_CODE_SHA256_ARM64}" ;; \
+        *) echo "Unsupported architecture: ${ARCH}" >&2; exit 1 ;; \
+      esac; \
+      curl -fsSL --retry 3 "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION}/${CLAUDE_ARCH}/claude" -o /tmp/claude; \
+      echo "${EXPECTED_SHA}  /tmp/claude" | sha256sum -c -; \
       install -d -m 0755 -o vscode -g vscode /home/vscode/.local /home/vscode/.local/bin; \
-      HOME=/home/vscode bash "${INSTALLER}" "${CLAUDE_CODE_VERSION}"; \
-      rm -f "${INSTALLER}"; \
-      # The installer also writes outside ~/.local (~/.claude, ~/.claude.json,
-      # ~/.cache/claude/staging). A root-owned ~/.cache makes post-create's
-      # `uv sync` die with "Failed to initialize cache at /home/vscode/.cache/uv"
-      # (cos-l10x), so hand back everything it left root-owned. Chowning only
-      # the strays avoids copying the whole ~/.rustup / ~/.cargo into this layer.
-      find /home/vscode \( ! -user vscode -o ! -group vscode \) \
-        -exec chown -h vscode:vscode {} +; \
-      # The installer only advises adding that dir to PATH via shell rc files
-      # (~/.bashrc etc). Non-interactive Docker RUN layers never source those,
-      # so `claude` is not found in later RUN steps (or in non-login
-      # CI/devcontainer shells). Symlink into /usr/local/bin, already on PATH
-      # everywhere, matching how task/dolt/bd/opencode are installed above.
-      # The explicit test fails the build loudly if the installer ever puts the
-      # binary somewhere else, instead of baking a dangling symlink into the
-      # image (which post-create.sh would then silently skip over).
-      test -x /home/vscode/.local/bin/claude; \
+      install -m 0755 -o vscode -g vscode /tmp/claude /home/vscode/.local/bin/claude; \
+      rm -f /tmp/claude; \
       ln -sfn /home/vscode/.local/bin/claude /usr/local/bin/claude; \
-      claude --version; \
+      runuser -u vscode -- env HOME=/home/vscode claude --version; \
     fi
 
 # Configure uv to use project-local virtual environments

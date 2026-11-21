@@ -8,8 +8,10 @@ place. For every tool in ``TOOLS`` whose ``<PREFIX>_VERSION`` ARG differs from
 BASE_DOCKERFILE (the default branch), the release assets are downloaded with
 ``gh`` and their SHA-256 must agree with the GitHub release asset digest, the
 publisher's checksums file or per-asset ``.sha256`` sidecar (when one exists)
-and the publisher's attestation (when one exists). Any disagreement or failed
-verification exits non-zero without writing anything (ADR-090).
+and the publisher's attestation (when one exists). Claude Code binaries are
+downloaded from Anthropic and checked against its versioned manifest. Any
+disagreement or failed verification exits non-zero without writing anything
+(ADR-090).
 
 Standard library only, so the workflow runs it with the runner's ``python3 -I``.
 """
@@ -22,6 +24,8 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -181,19 +185,51 @@ def release_hashes(
     return hashes
 
 
+def claude_hashes(version: str) -> dict[str, str]:
+    """Verify Anthropic's versioned binary downloads against its manifest."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise VerificationError("CLAUDE_CODE_VERSION must be a three-part version")
+    base = f"https://downloads.claude.ai/claude-code-releases/{version}"
+    with urllib.request.urlopen(f"{base}/manifest.json", timeout=60) as response:
+        manifest = json.load(response)
+    if manifest.get("version") != version:
+        raise VerificationError("Claude manifest version does not match")
+    hashes = {}
+    for arch, platform in {"AMD64": "linux-x64", "ARM64": "linux-arm64"}.items():
+        expected = manifest.get("platforms", {}).get(platform, {}).get("checksum", "")
+        if not isinstance(expected, str) or not SHA256_RE.fullmatch(expected):
+            raise VerificationError(
+                f"Claude manifest lacks a valid {platform} checksum"
+            )
+        digest = hashlib.sha256()
+        with urllib.request.urlopen(
+            f"{base}/{platform}/claude", timeout=60
+        ) as response:
+            for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected:
+            raise VerificationError(f"Claude {platform} binary does not match manifest")
+        hashes[arch] = expected
+    return hashes
+
+
 def update(base: str, head: str, run: Runner, workdir: Path) -> tuple[str, list[str]]:
     """Return ``head`` with refreshed hashes and the list of updated tools."""
     base_args, head_args = parse_args(base), parse_args(head)
     changed = []
-    for prefix, tool in TOOLS.items():
+    for prefix, tool in [*TOOLS.items(), ("CLAUDE_CODE", None)]:
         version = head_args.get(f"{prefix}_VERSION")
         if version is None or version == base_args.get(f"{prefix}_VERSION"):
             continue
         if not VERSION_RE.fullmatch(version):
             raise VerificationError(f"{prefix}_VERSION={version!r} is not a version")
-        tool_dir = workdir / prefix.lower()
-        tool_dir.mkdir()
-        for arch, sha in release_hashes(tool, version, run, tool_dir).items():
+        if tool is None:
+            hashes = claude_hashes(version)
+        else:
+            tool_dir = workdir / prefix.lower()
+            tool_dir.mkdir()
+            hashes = release_hashes(tool, version, run, tool_dir)
+        for arch, sha in hashes.items():
             name = f"{prefix}_SHA256_{arch}"
             if name not in head_args:
                 raise VerificationError(f"ARG {name} is missing")
@@ -212,7 +248,13 @@ def main(argv: list[str]) -> int:
     try:
         with tempfile.TemporaryDirectory() as tmp:
             text, changed = update(base.read_text(), head.read_text(), gh, Path(tmp))
-    except (VerificationError, subprocess.CalledProcessError) as exc:
+    except (
+        VerificationError,
+        subprocess.CalledProcessError,
+        urllib.error.URLError,
+        ValueError,
+        OSError,
+    ) as exc:
         detail = getattr(exc, "stderr", "") or ""
         print(f"verification failed: {exc} {detail}".rstrip(), file=sys.stderr)
         return 1
