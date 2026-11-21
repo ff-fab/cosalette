@@ -61,6 +61,14 @@ baseline. Its normalized inventory is preserved in
 [`security-scan-2026-11-21-syft.tsv`](security-scan-2026-11-21-syft.tsv). The expired
 baseline still blocks the image gate.
 
+The scan also reported `golang.org/x/net` v0.59.0 and
+`github.com/containerd/containerd/v2` v2.4.1 in Docker Buildx. The
+[Buildx v0.39.1 module file](https://github.com/docker/buildx/blob/v0.39.1/go.mod)
+specifies v0.62.0 and v2.4.2, the scan's respective fixed versions. Docker's Debian
+Trixie repository has package 0.39.1-1 for amd64 and arm64, so the pinned package is
+updated. A rebuilt image scan must verify the released binary; its module file still
+declares other components flagged in the prior scan.
+
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is
