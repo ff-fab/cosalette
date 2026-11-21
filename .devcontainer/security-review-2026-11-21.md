@@ -47,6 +47,14 @@ dependencies; the newer scan confirms 86 fewer fingerprints than the previous sc
 while the native toolchain checks passed. The remaining Kerberos runtime requires
 advisory-specific review and is not established to be safe by package removal.
 
+The scan also reported Syft's embedded `golang.org/x/net` v0.61.0,
+`github.com/containerd/containerd/v2` v2.4.1, and `github.com/go-jose/go-jose/v4`
+v4.1.5.
+[Syft v1.57.2's module file](https://github.com/anchore/syft/blob/v1.57.2/go.mod)
+specifies v0.62.0, v2.4.2, and v4.1.6 respectively, matching the scan's fixed versions.
+The Dockerfile updates Syft with upstream release asset digests; a rebuilt-image scan
+must verify the binary and identify any remaining findings before closing this review.
+
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is

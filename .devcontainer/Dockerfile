@@ -42,10 +42,10 @@ RUN pipx uninstall pipenv \
 
 # Install syft (SBOM generator — https://github.com/anchore/syft)
 # renovate: datasource=github-releases depName=anchore/syft extractVersion=^v(?<version>.*)$
-ARG SYFT_VERSION=1.55.0
+ARG SYFT_VERSION=1.57.2
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG SYFT_SHA256_AMD64=bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
-ARG SYFT_SHA256_ARM64=929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304
+ARG SYFT_SHA256_AMD64=ad92bd3ec1b94a3df01d4d0aec199afa9c42b72e86da436ff5f837914d32706b
+ARG SYFT_SHA256_ARM64=8efe605309c98798e1ee0cffdcf1c05ca26819b4cd44c0b03650f1e963e9bdb6
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
