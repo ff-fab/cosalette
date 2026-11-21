@@ -315,8 +315,17 @@ host-kernel applicability.
 PR #558 removes the 24 baseline rows for Dolt 2.4.2 after the pinned 2.7.6 binary scan.
 These rows no longer match the installed binary; the old x/net fingerprint is replaced
 by the still-vulnerable v0.61.0 fingerprint described above. The owner approved
-acceptance of only these two exact fingerprints through 23:59 UTC on 2026-11-21, with
-the same expiry as the existing Go group. The full-image scan must still pass on the
-updated branch. The tested amd64 binary also served a temporary loopback SQL server on
-which beads 1.3.1 initialized a database, created an issue, and listed it. This smoke
-check did not exercise remote sync or an existing database migration.
+acceptance of these two exact fingerprints through 23:59 UTC on 2026-11-21, with the
+same expiry as the existing Go group. The full-image scan must still pass on the updated
+branch. The tested amd64 binary also served a temporary loopback SQL server on which
+beads 1.3.1 initialized a database, created an issue, and listed it. This smoke check
+did not exercise remote sync or an existing database migration.
+
+## Beads 1.3.4 update
+
+PR #562 updates the downloaded beads executable from 1.3.1 to 1.3.4. Both Linux archive
+checksums match the upstream release checksums. The downloaded amd64 executable reports
+Go 1.26.10, Thrift 0.24.0, go-jose 4.1.6, x/net 0.62.0, and gRPC 1.83.2 in its build
+metadata. Those versions meet the fixes listed for all ten prior beads fingerprints,
+which have therefore been removed from the exact acceptance baseline. The image scan
+must still verify the installed executable and identify any new or remaining findings.
