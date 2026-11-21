@@ -232,12 +232,16 @@ debian	HIGH	CVE-2026-99758	linux-libc-dev	6.12.117-1	-	kernel_headers
 debian	HIGH	CVE-2026-99785	linux-libc-dev	6.12.117-1	-	kernel_headers
 debian	HIGH	CVE-2026-99798	linux-libc-dev	6.12.117-1	-	kernel_headers
 usr/bin/rootlessctl	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3	go_binaries
+usr/bin/rootlessctl	HIGH	CVE-2026-97054	stdlib	v1.26.9	1.26.11, 1.27.4	go_binaries
 usr/bin/rootlesskit	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3	go_binaries
 usr/bin/rootlesskit	HIGH	CVE-2026-78661	golang.org/x/net	v0.60.0	0.62.0	go_binaries
+usr/bin/rootlesskit	HIGH	CVE-2026-97054	stdlib	v1.26.9	1.26.11, 1.27.4	go_binaries
 usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3	go_binaries
+usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-97054	stdlib	v1.26.9	1.26.11, 1.27.4	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-17106	github.com/moby/go-archive	v0.2.0	0.3.0	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-41567	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-42306	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
+usr/local/bin/bd	HIGH	CVE-2026-97054	stdlib	v1.26.10	1.26.11, 1.27.4	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-111943	stdlib	v1.26.2	1.26.10, 1.27.3	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-27145	stdlib	v1.26.2	1.25.11, 1.26.4	go_binaries
@@ -262,6 +266,9 @@ usr/local/bin/dolt	HIGH	CVE-2026-78667	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-78669	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-97031	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-97054	stdlib	v1.26.2	1.26.11, 1.27.4	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-97054	stdlib	v1.27.3	1.26.11, 1.27.4	go_binaries
+usr/local/bin/syft	HIGH	CVE-2026-97054	stdlib	v1.27.3	1.26.11, 1.27.4	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-111943	stdlib	v1.27.1	1.26.10, 1.27.3	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-78661	golang.org/x/net	v0.59.0	0.62.0	go_binaries
@@ -269,3 +276,4 @@ usr/local/bin/task	HIGH	CVE-2026-78667	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-78669	golang.org/x/net	v0.59.0	0.60.0	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-78669	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-97031	stdlib	v1.27.1	1.26.9, 1.27.2	go_binaries
+usr/local/bin/task	HIGH	CVE-2026-97054	stdlib	v1.27.1	1.26.11, 1.27.4	go_binaries
