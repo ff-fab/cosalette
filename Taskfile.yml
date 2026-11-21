@@ -404,7 +404,7 @@ tasks:
   build:devcontainer:
     desc: Build the devcontainer Dockerfile locally for image security validation
     cmds:
-      - docker build --build-arg INSTALL_CLAUDE_CODE=false --tag cosalette-devcontainer-pr-validation:latest .devcontainer
+      - docker build --build-arg INSTALL_CLAUDE_CODE=false --build-arg "APT_SECURITY_REFRESH=$(date -u +%G-W%V)" --tag cosalette-devcontainer-pr-validation:latest .devcontainer
 
   test:devcontainer:toolchain:
     desc: Verify package removal and native builds in the rebuilt development image
