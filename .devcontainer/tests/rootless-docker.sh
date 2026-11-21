@@ -40,9 +40,10 @@ persistence false
 EOF
 
 printf 'FROM %s\nRUN echo built > /built\n' "${image}" | docker build --quiet --tag "${tag}" -
-docker run --detach --name "${name}" --publish 127.0.0.1::1883 \
-    --volume "${config_dir}/mosquitto.conf:/tmp/mosquitto.conf:ro" "${tag}" \
+docker create --name "${name}" --publish 127.0.0.1::1883 "${tag}" \
     mosquitto -c /tmp/mosquitto.conf >/dev/null
+docker cp "${config_dir}/mosquitto.conf" "${name}:/tmp/mosquitto.conf" >/dev/null
+docker start "${name}" >/dev/null
 port=""
 for _ in $(seq 1 30); do
     port="$(docker port "${name}" 1883/tcp 2>/dev/null | head -1 | cut -d: -f2 || true)"
