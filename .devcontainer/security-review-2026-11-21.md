@@ -16,6 +16,11 @@ not renew any expired entries. The sanitized vulnerability inventory is retained
 run's `image-vulnerability-review` artifact for seven days. The scan and this review do
 not establish arm64 status.
 
+CI image builds now pass a UTC ISO-week cache key to the apt layer. This refreshes
+package upgrades at least weekly while allowing builds within the same week to reuse the
+layer. The local `task build:devcontainer` uses the same key; interactive builds can
+override `APT_SECURITY_REFRESH` when they need a fresh package upgrade.
+
 After removing unused development libraries, PR #571
 [validation run 44895017071](https://github.com/ff-fab/cosalette/actions/runs/44895017071)
 passed the image build, native C and Rust toolchain checks, and the rootless Docker
