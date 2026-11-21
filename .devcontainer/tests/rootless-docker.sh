@@ -31,8 +31,8 @@ if ! docker info --format '{{json .SecurityOptions}}' | grep -q 'name=rootless';
 fi
 
 printf 'FROM %s\nRUN echo built > /built\n' "${image}" | docker build --quiet --tag "${tag}" -
-docker run --detach --name "${name}" --publish 127.0.0.1::1883 "${tag}" \
-    sh -ec 'printf "listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n" > /tmp/mosquitto.conf
+docker run --detach --name "${name}" --publish 127.0.0.1::1883 \
+    --entrypoint /bin/sh "${tag}" -ec 'printf "listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n" > /tmp/mosquitto.conf
     exec mosquitto -c /tmp/mosquitto.conf' >/dev/null
 port=""
 for _ in $(seq 1 30); do
