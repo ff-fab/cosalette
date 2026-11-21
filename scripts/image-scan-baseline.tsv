@@ -242,31 +242,8 @@ usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-17106	github.com/moby
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-41567	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
 usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-42306	github.com/docker/docker	v28.5.2+incompatible	-	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-97054	stdlib	v1.26.10	1.26.11, 1.27.4	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-111943	stdlib	v1.26.2	1.26.10, 1.27.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-27145	stdlib	v1.26.2	1.25.11, 1.26.4	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-33811	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-33814	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-33818	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-39820	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-39821	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-39822	stdlib	v1.26.2	1.25.12, 1.26.5, 1.27.0-rc.2	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-39836	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-42499	stdlib	v1.26.2	1.25.10, 1.26.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-42504	stdlib	v1.26.2	1.25.11, 1.26.4	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-46600	stdlib	v1.26.2	1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-56853	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-56858	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-56859	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-56860	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-56862	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-63209	github.com/klauspost/compress	v1.18.0	1.18.7	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-78661	golang.org/x/net	v0.58.0	0.62.0	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-78667	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-78669	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-97031	stdlib	v1.26.2	1.26.9, 1.27.2	go_binaries
-usr/local/bin/dolt	HIGH	CVE-2026-97054	stdlib	v1.26.2	1.26.11, 1.27.4	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-78661	golang.org/x/net	v0.61.0	0.62.0	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-84445	google.golang.org/grpc	v1.83.1	1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e	go_binaries
 usr/local/bin/dolt	HIGH	CVE-2026-97054	stdlib	v1.27.3	1.26.11, 1.27.4	go_binaries
 usr/local/bin/syft	HIGH	CVE-2026-97054	stdlib	v1.27.3	1.26.11, 1.27.4	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-111943	stdlib	v1.27.1	1.26.10, 1.27.3	go_binaries
