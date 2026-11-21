@@ -103,6 +103,72 @@ fingerprints are absent from the old baseline. Its normalized inventory is recor
 [`security-scan-2026-11-21-docker.tsv`](security-scan-2026-11-21-docker.tsv). The
 expired baseline continues to block the gate.
 
+## New Debian findings under review
+
+The following evidence comes from the 294-fingerprint scan and Debian's tracker. It
+records exposure and available fixes; it does not add baseline acceptances.
+
+- Git's `CVE-2026-105437`, `CVE-2026-111760`, and `CVE-2026-114466` concern,
+  respectively, merge processing of attacker-controlled content, recursive cloning of a
+  malicious repository, and fast-import/export behavior. The installed Git is used for
+  development, so these are relevant when handling untrusted repositories or streams.
+  Debian lists the Trixie source version as vulnerable; see the
+  [Git tracker](https://security-tracker.debian.org/tracker/source-package/git).
+  `git-man` contains documentation rather than the Git executable, but the Git package
+  itself remains installed.
+- Expat's `CVE-2026-113351`, `CVE-2026-115506`, `CVE-2026-117610`, and `CVE-2026-118370`
+  affect XML parsing, including denial of service and, for oversized inputs, memory
+  corruption. Debian lists the scanned Trixie security version as vulnerable; see the
+  [Expat tracker](https://security-tracker.debian.org/tracker/source-package/expat).
+  Avoid untrusted XML where an installed tool uses this library.
+- SQLite's `CVE-2026-119373`, `CVE-2026-119374`, and `CVE-2026-119379` concern FTS5
+  queries, deletion from a malformed FTS5 index, and crafted changesets. Debian lists
+  the scanned version as vulnerable. Do not process untrusted SQLite databases or
+  changesets until the package is updated. See
+  [119373](https://security-tracker.debian.org/tracker/CVE-2026-119373),
+  [119374](https://security-tracker.debian.org/tracker/CVE-2026-119374), and
+  [119379](https://security-tracker.debian.org/tracker/CVE-2026-119379).
+- `CVE-2026-120830` is an information leak in libslirp's processing of malformed network
+  packets. The image uses slirp for rootless Docker, so the network boundary matters; do
+  not treat this as unreachable without a host and container exposure assessment. Debian
+  lists the scanned version as vulnerable; see the
+  [tracker](https://security-tracker.debian.org/tracker/CVE-2026-120830).
+- `CVE-2026-121716` concerns attacker-controlled options to `fzf-tmux`; avoid passing
+  untrusted arguments. Debian lists Trixie as vulnerable; see the
+  [tracker](https://security-tracker.debian.org/tracker/CVE-2026-121716).
+  `CVE-2026-124709` concerns a QUIC server under repeated stream resets. Debian's listed
+  fixed-version data does not establish a fix for the scanned OpenSSL version; its
+  exposure requires application-specific review. See the
+  [tracker](https://security-tracker.debian.org/tracker/CVE-2026-124709).
+- Trivy reports `CVE-2026-119741` on `rsync 3.5.0+ds1-0+deb13u2` and `CVE-2026-96512` on
+  `sudo 1.9.16p2-3+deb13u5` without fixed versions. Debian's fixed-version tables
+  identify those exact Trixie versions as fixed. These two scanner fingerprints
+  therefore appear to be stale attribution and should be rechecked against the scanner
+  database before any narrow exception. See the
+  [rsync tracker](https://security-tracker.debian.org/tracker/CVE-2026-119741) and
+  [sudo tracker](https://security-tracker.debian.org/tracker/CVE-2026-96512).
+
+## Remaining Go dependency findings
+
+The scan reports `CVE-2026-78661` in `rootlesskit`, `bd`, `dolt`, and `task`. The
+[Go advisory](https://pkg.go.dev/vuln/GO-2026-6860) describes excessive work when
+parsing crafted HTML with `golang.org/x/net/html`; the affected module version alone
+does not establish that each binary reaches the parser with untrusted input. It also
+reports `CVE-2026-116587` in `bd`, `dolt`, and `task`. The
+[go-jose advisory](https://github.com/go-jose/go-jose/security/advisories/GHSA-mgcc-cww5-fp2q)
+describes CPU exhaustion while parsing attacker-controlled RSA JWKs. Determine each
+binary's use and input sources before treating either finding as unreachable.
+
+PR #558 proposes Dolt 2.7.6, whose
+[module file](https://github.com/dolthub/dolt/blob/v2.7.6/go/go.mod) upgrades go-jose to
+4.1.6 and `klauspost/compress` to 1.18.7, but still declares `x/net` v0.61.0. PR #562
+proposes beads 1.3.4, whose
+[module file](https://github.com/gastownhall/beads/blob/v1.3.4/go.mod) declares fixed
+versions for its reported go-jose, x/net, Thrift, and gRPC findings. Both releases
+require rebuilt-image scans and functional checks to verify their actual binaries.
+RootlessKit 3.3.0 and Task 3.54.0 were the latest upstream releases found during this
+review; continue checking for patched builds.
+
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is
