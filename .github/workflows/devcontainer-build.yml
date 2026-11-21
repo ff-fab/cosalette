@@ -208,10 +208,26 @@ jobs:
         # the image into the local daemon; this step publishes it to the registry.
         run: docker push ${{ env.DEVCONTAINER_IMAGE }}:latest
 
+      - name: Resolve gate Trivy version
+        # Single source of truth: reuse the Renovate-managed Trivy pin of the
+        # security:docker:scan gate so the SARIF scan matches the enforced scan.
+        id: trivy-version
+        if: always()
+        run: |
+          version="$(sed -n 's|.*ghcr\.io/aquasecurity/trivy:\([0-9][0-9.]*\)@.*|\1|p' scripts/qa-task.sh | head -n1)"
+          if [ -z "${version}" ]; then
+            echo "Trivy version not found in scripts/qa-task.sh" >&2
+            exit 1
+          fi
+          echo "version=v${version}" >> "$GITHUB_OUTPUT"
+
       - name: Upload Trivy SARIF to GitHub Security
         # Non-enforcing post-push scan: generates SARIF for GitHub Security tab.
         # Runs even if the pre-push scan failed (if: always()) so the Security tab
         # always reflects the current image state.
+        # limit-severities-for-sarif applies the HIGH,CRITICAL policy to SARIF;
+        # trivy-action otherwise ignores severity for SARIF output. ignore-unfixed
+        # is deliberately not set: unfixed criticals must stay visible.
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -219,6 +235,8 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'HIGH,CRITICAL'
+          limit-severities-for-sarif: true
+          version: ${{ steps.trivy-version.outputs.version }}
           exit-code: '0'
 
       - name: Upload SARIF to GitHub Security tab
