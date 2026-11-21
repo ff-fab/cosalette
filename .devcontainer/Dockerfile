@@ -173,7 +173,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
         libmagickcore-7-headers libmagickwand-7-headers \
         libmagickcore-7-arch-config imagemagick-7-common \
         gir1.2-rsvg-2.0 librsvg2-2 librsvg2-common \
-        libbluetooth-dev libbluetooth3 wget \
+        libbluetooth-dev libbluetooth3 \
     # PostgreSQL and curl development headers pull in Kerberos administration
     # libraries that this project does not use. Keep the Kerberos runtime
     # libraries required by curl and OpenSSH.

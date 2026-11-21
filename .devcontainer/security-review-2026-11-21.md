@@ -124,10 +124,13 @@ fingerprints. The scan reports 286 HIGH/CRITICAL fingerprints, with 131 absent f
 expired baseline. The normalized inventory is recorded in
 [`security-scan-2026-11-21-bluez.tsv`](security-scan-2026-11-21-bluez.tsv).
 
-The image also inherited `wget`, flagged for `CVE-2026-58471` and `CVE-2026-58472`. The
-repository has no `wget` invocation, and the scanned Debian package inventory records no
-installed package depending on it. Remove it and verify its absence in the next scan.
-The image retains curl for its build and development workflows.
+The image contains `wget`, flagged for `CVE-2026-58471` and `CVE-2026-58472`. Although
+the Dockerfile can purge the inherited package, the GitHub CLI devcontainer feature
+installs it again afterward. The scan in
+[run 44900275103](https://github.com/ff-fab/cosalette/actions/runs/44900275103) still
+reports both findings and 286 HIGH/CRITICAL fingerprints overall. Removing the package
+requires a change to that feature installation or a later image layer; it is not
+resolved by purging it in the Dockerfile.
 
 - Git's `CVE-2026-105437`, `CVE-2026-111760`, and `CVE-2026-114466` concern,
   respectively, merge processing of attacker-controlled content, recursive cloning of a
