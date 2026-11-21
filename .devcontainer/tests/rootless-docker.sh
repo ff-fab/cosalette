@@ -32,7 +32,13 @@ fi
 
 printf 'FROM %s\nRUN echo built > /built\n' "${image}" | docker build --quiet --tag "${tag}" -
 docker run --detach --name "${name}" --publish 127.0.0.1::1883 \
-    --entrypoint /bin/sh "${tag}" -ec 'printf "listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n" > /tmp/mosquitto.conf
+    --user 0 --entrypoint /bin/sh "${tag}" -ec 'cat > /tmp/mosquitto.conf <<EOF
+listener 1883
+protocol mqtt
+allow_anonymous true
+user mosquitto
+persistence false
+EOF
     exec mosquitto -c /tmp/mosquitto.conf' >/dev/null
 port=""
 for _ in $(seq 1 30); do
