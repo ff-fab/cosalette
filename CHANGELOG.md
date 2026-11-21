@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.2](https://github.com/ff-fab/cosalette/compare/v0.12.1...v0.12.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **deps:** resolve dependency security advisories ([#569](https://github.com/ff-fab/cosalette/issues/569)) ([a5fac91](https://github.com/ff-fab/cosalette/commit/a5fac9161af14b7d00ee54cf684140ffbd4d06a5))
+* **deps:** update rust crate pyo3 to 0.30 ([#566](https://github.com/ff-fab/cosalette/issues/566)) ([a463811](https://github.com/ff-fab/cosalette/commit/a46381114550fcda3457a9019d3fd3b83e1bb08c))
+* **security:** refresh devcontainer and repair validation ([#571](https://github.com/ff-fab/cosalette/issues/571)) ([18ef4f9](https://github.com/ff-fab/cosalette/commit/18ef4f9b7bcf26c58c07224358505f609720b884))
+
 ## [0.12.1](https://github.com/ff-fab/cosalette/compare/v0.12.0...v0.12.1) (2026-10-13)
 
 
