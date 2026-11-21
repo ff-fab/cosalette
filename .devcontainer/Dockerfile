@@ -12,13 +12,13 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Install uv (fast Python package manager)
 # renovate: datasource=docker depName=ghcr.io/astral-sh/uv
-COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /uvx /bin/
 
 # The pinned Python base image includes an older GitPython release. Keep the
 # global installation patched for devcontainer utilities that import it.
 RUN uv pip install --system --no-cache \
       'GitPython==3.2.1' \
-      'setuptools>=78.1.1' \
+      'setuptools>=84.1.0' \
       'urllib3>=2.8.0' \
       'msgpack>=1.2.1'
 
