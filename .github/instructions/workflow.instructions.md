@@ -50,6 +50,16 @@ untracked** export — generated output, never an input; use it for
 inspection/diffing only. Keeping it untracked keeps a large regenerated file out
 of PR diffs and avoids a second, divergent copy of the issue data.
 
+**Migration and history safety:** The project store has applied migration 0062,
+which makes `events` local to each clone. Clones that adopted it through pull or
+bootstrap, or were cloned afterward, can lack older audit events. With beads
+1.3.4, do not run `bd compact` or `bd flatten` on those clones: they can erase
+the Dolt history needed for recovery. The [upstream issue](https://github.com/gastownhall/beads/issues/7039)
+describes recovery; the [1.3.4 upgrade notes](https://github.com/gastownhall/beads/blob/v1.3.4/CHANGELOG.md#134---2026-11-04)
+say the fix is not yet included. Issue `cos-6n7a` tracks checking the fix and
+recovery. It also tracks assessing the separate [migration 0059 blocked-state issue](https://github.com/gastownhall/beads/issues/7037)
+and upstream's recommendation to run `bd recompute-blocked` on affected stores.
+
 **Where the ref lives:** on the **remote only**. `git ls-remote origin
 'refs/dolt/*'` lists `refs/dolt/data`; a local `git for-each-ref refs/dolt` is
 **empty by design** — bd drives that ref out-of-band and the fetch refspec does not
