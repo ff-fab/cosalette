@@ -7,6 +7,19 @@ cd /workspace
 # VS Code may inject a Docker credential helper whose IPC bridge is broken.
 bash .devcontainer/clean-docker-credential-helpers.sh
 
+# Codex home: the OpenAI Codex extension sets CODEX_HOME=~/.codex, and its
+# app-server exits when that path is missing. devcontainer.json mounts a named
+# volume there so the login survives rebuilds. Docker creates a new volume as
+# root, so repair ownership and permissions on every start (idempotent).
+codex_home="${HOME}/.codex"
+codex_owner="$(id -u):$(id -g)"
+if [ ! -d "$codex_home" ] ||
+    [ "$(stat -c "%u:%g" "$codex_home")" != "$codex_owner" ]; then
+    sudo mkdir -p "$codex_home"
+    sudo chown "$codex_owner" "$codex_home"
+fi
+chmod 700 "$codex_home"
+
 # Prepare a private runtime directory using the remapped developer UID/GID.
 # The daemon itself runs as this user, without privileged mode.
 # Runs only when the rootless tooling is installed and the daemon is not
