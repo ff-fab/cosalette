@@ -36,9 +36,10 @@ untrusted XML while these components remain vulnerable. See the Debian trackers 
 
 ## Remaining work
 
-The latest 138 changed or new fingerprints include 40 Linux header attributions and 56
-Kerberos package attributions across 14 advisory IDs. Header attribution does not
-evaluate the host kernel; `cos-dam4` tracks that separate question. Debian's
+The 138 changed or new fingerprints in the post-removal scan include 40 Linux header
+attributions and 56 Kerberos package attributions across 14 advisory IDs. Header
+attribution does not evaluate the host kernel; `cos-dam4` tracks that separate question.
+Debian's
 [Kerberos tracker](https://security-tracker.debian.org/tracker/source-package/krb5)
 lists the 14 advisories as open for Trixie. The image inventory shows curl and OpenSSH
 require the Kerberos runtime. PostgreSQL and curl development packages pull in
@@ -52,8 +53,13 @@ The scan also reported Syft's embedded `golang.org/x/net` v0.61.0,
 v4.1.5.
 [Syft v1.57.2's module file](https://github.com/anchore/syft/blob/v1.57.2/go.mod)
 specifies v0.62.0, v2.4.2, and v4.1.6 respectively, matching the scan's fixed versions.
-The Dockerfile updates Syft with upstream release asset digests; a rebuilt-image scan
-must verify the binary and identify any remaining findings before closing this review.
+The Dockerfile updates Syft with upstream release asset digests. The rebuilt image in
+[run 44895929174](https://github.com/ff-fab/cosalette/actions/runs/44895929174) removed
+these three findings and four Go standard-library findings from Syft. The scan reports
+299 HIGH/CRITICAL fingerprints, no secrets, and 135 fingerprints absent from the old
+baseline. Its normalized inventory is preserved in
+[`security-scan-2026-11-21-syft.tsv`](security-scan-2026-11-21-syft.tsv). The expired
+baseline still blocks the image gate.
 
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
