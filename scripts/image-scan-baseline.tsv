@@ -248,6 +248,8 @@ usr/local/bin/bd	HIGH	CVE-2026-78669	stdlib	v1.26.7	1.26.9, 1.27.2	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-84304	google.golang.org/grpc	v1.83.0	1.83.1	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-84445	google.golang.org/grpc	v1.83.0	1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e	go_binaries
 usr/local/bin/bd	HIGH	CVE-2026-97031	stdlib	v1.26.7	1.26.9, 1.27.2	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-78661	golang.org/x/net	v0.61.0	0.62.0	go_binaries
+usr/local/bin/dolt	HIGH	CVE-2026-84445	google.golang.org/grpc	v1.83.1	1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-111943	stdlib	v1.27.1	1.26.10, 1.27.3	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6	go_binaries
 usr/local/bin/task	HIGH	CVE-2026-78661	golang.org/x/net	v0.59.0	0.62.0	go_binaries
