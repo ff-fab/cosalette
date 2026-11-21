@@ -33,12 +33,12 @@ fi
 docker build --quiet --tag "${tag}" - <<EOF
 FROM ${image}
 USER root
-RUN printf 'listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n' > /tmp/mosquitto.conf
+RUN printf 'listener 1883\nprotocol mqtt\nallow_anonymous true\npersistence false\n' > /etc/mosquitto/rootless-smoke.conf
 RUN echo built > /built
 USER mosquitto
 EOF
 docker run --detach --name "${name}" --publish 127.0.0.1::1883 "${tag}" \
-    mosquitto -c /tmp/mosquitto.conf >/dev/null
+    mosquitto -c /etc/mosquitto/rootless-smoke.conf >/dev/null
 port=""
 for _ in $(seq 1 30); do
     port="$(docker port "${name}" 1883/tcp 2>/dev/null | head -1 | cut -d: -f2 || true)"
