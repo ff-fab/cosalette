@@ -217,8 +217,14 @@ _run_impl() {
 
         security:deps)
             uv export --format requirements-txt \
-                --all-extras --all-groups --no-emit-project \
+                --all-extras --all-groups --no-group fuzz --no-emit-project \
                 | uv run pip-audit -r /dev/stdin \
+                    --strict --progress-spinner off || return
+            # Atheris is installed in the Python 3.14 fuzz environment, so
+            # audit that group under the interpreter that actually runs it.
+            uv export --format requirements-txt --only-group fuzz --python 3.14 \
+                | UV_PROJECT_ENVIRONMENT="${_PKG}/.venv-fuzz" \
+                    uv run --python 3.14 --group fuzz pip-audit -r /dev/stdin \
                     --strict --progress-spinner off
             ;;
 
@@ -231,9 +237,17 @@ _run_impl() {
             # (cosalette): pip-audit --strict fatals on any skipped dependency,
             # so an editable local install (never published to PyPI) can't be
             # passed through directly — it must not appear in the input at all.
-            uv sync --frozen --all-extras --all-groups
+            uv sync --frozen --all-extras --all-groups --no-group fuzz
             uv pip freeze --python "${UV_PROJECT_ENVIRONMENT:-packages/.venv}/bin/python" --exclude-editable \
                 | uv run --no-sync pip-audit -r /dev/stdin \
+                    --strict --progress-spinner off || return
+            # Audit the installed fuzz environment as well as the lock so
+            # the separate interpreter does not conceal environment drift.
+            UV_PROJECT_ENVIRONMENT="${_PKG}/.venv-fuzz" \
+                uv sync --frozen --python 3.14 --group fuzz || return
+            uv pip freeze --python "${_PKG}/.venv-fuzz/bin/python" --exclude-editable \
+                | UV_PROJECT_ENVIRONMENT="${_PKG}/.venv-fuzz" \
+                    uv run --no-sync --python 3.14 pip-audit -r /dev/stdin \
                     --strict --progress-spinner off
             ;;
 
@@ -289,14 +303,15 @@ _run_impl() {
             #   task security:fuzz -- -max_total_time=300 -runs=0
             # Crash artifacts (crash-*, leak-*, timeout-*) are written to the
             # repo root (gitignored) — reproduce with:
-            #   uv run --group fuzz python <harness> crash-<sha1>
+            #   UV_PROJECT_ENVIRONMENT=packages/.venv-fuzz uv run --python 3.14 --group fuzz python <harness> crash-<sha1>
             _fuzz_args=("$@")
             if [ "${#_fuzz_args[@]}" -eq 0 ]; then
                 _fuzz_args=(-max_total_time=45 -timeout=10)
             fi
             for _harness in "${_PKG}"/tests/fuzz/fuzz_*.py; do
                 printf 'security:fuzz: running %s\n' "${_harness}"
-                uv run --group fuzz python "${_harness}" "${_fuzz_args[@]}" \
+                UV_PROJECT_ENVIRONMENT="${_PKG}/.venv-fuzz" \
+                    uv run --python 3.14 --group fuzz python "${_harness}" "${_fuzz_args[@]}" \
                     || return
             done
             ;;
