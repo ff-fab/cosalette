@@ -306,3 +306,14 @@ stale rows and use narrow, owned, expiring entries only when their disposition i
 supported. Verify the resulting scan has no unreviewed HIGH/CRITICAL findings and no
 secrets. Keep `cos-nxu6` open for continuing remediation and `cos-dam4` open for
 host-kernel applicability.
+
+### Dolt 2.7.6 branch update
+
+PR #558 removes the 24 baseline rows for Dolt 2.4.2 after the pinned 2.7.6 binary scan.
+These rows no longer match the installed binary; the old x/net fingerprint is replaced
+by the still-vulnerable v0.61.0 fingerprint described above. No acceptance is recorded
+here for either new fingerprint. The full-image scan must be rerun after updating the
+branch against main, and both residual findings need a disposition before that scan can
+pass the policy gate. The tested amd64 binary also served a temporary loopback SQL
+server on which beads 1.3.1 initialized a database, created an issue, and listed it.
+This smoke check did not exercise remote sync or an existing database migration.
