@@ -1,0 +1,294 @@
+debian	CRITICAL	CVE-2026-60002	openssh-client	1:10.0p1-7+deb13u4	-
+debian	CRITICAL	CVE-2026-6653	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	CRITICAL	CVE-2026-6653	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2013-7445	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2019-19449	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2019-19814	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2021-3847	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2021-3864	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2023-44431	libbluetooth-dev	5.82-1.1	-
+debian	HIGH	CVE-2023-44431	libbluetooth3	5.82-1.1	-
+debian	HIGH	CVE-2024-21803	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2024-21963	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2024-58015	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2025-69720	libncurses-dev	6.5+20250216-2	-
+debian	HIGH	CVE-2025-69720	libncurses6	6.5+20250216-2	-
+debian	HIGH	CVE-2025-69720	libncursesw6	6.5+20250216-2	-
+debian	HIGH	CVE-2025-69720	libtinfo6	6.5+20250216-2	-
+debian	HIGH	CVE-2025-69720	ncurses-base	6.5+20250216-2	-
+debian	HIGH	CVE-2025-69720	ncurses-bin	6.5+20250216-2	-
+debian	HIGH	CVE-2026-0004	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-105437	git	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-105437	git-man	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-106553	openssh-client	1:10.0p1-7+deb13u4	-
+debian	HIGH	CVE-2026-106555	openssh-client	1:10.0p1-7+deb13u4	-
+debian	HIGH	CVE-2026-106583	openssh-client	1:10.0p1-7+deb13u4	-
+debian	HIGH	CVE-2026-107364	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-107364	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-107364	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-107364	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-111760	git	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-111760	git-man	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-112315	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112315	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112315	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112315	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112316	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112316	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112316	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112316	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112317	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112317	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112317	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112317	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112318	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112318	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112318	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112318	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112319	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112319	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112319	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112319	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112320	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112320	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112320	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112320	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112321	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112321	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112321	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112321	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112322	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112322	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112322	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112322	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112323	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112323	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112323	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-112323	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-113351	libexpat1	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-113351	libexpat1-dev	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-114466	git	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-114466	git-man	1:2.47.3-0+deb13u1	-
+debian	HIGH	CVE-2026-115506	libexpat1	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-115506	libexpat1-dev	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-117610	libexpat1	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-117610	libexpat1-dev	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-118370	libexpat1	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-118370	libexpat1-dev	2.9.0-1~deb13u1	-
+debian	HIGH	CVE-2026-118380	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-118380	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-118380	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-118380	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-119079	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-119079	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-119079	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-119079	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-119373	libsqlite3-0	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119373	libsqlite3-dev	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119374	libsqlite3-0	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119374	libsqlite3-dev	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119379	libsqlite3-0	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119379	libsqlite3-dev	3.46.1-7+deb13u2	-
+debian	HIGH	CVE-2026-119741	rsync	3.5.0+ds1-0+deb13u2	-
+debian	HIGH	CVE-2026-12064	curl	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-12064	libcurl3t64-gnutls	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-12064	libcurl4t64	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-120830	libslirp0	4.8.0-1+deb13u1	-
+debian	HIGH	CVE-2026-121716	fzf	0.60.3-1+b2	-
+debian	HIGH	CVE-2026-124709	libssl-dev	3.5.9-1~deb13u1	-
+debian	HIGH	CVE-2026-124709	libssl3t64	3.5.9-1~deb13u1	-
+debian	HIGH	CVE-2026-124709	openssl	3.5.9-1~deb13u1	-
+debian	HIGH	CVE-2026-124709	openssl-provider-legacy	3.5.9-1~deb13u1	-
+debian	HIGH	CVE-2026-16742	libsystemd0	257.13-1~deb13u1	-
+debian	HIGH	CVE-2026-16742	libudev1	257.13-1~deb13u1	-
+debian	HIGH	CVE-2026-19774	libbluetooth-dev	5.82-1.1	-
+debian	HIGH	CVE-2026-19774	libbluetooth3	5.82-1.1	-
+debian	HIGH	CVE-2026-23102	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-24882	dirmngr	2.4.7-21+deb13u1+b5	-
+debian	HIGH	CVE-2026-24882	gnupg	2.4.7-21+deb13u1	-
+debian	HIGH	CVE-2026-24882	gnupg-l10n	2.4.7-21+deb13u1	-
+debian	HIGH	CVE-2026-24882	gnupg2	2.4.7-21+deb13u1	-
+debian	HIGH	CVE-2026-24882	gpg	2.4.7-21+deb13u1+b5	-
+debian	HIGH	CVE-2026-24882	gpg-agent	2.4.7-21+deb13u1+b5	-
+debian	HIGH	CVE-2026-24882	gpgconf	2.4.7-21+deb13u1+b5	-
+debian	HIGH	CVE-2026-24882	gpgsm	2.4.7-21+deb13u1+b5	-
+debian	HIGH	CVE-2026-31568	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-36849	libtiff-dev	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-36849	libtiff6	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-36849	libtiffxx6	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-46279	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-52490	libtiff-dev	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-52490	libtiff6	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-52490	libtiffxx6	4.7.0-3+deb13u3	-
+debian	HIGH	CVE-2026-54369	libacl1	2.3.2-2+b1	-
+debian	HIGH	CVE-2026-58471	wget	1.25.0-2	-
+debian	HIGH	CVE-2026-58472	wget	1.25.0-2	-
+debian	HIGH	CVE-2026-59999	openssh-client	1:10.0p1-7+deb13u4	-
+debian	HIGH	CVE-2026-60000	openssh-client	1:10.0p1-7+deb13u4	-
+debian	HIGH	CVE-2026-71199	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71199	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71199	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71199	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71200	libgssapi-krb5-2	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71200	libk5crypto3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71200	libkrb5-3	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-71200	libkrb5support0	1.21.3-5+deb13u1	-
+debian	HIGH	CVE-2026-72042	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-74860	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-74860	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-76642	bsdextrautils	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	bsdutils	1:2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libblkid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libblkid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	liblastlog2-2	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libmount-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libmount1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libsmartcols1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	libuuid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	login	1:4.16.0-2+really2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	mount	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	util-linux	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-76642	uuid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	bsdextrautils	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	bsdutils	1:2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libblkid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libblkid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	liblastlog2-2	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libmount-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libmount1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libsmartcols1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	libuuid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	login	1:4.16.0-2+really2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	mount	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	util-linux	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78408	uuid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	bsdextrautils	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	bsdutils	1:2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libblkid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libblkid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	liblastlog2-2	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libmount-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libmount1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libsmartcols1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	libuuid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	login	1:4.16.0-2+really2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	mount	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	util-linux	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78409	uuid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	bsdextrautils	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	bsdutils	1:2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libblkid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libblkid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	liblastlog2-2	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libmount-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libmount1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libsmartcols1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	libuuid1	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	login	1:4.16.0-2+really2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	mount	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	util-linux	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-78410	uuid-dev	2.41.5-0+deb13u1	-
+debian	HIGH	CVE-2026-80186	libbluetooth-dev	5.82-1.1	-
+debian	HIGH	CVE-2026-80186	libbluetooth3	5.82-1.1	-
+debian	HIGH	CVE-2026-8458	curl	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-8458	libcurl3t64-gnutls	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-8458	libcurl4t64	8.14.1-2+deb13u7	-
+debian	HIGH	CVE-2026-85218	libbluetooth-dev	5.82-1.1	-
+debian	HIGH	CVE-2026-85218	libbluetooth3	5.82-1.1	-
+debian	HIGH	CVE-2026-86138	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86138	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86139	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86139	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86140	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86140	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86142	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86142	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86143	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86143	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86144	libxml2	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-86144	libxml2-dev	2.12.7+dfsg+really2.9.14-2.1+deb13u3	-
+debian	HIGH	CVE-2026-88806	libx11-6	2:1.8.12-1	-
+debian	HIGH	CVE-2026-88806	libx11-data	2:1.8.12-1	-
+debian	HIGH	CVE-2026-88806	libx11-dev	2:1.8.12-1	-
+debian	HIGH	CVE-2026-88807	libxrender-dev	1:0.9.12-1	-
+debian	HIGH	CVE-2026-88807	libxrender1	1:0.9.12-1	-
+debian	HIGH	CVE-2026-89675	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-90315	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-9538	libperl5.40	5.40.1-6+deb13u1	-
+debian	HIGH	CVE-2026-9538	perl	5.40.1-6+deb13u1	-
+debian	HIGH	CVE-2026-9538	perl-base	5.40.1-6+deb13u1	-
+debian	HIGH	CVE-2026-9538	perl-modules-5.40	5.40.1-6+deb13u1	-
+debian	HIGH	CVE-2026-96512	sudo	1.9.16p2-3+deb13u5	-
+debian	HIGH	CVE-2026-98118	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-98364	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99272	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99312	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99387	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99568	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99580	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99583	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99590	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99591	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99603	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99634	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99636	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99659	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99661	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99662	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99677	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99679	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99707	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99709	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99748	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99754	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99758	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99785	linux-libc-dev	6.12.117-1	-
+debian	HIGH	CVE-2026-99798	linux-libc-dev	6.12.117-1	-
+usr/bin/rootlessctl	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3
+usr/bin/rootlesskit	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3
+usr/bin/rootlesskit	HIGH	CVE-2026-78661	golang.org/x/net	v0.60.0	0.62.0
+usr/bin/rootlesskit-docker-proxy	HIGH	CVE-2026-111943	stdlib	v1.26.9	1.26.10, 1.27.3
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-17106	github.com/moby/go-archive	v0.2.0	0.3.0
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-41567	github.com/docker/docker	v28.5.2+incompatible	-
+usr/libexec/docker/cli-plugins/docker-buildx	HIGH	CVE-2026-42306	github.com/docker/docker	v28.5.2+incompatible	-
+usr/local/bin/bd	HIGH	CVE-2026-111943	stdlib	v1.26.7	1.26.10, 1.27.3
+usr/local/bin/bd	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6
+usr/local/bin/bd	HIGH	CVE-2026-43871	github.com/apache/thrift	v0.23.0	0.24.0
+usr/local/bin/bd	HIGH	CVE-2026-78661	golang.org/x/net	v0.58.0	0.62.0
+usr/local/bin/bd	HIGH	CVE-2026-78667	stdlib	v1.26.7	1.26.9, 1.27.2
+usr/local/bin/bd	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0
+usr/local/bin/bd	HIGH	CVE-2026-78669	stdlib	v1.26.7	1.26.9, 1.27.2
+usr/local/bin/bd	HIGH	CVE-2026-84304	google.golang.org/grpc	v1.83.0	1.83.1
+usr/local/bin/bd	HIGH	CVE-2026-84445	google.golang.org/grpc	v1.83.0	1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e
+usr/local/bin/bd	HIGH	CVE-2026-97031	stdlib	v1.26.7	1.26.9, 1.27.2
+usr/local/bin/dolt	HIGH	CVE-2026-111943	stdlib	v1.26.2	1.26.10, 1.27.3
+usr/local/bin/dolt	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6
+usr/local/bin/dolt	HIGH	CVE-2026-27145	stdlib	v1.26.2	1.25.11, 1.26.4
+usr/local/bin/dolt	HIGH	CVE-2026-33811	stdlib	v1.26.2	1.25.10, 1.26.3
+usr/local/bin/dolt	HIGH	CVE-2026-33814	stdlib	v1.26.2	1.25.10, 1.26.3
+usr/local/bin/dolt	HIGH	CVE-2026-33818	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-39820	stdlib	v1.26.2	1.25.10, 1.26.3
+usr/local/bin/dolt	HIGH	CVE-2026-39821	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-39822	stdlib	v1.26.2	1.25.12, 1.26.5, 1.27.0-rc.2
+usr/local/bin/dolt	HIGH	CVE-2026-39836	stdlib	v1.26.2	1.25.10, 1.26.3
+usr/local/bin/dolt	HIGH	CVE-2026-42499	stdlib	v1.26.2	1.25.10, 1.26.3
+usr/local/bin/dolt	HIGH	CVE-2026-42504	stdlib	v1.26.2	1.25.11, 1.26.4
+usr/local/bin/dolt	HIGH	CVE-2026-46600	stdlib	v1.26.2	1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-56853	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-56858	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-56859	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-56860	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-56862	stdlib	v1.26.2	1.25.13, 1.26.6, 1.27.0-rc.3
+usr/local/bin/dolt	HIGH	CVE-2026-63209	github.com/klauspost/compress	v1.18.0	1.18.7
+usr/local/bin/dolt	HIGH	CVE-2026-78661	golang.org/x/net	v0.58.0	0.62.0
+usr/local/bin/dolt	HIGH	CVE-2026-78667	stdlib	v1.26.2	1.26.9, 1.27.2
+usr/local/bin/dolt	HIGH	CVE-2026-78669	golang.org/x/net	v0.58.0	0.60.0
+usr/local/bin/dolt	HIGH	CVE-2026-78669	stdlib	v1.26.2	1.26.9, 1.27.2
+usr/local/bin/dolt	HIGH	CVE-2026-97031	stdlib	v1.26.2	1.26.9, 1.27.2
+usr/local/bin/task	HIGH	CVE-2026-111943	stdlib	v1.27.1	1.26.10, 1.27.3
+usr/local/bin/task	HIGH	CVE-2026-116587	github.com/go-jose/go-jose/v4	v4.1.4	4.1.6
+usr/local/bin/task	HIGH	CVE-2026-78661	golang.org/x/net	v0.59.0	0.62.0
+usr/local/bin/task	HIGH	CVE-2026-78667	stdlib	v1.27.1	1.26.9, 1.27.2
+usr/local/bin/task	HIGH	CVE-2026-78669	golang.org/x/net	v0.59.0	0.60.0
+usr/local/bin/task	HIGH	CVE-2026-78669	stdlib	v1.27.1	1.26.9, 1.27.2
+usr/local/bin/task	HIGH	CVE-2026-97031	stdlib	v1.27.1	1.26.9, 1.27.2

@@ -94,6 +94,15 @@ v0.62.0. Its signed Debian Trixie packages for the engine, CLI, and rootless lau
 are available for amd64 and arm64, so the engine pin is updated. Check the rebuilt
 binaries and rootless startup before concluding the findings are fixed.
 
+The amd64 image in
+[run 44898094540](https://github.com/ff-fab/cosalette/actions/runs/44898094540) passed
+its native toolchain and rootless startup checks. Its scan no longer reports the two
+Engine `x/net` fingerprints or the three Buildx `x/net` and containerd fingerprints from
+the prior scan. It reports 294 HIGH/CRITICAL fingerprints and no secret findings; 131
+fingerprints are absent from the old baseline. Its normalized inventory is recorded in
+[`security-scan-2026-11-21-docker.tsv`](security-scan-2026-11-21-docker.tsv). The
+expired baseline continues to block the gate.
+
 Reassess every remaining fingerprint and existing acceptance using the final scan,
 vendor status, package contents, and reachable use before updating the baseline. Remove
 stale rows and use narrow, owned, expiring entries only when their disposition is
