@@ -18,7 +18,7 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.mqtt import MosquittoContainer
 
 # Pinned by tag and digest; renovate.json tracks both (keep on one line).
-MOSQUITTO_IMAGE = "eclipse-mosquitto:2.1.4-alpine@sha256:fa12172a051310efe5bcb7a6a11b77bd5faacb82cbacd7742aa758bf024fd8e4"  # noqa: E501
+MOSQUITTO_IMAGE = "eclipse-mosquitto:2.1.2-alpine@sha256:75d6662dee52c947dc9dd9c29f1d8d7ffef78ddaf38001caa09755681e8bbc98"  # noqa: E501
 
 MOSQUITTO_CONF = b"""\
 listener 1883
