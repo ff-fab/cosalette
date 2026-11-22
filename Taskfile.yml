@@ -430,6 +430,11 @@ tasks:
     cmds:
       - bash scripts/qa-task.sh docs:build
 
+  skills:sync:
+    desc: Link .github/skills into .claude/skills (Claude Code) and .agents/skills (Codex)
+    cmds:
+      - bash scripts/sync-skill-links.sh
+
   adr:create:
     desc: Create or amend an ADR from a validated JSON input file
     cmds:
