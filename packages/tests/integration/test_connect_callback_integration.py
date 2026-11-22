@@ -18,14 +18,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
-from pathlib import Path
-from typing import override
 
 import pytest
-from testcontainers.mqtt import MosquittoContainer
 
 from cosalette._mqtt._client import MqttClient
 from cosalette._settings import MqttSettings
+from tests.integration._mosquitto import MosquittoBroker
 
 pytestmark = [pytest.mark.integration, pytest.mark.mqtt]
 
@@ -40,14 +38,13 @@ class TestConnectCallbackIntegration:
 
     async def test_connect_callback_fires_on_initial_connect(
         self,
-        mosquitto_config_path: Path,
     ) -> None:
         """Callback fires exactly once on the first broker connection."""
         port = _find_free_port()
-        container = _FixedPortMosquitto(host_port=port)
+        container = MosquittoBroker(host_port=port)
 
         try:
-            container.start(configfile=str(mosquitto_config_path))
+            container.start()
             host = container.get_container_host_ip()
 
             test_id = uuid.uuid4().hex
@@ -95,14 +92,13 @@ class TestConnectCallbackIntegration:
 
     async def test_connect_callback_fires_on_reconnect_and_retained_seen(
         self,
-        mosquitto_config_path: Path,
     ) -> None:
         """Callback fires on reconnect; retained 'online' visible to late subscriber."""
         port = _find_free_port()
-        container = _FixedPortMosquitto(host_port=port)
+        container = MosquittoBroker(host_port=port)
 
         try:
-            container.start(configfile=str(mosquitto_config_path))
+            container.start()
             host = container.get_container_host_ip()
 
             test_id = uuid.uuid4().hex
@@ -209,19 +205,6 @@ class TestConnectCallbackIntegration:
 # ---------------------------------------------------------------------------
 # Helpers (local copies — each integration module is self-contained)
 # ---------------------------------------------------------------------------
-
-
-class _FixedPortMosquitto(MosquittoContainer):
-    """MosquittoContainer with a pinned host port for reconnection tests."""
-
-    def __init__(self, host_port: int) -> None:
-        super().__init__()
-        self._host_port = host_port
-
-    @override
-    def _configure(self) -> None:
-        super()._configure()
-        self.with_bind_ports(self.MQTT_PORT, self._host_port)
 
 
 def _find_free_port() -> int:
