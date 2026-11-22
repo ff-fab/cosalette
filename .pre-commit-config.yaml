@@ -84,18 +84,29 @@ repos:
           )$
 
   # Ruff: Lint and format Python
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.5
+  # Local hooks reuse the uv-managed ruff pinned in uv.lock — the same binary
+  # `task lint` / `task ci:lint` run — so the hook and CI cannot drift (the
+  # astral-sh/ruff-pre-commit mirror was bumped by Renovate independently of
+  # uv.lock). Entries mirror the upstream hook definitions (--force-exclude so
+  # pyproject excludes still apply to explicitly passed files).
+  # UV_FROZEN=1: same lock-drift defense as the detect-secrets hook above (cos-e447).
+  - repo: local
     hooks:
       - id: ruff
         name: Ruff (lint Python)
-        args: ['--fix']
+        entry: bash -c 'UV_FROZEN=1 exec uv run ruff check --force-exclude --fix "$@"' --
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
         exclude: '^docs/planning/legacy/'
       - id: ruff-format
         name: Ruff (format Python)
+        entry: bash -c 'UV_FROZEN=1 exec uv run ruff format --force-exclude "$@"' --
+        language: system
         # Adopt Ruff's Markdown formatting for docs while preserving renderer-
         # owned ADR source. ADRs are indexed verbatim by task adr:create.
         types_or: [python, pyi, jupyter, markdown]
+        require_serial: true
         exclude: '^(docs/planning/legacy/|docs/adr/ADR-.*\.md$)'
 
   # ty: Type checking for Python (Astral)

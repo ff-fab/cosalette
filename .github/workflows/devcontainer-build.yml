@@ -25,8 +25,11 @@ on:
       - 'scripts/kernel-advisory-subsystems.tsv'
   push:
     branches: [main]
+    # Include this workflow: a change to the scan/SARIF steps must republish the
+    # Security tab analysis, not wait for the weekly schedule.
     paths:
       - '.devcontainer/**'
+      - '.github/workflows/devcontainer-build.yml'
       - 'scripts/check-image-scan-policy.sh'
       - 'scripts/image-scan-acceptance.json'
       - 'scripts/image-scan-baseline.tsv'
