@@ -7,6 +7,11 @@ cd /workspace
 # VS Code may inject a Docker credential helper whose IPC bridge is broken.
 bash .devcontainer/clean-docker-credential-helpers.sh
 
+# The Codex extension's app-server exits when CODEX_HOME is missing. Codex is
+# optional, so a failure here only warns.
+source .devcontainer/codex-home.sh
+prepare_codex_home || echo "⚠️  Could not prepare Codex home; the Codex extension may fail" >&2
+
 # Prepare a private runtime directory using the remapped developer UID/GID.
 # The daemon itself runs as this user, without privileged mode.
 # Runs only when the rootless tooling is installed and the daemon is not

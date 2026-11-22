@@ -222,6 +222,7 @@ tasks:
     cmds:
       - bash .devcontainer/tests/credential-helpers.sh
       - bash .devcontainer/tests/rootless-runtime.sh
+      - bash .devcontainer/tests/codex-home.sh
 
   test:security:docker:policy:
     desc: Test the devcontainer image scan acceptance gate

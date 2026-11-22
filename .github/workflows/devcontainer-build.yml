@@ -70,6 +70,7 @@ jobs:
         run: |
           bash .devcontainer/tests/credential-helpers.sh
           bash .devcontainer/tests/rootless-runtime.sh
+          bash .devcontainer/tests/codex-home.sh
 
       - name: Test image scan policy
         run: bash scripts/tests/image-scan-policy.sh
@@ -100,6 +101,7 @@ jobs:
           runCmd: |
             bash .devcontainer/tests/security-toolchain.sh
             bash .devcontainer/tests/rootless-docker.sh
+            test "$(stat -c '%u:%g %a' "$HOME/.codex")" = "$(id -u):$(id -g) 700"
 
       # Pulls are done; the following steps run PR scripts on the runner.
       - name: Log out of Docker Hub

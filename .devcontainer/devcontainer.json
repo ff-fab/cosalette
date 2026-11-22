@@ -243,6 +243,14 @@
       "source": "dind-rootless-docker-${devcontainerId}",
       "target": "/home/vscode/.local/share/docker",
       "type": "volume"
+    },
+    // Keep the OpenAI Codex extension's CODEX_HOME (login and config) on a
+    // per-container named volume so it survives rebuilds. post-start.sh fixes
+    // its ownership, since Docker creates new volumes as root.
+    {
+      "source": "codex-home-${devcontainerId}",
+      "target": "/home/vscode/.codex",
+      "type": "volume"
     }
   ]
 }
