@@ -14,6 +14,13 @@ fi
 for target_dir in "${target_dirs[@]}"; do
   mkdir -p "$target_dir"
 
+  # Prune links left behind by removed or renamed skills.
+  for link in "$target_dir"/*; do
+    if [[ -L "$link" && ! -e "$link" && "$(readlink "$link")" == ../../.github/skills/* ]]; then
+      rm "$link"
+    fi
+  done
+
   for skill_dir in "$source_dir"/*/; do
     [[ -f "$skill_dir/SKILL.md" ]] || continue
     skill_name="${skill_dir%/}"

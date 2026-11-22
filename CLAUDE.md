@@ -8,7 +8,7 @@ follow them.
 The canonical skill definitions live in `.github/skills` for GitHub Copilot. Claude Code
 discovers them through `.claude/skills` and Codex through `.agents/skills`: both are
 committed symlinks to the same directories, never copies. After adding a skill, run
-`bash scripts/sync-codex-skills.sh` to create the links; a unit test
+`task skills:sync` to create the links (it also prunes stale ones); a unit test
 (`test_skill_discovery.py`) checks the links and frontmatter. Keep skills host-neutral:
 no `$ARGUMENTS` placeholders, no host-only UI, and a sequential fallback for any step
 that uses subagents. `.github/prompts/*.prompt.md` and `.github/agents/*.agent.md` are

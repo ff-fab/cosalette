@@ -4,7 +4,8 @@ Test Techniques Used:
 - Specification-based: every `.github/skills/<name>` is linked from `.claude/skills`
   and `.agents/skills`, and its frontmatter meets the Agent Skills limits that Claude
   Code and Codex enforce (name ≤ 64 hyphen-case chars matching the directory,
-  single-line description ≤ 1024 chars without angle brackets)
+  description ≤ 1024 chars without angle brackets or newlines once YAML-parsed,
+  so folded `>` blocks are fine)
 - Error Guessing: host-specific constructs (`$ARGUMENTS`, which Codex does not
   substitute) and drift between the mirrored CLAUDE.md / AGENTS.md skills sections
 """
@@ -44,7 +45,7 @@ def test_host_dir_links_every_skill_and_nothing_else(host_dir: str) -> None:
     entries = {p.name: p for p in (ROOT / host_dir).iterdir()}
 
     # Act / Assert
-    assert sorted(entries) == SKILLS, "run scripts/sync-codex-skills.sh"
+    assert sorted(entries) == SKILLS, "run task skills:sync"
     for name, link in entries.items():
         assert link.is_symlink(), f"{link} must be a symlink, not a copy"
         assert str(link.readlink()) == f"../../.github/skills/{name}"
