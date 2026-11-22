@@ -1,8 +1,8 @@
 # CodeQL static analysis — scheduled scan for newly published vulnerability patterns.
 #
-# PR and push gating moved to ci.yml (CodeQL Security Analysis job) so the check
-# name is always present for GitHub rulesets. This workflow handles only the weekly
-# schedule scan against the default branch.
+# PR and push scans run in ci.yml as the per-language "CodeQL Security Analysis"
+# matrix job, which CI Gate (the required check) aggregates. This workflow handles
+# only the weekly schedule scan against the default branch and manual runs.
 #
 # Free for public repositories. Python and GitHub Actions (workflow and
 # composite-action YAML) analysis both use build-mode none — no build step.
@@ -44,8 +44,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          # Use the default query suite (security-extended) for broad coverage.
-          # Includes: security queries + additional quality queries.
+          # security-extended: the default security queries plus lower-severity
+          # and lower-precision security queries, for broader coverage.
           queries: security-extended
 
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
