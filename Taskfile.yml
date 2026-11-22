@@ -495,8 +495,7 @@ tasks:
     desc: Update all dependencies to latest compatible versions
     cmds:
       - uv lock --upgrade
-      # Fuzz dependencies are synced separately by task security:fuzz on Python 3.14.
-      - uv sync --all-groups --no-group fuzz
+      - uv sync --all-groups
 
   # ===========================================================================
   # Code Quality

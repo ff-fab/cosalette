@@ -251,7 +251,8 @@ fuzz = [
     # Coverage-guided fuzzing (task security:fuzz, audit roadmap #6).
     # Prebuilt wheels are Linux (manylinux x86_64) only — kept out of `dev`
     # so default local syncs on other platforms never build atheris from source.
-    "atheris>=3.1.0",
+    # The marker also keeps `uv sync --all-groups` working on arm64 (no sdist).
+    "atheris>=3.1.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 dev = [
     # Testing
