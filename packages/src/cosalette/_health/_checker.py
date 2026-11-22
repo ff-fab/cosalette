@@ -273,13 +273,16 @@ class HealthCheckRunner:
                     source=f"health:{adapter_type.__module__}.{adapter_type.__qualname__}",
                 )
             healthy_since = now
-        elif restart_count > 0 and healthy_since >= 0:
-            if now - healthy_since >= self._sustained_health_reset:
-                restart_count = 0
-                logger.info(
-                    "Adapter %s restart counter reset after sustained health",
-                    adapter_type.__qualname__,
-                )
+        elif (
+            restart_count > 0
+            and healthy_since >= 0
+            and now - healthy_since >= self._sustained_health_reset
+        ):
+            restart_count = 0
+            logger.info(
+                "Adapter %s restart counter reset after sustained health",
+                adapter_type.__qualname__,
+            )
         self.adapter_health_status[adapter_type] = AdapterHealthStatus(
             healthy=True,
             consecutive_failures=0,
