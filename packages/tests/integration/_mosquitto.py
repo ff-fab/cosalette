@@ -63,10 +63,6 @@ class MosquittoBroker(MosquittoContainer):
             raise ValueError(msg)
         self.with_exposed_ports(self.MQTT_PORT)
         self.with_tmpfs_mount("/data")
-        # In the CI devcontainer (rootless Docker, runner kernel 7.0) the
-        # mosquitto binary fails to open its config under the daemon's
-        # builtin seccomp profile, although the file is readable (cos-8nmq).
-        self.with_kwargs(security_opt=["seccomp=unconfined"])
         self.with_copy_into_container(MOSQUITTO_CONF, _CONTAINER_CONFIG_PATH)
         DockerContainer.start(self)
         wait_for_logs(self, r"mosquitto version \d+.\d+.\d+ running", timeout=30)
