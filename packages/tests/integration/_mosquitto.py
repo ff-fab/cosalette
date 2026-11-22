@@ -18,7 +18,9 @@ from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.mqtt import MosquittoContainer
 
 # Pinned by tag and digest; renovate.json tracks both (keep on one line).
-MOSQUITTO_IMAGE = "eclipse-mosquitto:2.1.4-alpine@sha256:fa12172a051310efe5bcb7a6a11b77bd5faacb82cbacd7742aa758bf024fd8e4"  # noqa: E501
+# Held on 2.0.x: 2.1.x cannot open its config on the kernel 7.0 CI runners
+# (cos-8nmq). The 2.0.x images carry no -alpine suffix but are Alpine-based.
+MOSQUITTO_IMAGE = "eclipse-mosquitto:2.0.23@sha256:6a332cc7a8dbe011cbc076180cbb76b37c6f0f55809682ea08e7980ef0112ad9"  # noqa: E501
 
 MOSQUITTO_CONF = b"""\
 listener 1883
