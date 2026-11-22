@@ -53,7 +53,8 @@ jobs:
       # Release-please bot PRs only bump version metadata — CI already ran on
       # main at merge time. Skip all heavy jobs; ci-gate still runs and passes
       # (skipped dependents are not failures) to satisfy the required check.
-      - name: Decide if source checks are needed
+      # Also emits the CodeQL language matrix ([] for release-please PRs).
+      - name: Decide which checks run (src, CodeQL languages)
         id: decide
         env:
           ACTOR: ${{ github.actor }}
@@ -73,8 +74,8 @@ jobs:
           # CodeQL matrix: python whenever source checks run, actions only
           # when workflow or composite-action files changed.
           languages=()
-          [[ "$SRC_CHANGED" == "true" ]] && languages+=('"python"')
-          [[ "$WORKFLOWS_CHANGED" == "true" ]] && languages+=('"actions"')
+          if [[ "$SRC_CHANGED" == "true" ]]; then languages+=('"python"'); fi
+          if [[ "$WORKFLOWS_CHANGED" == "true" ]]; then languages+=('"actions"'); fi
           json="[$(IFS=,; echo "${languages[*]}")]"
           echo "codeql-languages=$json" >> "$GITHUB_OUTPUT"
           echo "CodeQL languages: $json"
@@ -261,12 +262,15 @@ jobs:
     if: always()
     # integration-tests and codeql are cosalette-specific gates that the
     # template's ci-gate does not know about — keep them in needs/results.
-    needs: [lint, unit-tests, integration-tests, complexity, codeql, security]
+    # changes is included so a failed change detection (which skips every
+    # dependent job) fails the gate instead of passing it.
+    needs: [changes, lint, unit-tests, integration-tests, complexity, codeql, security]
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate results
         run: |
           results=(
+            "${{ needs.changes.result }}"
             "${{ needs.lint.result }}"
             "${{ needs.unit-tests.result }}"
             "${{ needs.integration-tests.result }}"
