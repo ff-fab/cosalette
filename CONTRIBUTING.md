@@ -59,7 +59,9 @@ pass a TUN device or disable seccomp and AppArmor for the container, such as roo
 Podman or locked-down hosted environments, are not supported. The inner daemon keeps its
 data on the named volume `dind-rootless-docker-<id>`. The OpenAI Codex extension keeps
 its login and config in `~/.codex` on the named volume `codex-home-<id>`, so they
-survive rebuilds; `post-start.sh` repairs its ownership and sets mode 700.
+survive rebuilds; `post-start.sh` repairs its ownership and sets mode 700. That volume
+holds your Codex login tokens and outlives the container: run `codex logout` or
+`docker volume rm codex-home-<id>` when you discard the container.
 
 #### WSL2: stale Docker Desktop plugin links
 
