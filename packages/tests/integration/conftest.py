@@ -8,61 +8,33 @@ import socket
 import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
 
 import pytest
 from testcontainers.mqtt import MosquittoContainer
 
 from cosalette._mqtt._client import MqttClient
 from cosalette._settings import MqttSettings
-
-_MOSQUITTO_CONF = """\
-listener 1883
-protocol mqtt
-allow_anonymous true
-log_dest stdout
-log_type error
-log_type warning
-log_type notice
-log_type information
-log_timestamp_format %Y-%m-%d %H:%M:%S
-persistence false
-"""
-
-
-@pytest.fixture(scope="session")
-def mosquitto_config_path(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> Path:
-    """Provide a reusable Mosquitto config file.
-
-    Session-scoped so that both module-scoped containers and ad-hoc
-    containers (e.g. reconnection tests) share the same config.
-    """
-    config_path = tmp_path_factory.mktemp("mqtt-config") / "mosquitto.conf"
-    config_path.write_text(_MOSQUITTO_CONF)
-    return config_path
+from tests.integration._mosquitto import MosquittoBroker
 
 
 @pytest.fixture(scope="module")
-def mosquitto_container(
-    mosquitto_config_path: Path,
-) -> Iterator[MosquittoContainer]:
+def mosquitto_container() -> Iterator[MosquittoContainer]:
     """Start a Mosquitto MQTT broker container for the test module.
 
     Module-scoped to avoid per-test container overhead — the broker
     persists for all tests in the module and is torn down afterward.
 
-    Uses a custom config that disables persistence to avoid the default
-    config writing to a non-existent /data/ directory.
+    Uses a custom config (copied into the container, see ``_mosquitto``)
+    that disables persistence to avoid writing to a non-existent /data/
+    directory.
 
     Includes deterministic readiness checking to ensure broker is fully
     operational before yielding to tests.
     """
     container = None
     try:
-        container = MosquittoContainer()
-        container.start(configfile=str(mosquitto_config_path))
+        container = MosquittoBroker()
+        container.start()
         _wait_for_broker_ready(container)
     except Exception as e:
         if container is not None:

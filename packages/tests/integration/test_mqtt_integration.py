@@ -25,16 +25,14 @@ import asyncio
 import contextlib
 import socket
 import uuid
-from pathlib import Path
-from typing import override
 
 import pytest
-from testcontainers.mqtt import MosquittoContainer
 
 from cosalette._health import build_will_config
 from cosalette._mqtt import WillConfig
 from cosalette._mqtt._client import MqttClient
 from cosalette._settings import MqttSettings
+from tests.integration._mosquitto import MosquittoBroker
 
 pytestmark = [pytest.mark.integration, pytest.mark.mqtt]
 
@@ -493,15 +491,15 @@ class TestMqtt5RetainedExpiry:
 class TestReconnection:
     """Verify MqttClient auto-reconnection after broker disruption.
 
-    Uses ``_FixedPortMosquitto`` — a thin subclass that pins the host
-    port via the ``_configure`` hook — so the port survives a Docker
-    ``kill`` + ``start`` cycle.  Each test gets its own container to
-    avoid interfering with the module-scoped shared broker.
+    Uses ``MosquittoBroker(host_port=...)``, which pins the host port via
+    the ``_configure`` hook, so the port survives a Docker ``kill`` +
+    ``start`` cycle.  The broker config lives in the container's own
+    filesystem, so it survives the restart too.  Each test gets its own
+    container to avoid interfering with the module-scoped shared broker.
     """
 
     async def test_client_reconnects_after_broker_restart(
         self,
-        mosquitto_config_path: Path,
     ) -> None:
         """Reconnect — client auto-reconnects when broker returns.
 
@@ -510,10 +508,10 @@ class TestReconnection:
         container, verify the client reconnects within backoff window.
         """
         port = _find_free_port()
-        container = _FixedPortMosquitto(host_port=port)
+        container = MosquittoBroker(host_port=port)
 
         try:
-            container.start(configfile=str(mosquitto_config_path))
+            container.start()
             host = container.get_container_host_ip()
 
             # Use unique client ID with better collision avoidance
@@ -564,7 +562,6 @@ class TestReconnection:
 
     async def test_subscriptions_restored_after_reconnect(
         self,
-        mosquitto_config_path: Path,
     ) -> None:
         """Restore — subscriptions are re-established after reconnect.
 
@@ -573,10 +570,10 @@ class TestReconnection:
         the subscription tracking in MqttClient survives reconnection.
         """
         port = _find_free_port()
-        container = _FixedPortMosquitto(host_port=port)
+        container = MosquittoBroker(host_port=port)
 
         try:
-            container.start(configfile=str(mosquitto_config_path))
+            container.start()
             host = container.get_container_host_ip()
 
             received: list[tuple[str, str]] = []
@@ -661,34 +658,6 @@ class TestReconnection:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-class _FixedPortMosquitto(MosquittoContainer):
-    """MosquittoContainer with a pinned host port.
-
-    The default ``MosquittoContainer.start()`` calls
-    ``with_exposed_ports()`` which sets the host port to *random*.
-    This subclass uses the ``_configure`` hook (called just before
-    ``docker_client.run()``) to override with a fixed port so that
-    the same port survives a Docker kill + start cycle.
-
-    Includes better error handling for port binding failures.
-    """
-
-    def __init__(self, host_port: int) -> None:
-        super().__init__()
-        self._host_port = host_port
-
-    @override
-    def _configure(self) -> None:
-        try:
-            super()._configure()
-            self.with_bind_ports(self.MQTT_PORT, self._host_port)
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to configure Mosquitto container with port {self._host_port}. "
-                f"Port may be in use or Docker may be unavailable: {e}"
-            ) from e
 
 
 def _find_free_port() -> int:
