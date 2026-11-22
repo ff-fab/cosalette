@@ -167,6 +167,8 @@ celerybeat.pid
 .env
 .envrc
 .venv
+# Leftover Python 3.14 fuzz environment from the short-lived 3.15 devcontainer
+packages/.venv-fuzz/
 env/
 venv/
 ENV/

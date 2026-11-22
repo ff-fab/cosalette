@@ -23,11 +23,11 @@
       "automerge": false
     },
     {
-      "description": "The devcontainer Python minor/major version must match pyproject (requires-python, ruff target-version, ty python-version) and is changed deliberately together with it, never by Renovate. Digest refreshes of the pinned tag (security fixes) still flow",
+      "description": "The devcontainer Python minor/major version must match the project target (pyproject requires-python and ruff/ty/pyright versions, pyrightconfig.json, .pre-commit-config.yaml default_language_version) and is changed deliberately together with them. Renovate opens no PR for it: new Python versions only appear on the Dependency Dashboard (so an aging tag stays visible) and need manual approval. Digest refreshes of the pinned tag (security fixes) still flow",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["mcr.microsoft.com/devcontainers/python"],
       "matchUpdateTypes": ["major", "minor"],
-      "enabled": false
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Docker/containerd/buildx are tracked in Docker's apt repository (deb datasource), which publishes no release timestamps; under minimumReleaseAge they would stay pending forever. A package appears there only after the upstream release, and these PRs are reviewed, never automerged",
