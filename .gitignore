@@ -167,7 +167,6 @@ celerybeat.pid
 .env
 .envrc
 .venv
-packages/.venv-fuzz/
 env/
 venv/
 ENV/
