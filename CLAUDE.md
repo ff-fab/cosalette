@@ -3,12 +3,16 @@
 This project's conventions are documented in GitHub Copilot instruction files. Read and
 follow them.
 
-## Codex and Claude Code Skills
+## Skills (Copilot, Claude Code, Codex)
 
-The canonical skill definitions live in `.github/skills` for GitHub Copilot. Codex
-discovers repository skills from `.agents/skills` and Claude Code from `.claude/skills`.
-Run `bash scripts/sync-codex-skills.sh` after adding a skill to create symlinks to those
-same definitions in both directories. The script does not copy or rewrite skill content.
+The canonical skill definitions live in `.github/skills` for GitHub Copilot. Claude Code
+discovers them through `.claude/skills` and Codex through `.agents/skills`: both are
+committed symlinks to the same directories, never copies. After adding a skill, run
+`bash scripts/sync-codex-skills.sh` to create the links; a unit test
+(`test_skill_discovery.py`) checks the links and frontmatter. Keep skills host-neutral:
+no `$ARGUMENTS` placeholders, no host-only UI, and a sequential fallback for any step
+that uses subagents. `.github/prompts/*.prompt.md` and `.github/agents/*.agent.md` are
+Copilot formats; other hosts read the agent files as plain instructions.
 
 ## Instructions
 

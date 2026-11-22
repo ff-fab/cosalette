@@ -3,7 +3,19 @@
 <!-- bd-doctor-divergence: ok -->
 <!-- The divergence between AGENTS.md and CLAUDE.md is deliberate: CLAUDE.md is an
      index into .github/instructions/*, this file is a standalone quick reference for
-     agents that read only AGENTS.md. Do not symlink them together. -->
+     agents that read only AGENTS.md. Do not symlink them together. The Skills
+     section below is mirrored verbatim in CLAUDE.md; keep both copies in sync. -->
+
+## Skills (Copilot, Claude Code, Codex)
+
+The canonical skill definitions live in `.github/skills` for GitHub Copilot. Claude Code
+discovers them through `.claude/skills` and Codex through `.agents/skills`: both are
+committed symlinks to the same directories, never copies. After adding a skill, run
+`bash scripts/sync-codex-skills.sh` to create the links; a unit test
+(`test_skill_discovery.py`) checks the links and frontmatter. Keep skills host-neutral:
+no `$ARGUMENTS` placeholders, no host-only UI, and a sequential fallback for any step
+that uses subagents. `.github/prompts/*.prompt.md` and `.github/agents/*.agent.md` are
+Copilot formats; other hosts read the agent files as plain instructions.
 
 ## Hard Rules
 
