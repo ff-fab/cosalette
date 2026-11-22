@@ -1,40 +1,27 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PR Feedback",
-  "description": "Schema for the JSON output of fetch-pr-feedback.sh. All 'author' fields are plain strings (GitHub login), not objects. The ci_status.state is an aggregate computed from both legacy commit statuses and modern check runs.",
+  "description": "Schema for the JSON output of fetch-pr-feedback.sh. All 'author' fields are plain strings (GitHub login), not objects. The ci_status.state is an aggregate computed from both legacy commit statuses and modern check runs. The script exits non-zero instead of emitting partial data when a GitHub API call fails, so an empty array always means no data.",
   "type": "object",
   "required": ["metadata", "changed_files", "reviews", "review_comments", "conversation_comments", "ci_status"],
   "additionalProperties": false,
   "properties": {
     "metadata": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": ["number", "title", "body", "state", "draft", "mergeable_state", "labels", "author", "created_at", "updated_at", "html_url"],
-          "properties": {
-            "number": { "type": "integer" },
-            "title": { "type": "string" },
-            "body": { "type": ["string", "null"] },
-            "state": { "type": "string", "enum": ["open", "closed"] },
-            "draft": { "type": "boolean" },
-            "mergeable_state": { "type": "string" },
-            "labels": { "type": "array", "items": { "type": "string" } },
-            "author": { "type": "string", "description": "GitHub login (plain string, not a user object)" },
-            "created_at": { "type": "string", "format": "date-time" },
-            "updated_at": { "type": "string", "format": "date-time" },
-            "html_url": { "type": "string", "format": "uri" }
-          }
-        },
-        {
-          "type": "object",
-          "description": "Error response when PR metadata fetch fails",
-          "required": ["error"],
-          "properties": {
-            "error": { "type": "string" }
-          },
-          "additionalProperties": false
-        }
-      ]
+      "type": "object",
+      "required": ["number", "title", "body", "state", "draft", "mergeable_state", "labels", "author", "created_at", "updated_at", "html_url"],
+      "properties": {
+        "number": { "type": "integer" },
+        "title": { "type": "string" },
+        "body": { "type": ["string", "null"] },
+        "state": { "type": "string", "enum": ["open", "closed"] },
+        "draft": { "type": "boolean" },
+        "mergeable_state": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "author": { "type": "string", "description": "GitHub login (plain string, not a user object)" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "html_url": { "type": "string", "format": "uri" }
+      }
     },
     "changed_files": {
       "type": "array",
