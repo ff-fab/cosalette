@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -473,7 +473,7 @@ docs = [
     { name = "zensical" },
 ]
 fuzz = [
-    { name = "atheris" },
+    { name = "atheris", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
 [package.metadata]
@@ -526,7 +526,7 @@ docs = [
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.6" },
     { name = "zensical", specifier = ">=0.0.65" },
 ]
-fuzz = [{ name = "atheris", specifier = ">=3.1.0" }]
+fuzz = [{ name = "atheris", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=3.1.0" }]
 
 [[package]]
 name = "coverage"
