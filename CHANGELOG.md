@@ -1,16 +1,5 @@
 # Changelog
 
-## [0.12.2](https://github.com/ff-fab/cosalette/compare/v0.12.1...v0.12.2) (2026-11-21)
-
-
-### Bug Fixes
-
-* **deps:** resolve dependency security advisories ([#569](https://github.com/ff-fab/cosalette/issues/569)) ([a5fac91](https://github.com/ff-fab/cosalette/commit/a5fac9161af14b7d00ee54cf684140ffbd4d06a5))
-* **deps:** update rust crate pyo3 to 0.30 ([#566](https://github.com/ff-fab/cosalette/issues/566)) ([a463811](https://github.com/ff-fab/cosalette/commit/a46381114550fcda3457a9019d3fd3b83e1bb08c))
-* **devcontainer:** support Python 3.15 ([#564](https://github.com/ff-fab/cosalette/issues/564)) ([837da03](https://github.com/ff-fab/cosalette/commit/837da03e57b4f9403929788c3026cc1c3835fcbf))
-* **security:** refresh devcontainer and repair validation ([#571](https://github.com/ff-fab/cosalette/issues/571)) ([18ef4f9](https://github.com/ff-fab/cosalette/commit/18ef4f9b7bcf26c58c07224358505f609720b884))
-* **security:** update Dolt image to 2.7.6 ([#558](https://github.com/ff-fab/cosalette/issues/558)) ([f203347](https://github.com/ff-fab/cosalette/commit/f20334739362933e440b557acff769e97703f562))
-
 ## [0.12.1](https://github.com/ff-fab/cosalette/compare/v0.12.0...v0.12.1) (2026-10-13)
 
 
