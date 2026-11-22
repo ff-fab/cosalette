@@ -1,15 +1,25 @@
 # Changelog
 
-## [0.12.2](https://github.com/ff-fab/cosalette/compare/v0.12.1...v0.12.2) (2026-11-21)
+## [0.12.2](https://github.com/ff-fab/cosalette/compare/v0.12.1...v0.12.2) (2026-11-22)
 
 
 ### Bug Fixes
 
+* **ci:** limit Trivy SARIF upload to HIGH/CRITICAL ([a0beaa7](https://github.com/ff-fab/cosalette/commit/a0beaa75ded1e88814382d2011a30748b33f557e))
+* **ci:** rebuild devcontainer on push when its workflow changes ([551fffb](https://github.com/ff-fab/cosalette/commit/551fffb360ce8f1385d12a1b213c9ad56211a971))
 * **deps:** resolve dependency security advisories ([#569](https://github.com/ff-fab/cosalette/issues/569)) ([a5fac91](https://github.com/ff-fab/cosalette/commit/a5fac9161af14b7d00ee54cf684140ffbd4d06a5))
 * **deps:** update rust crate pyo3 to 0.30 ([#566](https://github.com/ff-fab/cosalette/issues/566)) ([a463811](https://github.com/ff-fab/cosalette/commit/a46381114550fcda3457a9019d3fd3b83e1bb08c))
+* **devcontainer:** bump uv and setuptools for upstream CVE fixes ([6e63a61](https://github.com/ff-fab/cosalette/commit/6e63a618fb76e3225551c903242ab7d345769010))
+* **devcontainer:** persist and create CODEX_HOME for Codex extension ([44098b0](https://github.com/ff-fab/cosalette/commit/44098b076468be9507f41e25060fb245457af8d5))
+* **devcontainer:** pin Python 3.14 to match the project ([858861f](https://github.com/ff-fab/cosalette/commit/858861f9cbdf5cb362e9d66918ff3afa378ce75b))
 * **devcontainer:** support Python 3.15 ([#564](https://github.com/ff-fab/cosalette/issues/564)) ([837da03](https://github.com/ff-fab/cosalette/commit/837da03e57b4f9403929788c3026cc1c3835fcbf))
+* **lint:** align ruff versions and fix SIM102 ([8bbd904](https://github.com/ff-fab/cosalette/commit/8bbd904f84be197d3b8f21a6b3f0d5adc52ca609))
+* **pr-review:** address review findings ([60bd5eb](https://github.com/ff-fab/cosalette/commit/60bd5ebe59e8f39e78b8b422fc590cb7a1e2fc18))
+* **pr-review:** keep gh stderr out of feedback JSON and fail loudly ([60bd5eb](https://github.com/ff-fab/cosalette/commit/60bd5ebe59e8f39e78b8b422fc590cb7a1e2fc18))
 * **security:** refresh devcontainer and repair validation ([#571](https://github.com/ff-fab/cosalette/issues/571)) ([18ef4f9](https://github.com/ff-fab/cosalette/commit/18ef4f9b7bcf26c58c07224358505f609720b884))
 * **security:** update Dolt image to 2.7.6 ([#558](https://github.com/ff-fab/cosalette/issues/558)) ([f203347](https://github.com/ff-fab/cosalette/commit/f20334739362933e440b557acff769e97703f562))
+* **skills:** make pr-review work in Claude Code and Codex ([60bd5eb](https://github.com/ff-fab/cosalette/commit/60bd5ebe59e8f39e78b8b422fc590cb7a1e2fc18))
+* **skills:** restore pr-review and Claude Code skill discovery ([60bd5eb](https://github.com/ff-fab/cosalette/commit/60bd5ebe59e8f39e78b8b422fc590cb7a1e2fc18))
 
 ## [0.12.1](https://github.com/ff-fab/cosalette/compare/v0.12.0...v0.12.1) (2026-10-13)
 

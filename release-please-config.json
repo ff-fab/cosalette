@@ -1,8 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "last-release-sha": "ddfd4e70aa0179c305296aae5a1c1c17d2fbd9e2",
   "packages": {
     ".": {
       "release-type": "simple",
+      "release-as": "0.12.2",
       "draft": true,
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
