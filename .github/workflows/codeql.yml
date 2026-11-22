@@ -4,8 +4,10 @@
 # matrix job, which CI Gate (the required check) aggregates. This workflow handles
 # only the weekly schedule scan against the default branch and manual runs.
 #
-# Free for public repositories. Python and GitHub Actions (workflow and
-# composite-action YAML) analysis both use build-mode none — no build step.
+# Free for public repositories. Python, GitHub Actions (workflow and
+# composite-action YAML) and Rust (crates/: the PyO3 filters extension and the
+# health probe) analysis all use build-mode none — no build step. Rust runs
+# here only, not in the PR gate in ci.yml (a path-filtered PR leg is cos-dr9o).
 #
 # Skipped on private repositories: code scanning requires GitHub Advanced
 # Security there, so the job would fail with a configuration error.
@@ -33,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [python, actions]
+        language: [python, actions, rust]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
