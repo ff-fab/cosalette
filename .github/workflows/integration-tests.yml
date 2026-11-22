@@ -3,6 +3,9 @@
 # Supports both manual dispatch and workflow calls with suite selection:
 # - mqtt: Run MQTT Docker integration tests only
 # - full: Run complete integration suite (fast + MQTT)
+# - integration: Run the integration suite without MQTT (same selection as
+#   regular CI). Temporary release-gate suite while the MQTT tests fail on
+#   the CI runners (cos-8nmq, cos-zfsz).
 #
 # Runs inside devcontainer matching local dev environment.
 
@@ -15,7 +18,7 @@ on:
         description: 'Test suite to run'
         required: true
         type: string
-        # Valid values: mqtt, full
+        # Valid values: mqtt, full, integration
     secrets:
       DOCKERHUB_USERNAME:
         required: false
@@ -30,6 +33,7 @@ on:
         options:
           - mqtt
           - full
+          - integration
 
 permissions:
   contents: read
@@ -44,8 +48,8 @@ jobs:
         env:
           SUITE_INPUT: ${{ inputs.suite }}
         run: |
-          if [[ "$SUITE_INPUT" != "mqtt" && "$SUITE_INPUT" != "full" ]]; then
-            echo "Error: Invalid suite value '$SUITE_INPUT'. Valid values: mqtt, full"
+          if [[ "$SUITE_INPUT" != "mqtt" && "$SUITE_INPUT" != "full" && "$SUITE_INPUT" != "integration" ]]; then
+            echo "Error: Invalid suite value '$SUITE_INPUT'. Valid values: mqtt, full, integration"
             exit 1
           fi
 
@@ -71,6 +75,15 @@ jobs:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Run integration suite without MQTT
+        if: inputs.suite == 'integration'
+        uses: ./.github/actions/devcontainer-run
+        with:
+          run-cmd: task test:integration
+          token: ${{ secrets.GITHUB_TOKEN }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Upload MQTT test results
         if: always() && inputs.suite == 'mqtt'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -87,4 +100,12 @@ jobs:
           path: |
             results-integration.xml
             results-mqtt.xml
+          if-no-files-found: ignore
+
+      - name: Upload integration suite test results
+        if: always() && inputs.suite == 'integration'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-results-integration
+          path: results-integration.xml
           if-no-files-found: ignore
