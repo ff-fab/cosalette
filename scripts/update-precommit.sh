@@ -1,6 +1,7 @@
 #!/bin/bash
-# Update pre-commit hooks to their latest versions
-# Run this periodically to keep linting tools (ruff, mypy, etc.) current
+# Update the remote pre-commit hooks (editorconfig, pre-commit-hooks, codespell,
+# prettier) to their latest versions. Ruff, ty and detect-secrets are local hooks
+# that run the uv.lock versions; update those with `uv lock --upgrade-package`.
 
 set -e
 cd "$(git rev-parse --show-toplevel)"
