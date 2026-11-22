@@ -65,11 +65,7 @@ class MosquittoBroker(MosquittoContainer):
         self.with_tmpfs_mount("/data")
         self.with_copy_into_container(MOSQUITTO_CONF, _CONTAINER_CONFIG_PATH)
         DockerContainer.start(self)
-        try:
-            wait_for_logs(self, r"mosquitto version \d+.\d+.\d+ running", timeout=30)
-        except TimeoutError as exc:  # TEMP diagnostics (cos-8nmq), remove
-            exc.add_note(_diagnose(self))
-            raise
+        wait_for_logs(self, r"mosquitto version \d+.\d+.\d+ running", timeout=30)
         return self
 
     @override
@@ -77,50 +73,3 @@ class MosquittoBroker(MosquittoContainer):
         super()._configure()
         if self._host_port is not None:
             self.with_bind_ports(self.MQTT_PORT, self._host_port)
-
-
-_DIAG_SCRIPT = r"""
-set -x
-id; cat /proc/self/uid_map /proc/self/gid_map
-grep -E 'Cap(Eff|Bnd)' /proc/self/status
-cat /proc/self/attr/current 2>&1
-ls -lnd / /mosquitto /mosquitto/config /mosquitto/config/* 2>&1
-stat /mosquitto/config/mosquitto.conf 2>&1
-cat /mosquitto/config/mosquitto.conf 2>&1 | head -2
-su -s /bin/sh mosquitto -c 'id; cat /mosquitto/config/mosquitto.conf | head -2' 2>&1
-mount | grep -E ' / | /mosquitto' 2>&1
-timeout 3 mosquitto -v -c /mosquitto/config/mosquitto.conf 2>&1 | head -5
-echo DIAG-END
-"""
-
-
-def _diagnose(broker: MosquittoBroker) -> str:  # TEMP diagnostics (cos-8nmq)
-    import time
-
-    lines: list[str] = []
-    try:
-        client = broker.get_docker_client().client
-        info = client.info()
-        lines.append(
-            f"daemon: driver={info.get('Driver')} "
-            f"security={info.get('SecurityOptions')} "
-            f"kernel={info.get('KernelVersion')}"
-        )
-        wrapped = broker.get_wrapped_container()
-        wrapped.reload()
-        lines.append(f"broker logs: {wrapped.logs().decode(errors='replace')}")
-        lines.append(f"broker mounts: {(wrapped.attrs or {}).get('Mounts')}")
-        diag = DockerContainer(MOSQUITTO_IMAGE)
-        diag.with_kwargs(entrypoint=["sh", "-c", _DIAG_SCRIPT])
-        diag.with_copy_into_container(MOSQUITTO_CONF, _CONTAINER_CONFIG_PATH)
-        diag.start()
-        for _ in range(30):
-            out = diag.get_wrapped_container().logs().decode(errors="replace")
-            if "DIAG-END" in out:
-                break
-            time.sleep(0.5)
-        lines.append(f"diag container output:\n{out}")
-        diag.stop()
-    except Exception as e:  # noqa: BLE001
-        lines.append(f"diagnostics failed: {e!r}")
-    return "\n".join(lines)
