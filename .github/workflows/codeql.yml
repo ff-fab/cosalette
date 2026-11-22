@@ -7,7 +7,7 @@
 # Free for public repositories. Python, GitHub Actions (workflow and
 # composite-action YAML) and Rust (crates/: the PyO3 filters extension and the
 # health probe) analysis all use build-mode none — no build step. Rust runs
-# here only, not in the PR gate in ci.yml.
+# here only, not in the PR gate in ci.yml (a path-filtered PR leg is cos-dr9o).
 #
 # Skipped on private repositories: code scanning requires GitHub Advanced
 # Security there, so the job would fail with a configuration error.
