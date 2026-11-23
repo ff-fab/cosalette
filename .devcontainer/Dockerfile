@@ -313,7 +313,7 @@ RUN set -eux; \
 # renovate: datasource=github-releases depName=rust-lang/rust extractVersion=^(?<version>\d+\.\d+)\.\d+$
 ARG RUST_VERSION=1.99
 # renovate: datasource=crate depName=cargo-audit
-ARG CARGO_AUDIT_VERSION=0.22.2
+ARG CARGO_AUDIT_VERSION=0.23.0
 # renovate: datasource=crate depName=cargo-auditable
 ARG CARGO_AUDITABLE_VERSION=0.7.7
 # cargo-deny is installed from its GitHub release (not crates.io), so Renovate tracks
