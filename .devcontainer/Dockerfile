@@ -373,8 +373,8 @@ RUN set -eux; \
 # renovate: datasource=github-releases depName=anomalyco/opencode
 ARG OPENCODE_VERSION=v2.3.2
 # SHA-256 digests, refreshed on Renovate bumps by .github/workflows/renovate-checksums.yml (ADR-090)
-ARG OPENCODE_SHA256_AMD64=588310a336fa3b9df36b3f0225b26f679d453efaad0cf3d66c3651ef3ec1647a
-ARG OPENCODE_SHA256_ARM64=fae5be262d693b7c5e562856cc473e59e741772936db0c0600ac0d5ed5bd088b
+ARG OPENCODE_SHA256_AMD64=563b5d663637226b6e3bb4bb6803281bc39b0d2cd88db06d674b6420aab009b0
+ARG OPENCODE_SHA256_ARM64=9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb
 RUN set -eux; \
     ARCH=$(dpkg --print-architecture); \
     case "${ARCH}" in \
