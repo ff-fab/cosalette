@@ -321,8 +321,8 @@ ARG CARGO_AUDITABLE_VERSION=0.7.7
 # checksums (ADR-090).
 # renovate: datasource=github-releases depName=EmbarkStudios/cargo-deny
 ARG CARGO_DENY_VERSION=0.22.0
-ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
-ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
+ARG CARGO_DENY_SHA256_AMD64=98c56e6a408bfa5c3c60744b6015aaa6aa08f743fdeb88386d06fca035bb1786
+ARG CARGO_DENY_SHA256_ARM64=4818d44cdcac285776336504fca722493ab634d3377b94a462e98aad3f41484a
 # Install to the vscode user's home so devcontainer feature layers (run as root
 # after this layer) cannot create root-owned files inside CARGO_HOME.
 ENV RUSTUP_HOME=/home/vscode/.rustup \
