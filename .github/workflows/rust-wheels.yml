@@ -97,7 +97,7 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       # QEMU pulls tonistiigi/binfmt and the smoke test pulls python images,
       # both from Docker Hub.
@@ -194,7 +194,7 @@ jobs:
       # The sdist ships the Python fallback as cosalette-health (ADR-087).
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Smoke-test probe from sdist
         shell: bash
